@@ -1,0 +1,26 @@
+{% load i18n %}<!doctype html>
+<html><head><meta charset="utf-8"><title>ACOCOS — {% trans "Statistics" %}</title>
+<style>
+ body{font-family:system-ui,sans-serif;margin:2rem;color:#222}
+ table{border-collapse:collapse;margin:1rem 0}
+ td,th{border:1px solid #ddd;padding:.4rem .8rem;text-align:left}
+ h2{margin-top:2rem}
+</style></head><body>
+<h1>ACOCOS — {% trans "Statistics" %}</h1>
+
+<h2>{% trans "Today" %}</h2>
+<table>
+ <tr><th>{% trans "Revenue" %}</th><td>{{ totals.sales_today.revenue }}</td></tr>
+ <tr><th>{% trans "Confirmed sales" %}</th><td>{{ totals.sales_today.orders }}</td></tr>
+ <tr><th>{% trans "Items sold" %}</th><td>{{ totals.sales_today.items }}</td></tr>
+ <tr><th>{% trans "Units in stock" %}</th><td>{{ totals.stock.units }}</td></tr>
+ <tr><th>{% trans "Outstanding debt" %}</th><td>{{ totals.debt_total }}</td></tr>
+</table>
+
+<h2>{% trans "Requests per day" %}</h2>
+<table>
+ <tr><th>{% trans "Day" %}</th><th>{% trans "Total" %}</th><th>{% trans "Panel" %}</th><th>WhatsApp</th></tr>
+ {% for d in days %}<tr><td>{{ d.day }}</td><td>{{ d.total }}</td><td>{{ d.panel }}</td><td>{{ d.wa }}</td></tr>{% endfor %}
+</table>
+<p><a href="../">{% trans "Back to panel" %}</a></p>
+</body></html>
