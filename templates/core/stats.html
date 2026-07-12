@@ -1,26 +1,158 @@
-{% load i18n %}<!doctype html>
-<html><head><meta charset="utf-8"><title>ACOCOS — {% trans "Statistics" %}</title>
+{% load i18n l10n %}<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACOCOS — {% trans "Statistics" %}</title>
 <style>
- body{font-family:system-ui,sans-serif;margin:2rem;color:#222}
- table{border-collapse:collapse;margin:1rem 0}
- td,th{border:1px solid #ddd;padding:.4rem .8rem;text-align:left}
- h2{margin-top:2rem}
-</style></head><body>
-<h1>ACOCOS — {% trans "Statistics" %}</h1>
+ :root{
+   --bg:#f4f5f7; --card:#ffffff; --ink:#1b1f24; --muted:#6b7280; --line:#e5e7eb;
+   --accent:#2563eb; --accent-soft:#dbeafe; --bar:#3b82f6; --bar2:#8b5cf6;
+   --good:#1a7f37; --warn:#9a6700; --bad:#b42318; --shadow:0 1px 3px rgba(0,0,0,.08);
+ }
+ @media (prefers-color-scheme: dark){
+   :root{
+     --bg:#0f1115; --card:#1a1d23; --ink:#e6e8eb; --muted:#9aa1ab; --line:#2a2e37;
+     --accent:#60a5fa; --accent-soft:#1e293b; --bar:#3b82f6; --bar2:#a78bfa;
+     --shadow:0 1px 3px rgba(0,0,0,.4);
+   }
+ }
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--ink);
+   font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5}
+ .wrap{max-width:1040px;margin:0 auto;padding:24px 20px 60px}
+ .top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:8px}
+ h1{font-size:22px;margin:0}
+ h2{font-size:15px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:32px 0 12px}
+ a{color:var(--accent);text-decoration:none}
+ a:hover{text-decoration:underline}
+ .back{font-size:14px}
+ .downloads{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+ .btn{display:inline-block;background:var(--accent);color:#fff;padding:7px 13px;border-radius:8px;
+   font-size:13px;font-weight:500}
+ .btn:hover{text-decoration:none;opacity:.92}
+ .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+ .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:18px}
+ .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
+ .card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+ .card .value{font-size:26px;font-weight:700;margin-top:6px}
+ .card .unit{font-size:14px;font-weight:500;color:var(--muted)}
+ .card.flag{border-color:var(--warn)}
+ .card.flag .value{color:var(--warn)}
+ .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow)}
+ .bars{display:flex;flex-direction:column;gap:10px}
+ .barrow{display:grid;grid-template-columns:110px 1fr 96px;align-items:center;gap:10px;font-size:13px}
+ .barrow .track{background:var(--accent-soft);border-radius:6px;height:16px;overflow:hidden}
+ .barrow .fill{height:100%;border-radius:6px;background:var(--bar)}
+ .barrow.alt .fill{background:var(--bar2)}
+ .barrow .amt{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+ table{width:100%;border-collapse:collapse;font-size:13px}
+ th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+ th{color:var(--muted);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.03em}
+ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+ .empty{color:var(--muted);font-size:13px;padding:8px 0}
+ .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+ @media(max-width:720px){.grid2{grid-template-columns:1fr}.barrow{grid-template-columns:90px 1fr 80px}}
+</style>
+</head>
+<body>
+<div class="wrap">
 
-<h2>{% trans "Today" %}</h2>
-<table>
- <tr><th>{% trans "Revenue" %}</th><td>{{ totals.sales_today.revenue }}</td></tr>
- <tr><th>{% trans "Confirmed sales" %}</th><td>{{ totals.sales_today.orders }}</td></tr>
- <tr><th>{% trans "Items sold" %}</th><td>{{ totals.sales_today.items }}</td></tr>
- <tr><th>{% trans "Units in stock" %}</th><td>{{ totals.stock.units }}</td></tr>
- <tr><th>{% trans "Outstanding debt" %}</th><td>{{ totals.debt_total }}</td></tr>
-</table>
+ <div class="top">
+  <h1>ACOCOS — {% trans "Statistics" %}</h1>
+  <a class="back" href="/">← {% trans "Back to panel" %}</a>
+ </div>
 
-<h2>{% trans "Requests per day" %}</h2>
-<table>
- <tr><th>{% trans "Day" %}</th><th>{% trans "Total" %}</th><th>WhatsApp</th></tr>
- {% for d in days %}<tr><td>{{ d.day }}</td><td>{{ d.total }}</td><td>{{ d.wa }}</td></tr>{% endfor %}
-</table>
-<p><a href="../">{% trans "Back to panel" %}</a></p>
-</body></html>
+ <div class="downloads">
+  <a class="btn" href="{% url 'report-download' %}?format=xlsx">⬇ {% trans "Excel report" %}</a>
+  <a class="btn ghost" href="{% url 'report-download' %}?format=csv&sheet=sales">{% trans "Sales CSV" %}</a>
+  <a class="btn ghost" href="{% url 'report-download' %}?format=csv&sheet=stock">{% trans "Stock CSV" %}</a>
+  <a class="btn ghost" href="{% url 'report-download' %}?format=csv&sheet=debts">{% trans "Debts CSV" %}</a>
+ </div>
+
+ <div class="cards">
+  <div class="card">
+   <div class="label">{% trans "Revenue today" %}</div>
+   <div class="value">{{ totals.sales_today.revenue|unlocalize }} <span class="unit">{{ currency }}</span></div>
+  </div>
+  <div class="card">
+   <div class="label">{% trans "Confirmed sales" %}</div>
+   <div class="value">{{ totals.sales_today.orders }}</div>
+  </div>
+  <div class="card">
+   <div class="label">{% trans "Items sold" %}</div>
+   <div class="value">{{ totals.sales_today.items }}</div>
+  </div>
+  <div class="card">
+   <div class="label">{% trans "Units in stock" %}</div>
+   <div class="value">{{ totals.stock.units }}</div>
+  </div>
+  <div class="card">
+   <div class="label">{% trans "Outstanding debt" %}</div>
+   <div class="value">{{ totals.debt_total|unlocalize }} <span class="unit">{{ currency }}</span></div>
+  </div>
+  <div class="card {% if totals.pending_orders %}flag{% endif %}">
+   <div class="label">{% trans "Pending approvals" %}</div>
+   <div class="value">{{ totals.pending_orders }}</div>
+  </div>
+ </div>
+
+ <h2>{% trans "Revenue — last 7 days" %}</h2>
+ <div class="panel">
+  <div class="bars">
+   {% for d in totals.revenue_7d %}
+   <div class="barrow">
+    <span>{{ d.day|date:"D d M" }}</span>
+    <span class="track"><span class="fill" style="width:{{ d.pct }}%"></span></span>
+    <span class="amt">{{ d.revenue|unlocalize }} {{ currency }}</span>
+   </div>
+   {% endfor %}
+  </div>
+ </div>
+
+ <div class="grid2">
+  <div>
+   <h2>{% trans "Sales by channel — 30 days" %}</h2>
+   <div class="panel">
+    {% if totals.channels %}
+    <div class="bars">
+     {% for c in totals.channels %}
+     <div class="barrow alt">
+      <span>{{ c.label }}</span>
+      <span class="track"><span class="fill" style="width:{{ c.pct }}%"></span></span>
+      <span class="amt">{{ c.revenue|unlocalize }} {{ currency }}</span>
+     </div>
+     {% endfor %}
+    </div>
+    {% else %}<div class="empty">{% trans "No sales in this period." %}</div>{% endif %}
+   </div>
+  </div>
+  <div>
+   <h2>{% trans "Top debtors" %}</h2>
+   <div class="panel">
+    {% if totals.debtors %}
+    <table>
+     <tr><th>{% trans "Client" %}</th><th class="num">{% trans "Debt" %}</th></tr>
+     {% for d in totals.debtors %}
+     <tr><td>{{ d.name }}<br><span style="color:var(--muted)">{{ d.phone }}</span></td>
+         <td class="num">{{ d.debt|unlocalize }} {{ currency }}</td></tr>
+     {% endfor %}
+    </table>
+    {% else %}<div class="empty">{% trans "No outstanding debts." %}</div>{% endif %}
+   </div>
+  </div>
+ </div>
+
+ <h2>{% trans "Requests per day" %}</h2>
+ <div class="panel">
+  <table>
+   <tr><th>{% trans "Day" %}</th><th class="num">{% trans "Total" %}</th><th class="num">WhatsApp</th></tr>
+   {% for d in days %}
+   <tr><td>{{ d.day }}</td><td class="num">{{ d.total }}</td><td class="num">{{ d.wa }}</td></tr>
+   {% endfor %}
+  </table>
+ </div>
+
+</div>
+</body>
+</html>

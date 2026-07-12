@@ -6,11 +6,13 @@ Rules enforced here:
 - the order total is computed once at confirmation and stored.
 """
 
+from datetime import timedelta
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
@@ -23,10 +25,10 @@ from .models import SaleOrder
 @transaction.atomic
 def confirm_sale(order: SaleOrder, user=None) -> SaleOrder:
     if order.status != SaleOrder.DRAFT:
-        raise ValidationError(_("Only draft sales can be confirmed."))
+        raise ValidationError(_("Only pending sales can be approved."))
     items = list(order.items.select_related("variant__product"))
     if not items:
-        raise ValidationError(_("Cannot confirm a sale with no items."))
+        raise ValidationError(_("Cannot approve a sale with no items."))
 
     variant_ids = [i.variant_id for i in items]
     # Evaluate the locking query NOW — used lazily as a subquery it would never
@@ -68,9 +70,9 @@ def confirm_sale(order: SaleOrder, user=None) -> SaleOrder:
 
 @transaction.atomic
 def cancel_sale(order: SaleOrder, user=None) -> SaleOrder:
-    """Cancel a confirmed sale: return the items to stock with RETURN_IN movements."""
+    """Cancel an approved sale: return the items to stock with RETURN_IN movements."""
     if order.status != SaleOrder.CONFIRMED:
-        raise ValidationError(_("Only confirmed sales can be cancelled."))
+        raise ValidationError(_("Only approved sales can be cancelled."))
     for item in order.items.select_related("variant"):
         add_movement(
             variant=item.variant,
@@ -94,11 +96,55 @@ def today_summary() -> dict:
 
 
 def todays_confirmed_orders():
-    """Today's confirmed sales with items preloaded — used by the daily report."""
+    """Today's approved sales with items + payments preloaded — used by the daily report."""
     today = timezone.localdate()
     return (
         SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date=today)
         .select_related("client")
-        .prefetch_related("items__variant")
+        .prefetch_related("items__variant", "payments")
         .order_by("confirmed_at")
     )
+
+
+def revenue_last_n_days(n: int = 7) -> list[dict]:
+    """[{day, revenue}] for the last n days (oldest first) — one grouped query."""
+    today = timezone.localdate()
+    start = today - timedelta(days=n - 1)
+    rows = (
+        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__gte=start)
+        .annotate(day=TruncDate("confirmed_at"))
+        .values("day")
+        .annotate(revenue=Sum("total"))
+    )
+    by_day = {r["day"]: r["revenue"] or Decimal("0") for r in rows}
+    return [
+        {
+            "day": start + timedelta(days=i),
+            "revenue": by_day.get(start + timedelta(days=i), Decimal("0")),
+        }
+        for i in range(n)
+    ]
+
+
+def sales_by_channel(days: int = 30) -> list[dict]:
+    """[{channel, label, revenue}] over the last `days` days, highest first."""
+    since = timezone.localdate() - timedelta(days=days - 1)
+    rows = (
+        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__gte=since)
+        .values("channel")
+        .annotate(revenue=Sum("total"))
+        .order_by("-revenue")
+    )
+    labels = dict(SaleOrder.CHANNEL_CHOICES)
+    return [
+        {
+            "channel": r["channel"],
+            "label": str(labels.get(r["channel"], r["channel"])),
+            "revenue": r["revenue"] or Decimal("0"),
+        }
+        for r in rows
+    ]
+
+
+def pending_orders_count() -> int:
+    return SaleOrder.objects.filter(status=SaleOrder.DRAFT).count()

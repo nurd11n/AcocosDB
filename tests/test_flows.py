@@ -172,3 +172,53 @@ def test_send_daily_report_command_skips_network_when_unconfigured(capsys):
     call_command("send_daily_report")
     out = capsys.readouterr().out.lower()
     assert "skipped" in out
+
+
+def test_payment_status_reflects_payments(variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    c = Client.objects.create(name="Nur", phone="+996700000004")
+    order = SaleOrder.objects.create(client=c)
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    order.refresh_from_db()
+
+    assert order.total == Decimal("6400")
+    assert order.payment_status == SaleOrder.UNPAID
+    assert order.balance == Decimal("6400")
+
+    Payment.objects.create(client=c, order=order, amount=Decimal("2400"))
+    assert order.payment_status == SaleOrder.PARTIAL
+    assert order.balance == Decimal("4000")
+
+    Payment.objects.create(client=c, order=order, amount=Decimal("4000"))
+    assert order.payment_status == SaleOrder.PAID
+    assert order.balance == Decimal("0")
+
+
+def test_pending_order_has_no_balance(variant):
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    # Not approved yet — a pending order owes nothing and reads as unpaid.
+    assert order.balance == Decimal("0")
+    assert order.payment_status == SaleOrder.UNPAID
+
+
+def test_stats_and_download_require_superuser(client, django_user_model):
+    # Anonymous -> redirected to login (not reachable by guessing the URL).
+    assert client.get("/stats/").status_code == 302
+    assert client.get("/stats/download/?format=csv&sheet=sales").status_code == 302
+
+    # Staff but not superuser -> forbidden.
+    staff = django_user_model.objects.create_user("staff1", password="x" * 12, is_staff=True)
+    client.force_login(staff)
+    assert client.get("/stats/").status_code == 403
+    assert client.get("/stats/download/?format=xlsx").status_code == 403
+
+    # Superuser -> OK, and the CSV download carries the UTF-8 BOM.
+    root = django_user_model.objects.create_superuser("root1", "r@e.com", "x" * 12)
+    client.force_login(root)
+    assert client.get("/stats/").status_code == 200
+    resp = client.get("/stats/download/?format=csv&sheet=sales")
+    assert resp.status_code == 200
+    assert resp["Content-Type"].startswith("text/csv")
+    assert resp.content[:3] == b"\xef\xbb\xbf"
