@@ -1,14 +1,11 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: acocos-crm\n"
-"Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 09:53+0600\n"
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
-"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
 msgid "debt"
 msgstr "долг"
@@ -208,12 +205,33 @@ msgstr "Приходные движения должны иметь положи
 msgid "Outgoing movements must have a negative quantity."
 msgstr "Расходные движения должны иметь отрицательное количество."
 
-msgid "Confirm selected sales (writes off stock)"
-msgstr "Подтвердить выбранные продажи (списывает остаток)"
+msgid "Paid"
+msgstr "Оплачено"
+
+msgid "Partial"
+msgstr "Частично"
+
+msgid "Unpaid"
+msgstr "Не оплачено"
+
+msgid "payments (for loans / partial payment)"
+msgstr "платежи (рассрочка / частичная оплата)"
+
+msgid "paid"
+msgstr "оплачено"
+
+msgid "balance"
+msgstr "к оплате"
+
+msgid "payment"
+msgstr "оплата"
+
+msgid "Approve selected sales (writes off stock)"
+msgstr "Одобрить выбранные продажи (списывает остаток)"
 
 #, python-format
-msgid "Sale #%(id)s confirmed."
-msgstr "Продажа №%(id)s подтверждена."
+msgid "Sale #%(id)s approved."
+msgstr "Продажа №%(id)s одобрена."
 
 msgid "Cancel selected sales (returns stock)"
 msgstr "Отменить выбранные продажи (возвращает остаток)"
@@ -225,11 +243,11 @@ msgstr "Продажа №%(id)s отменена."
 msgid "Sales"
 msgstr "Продажи"
 
-msgid "Draft"
-msgstr "Черновик"
+msgid "Pending"
+msgstr "Ожидает"
 
-msgid "Confirmed"
-msgstr "Подтверждена"
+msgid "Approved"
+msgstr "Одобрена"
 
 msgid "Cancelled"
 msgstr "Отменена"
@@ -243,8 +261,8 @@ msgstr "статус"
 msgid "total"
 msgstr "итого"
 
-msgid "Set automatically when the sale is confirmed."
-msgstr "Заполняется автоматически при подтверждении продажи."
+msgid "Set automatically when the sale is approved."
+msgstr "Заполняется автоматически при одобрении продажи."
 
 msgid "confirmed at"
 msgstr "подтверждена"
@@ -273,25 +291,21 @@ msgstr "сумма"
 msgid "method"
 msgstr "способ"
 
-msgid "payment"
-msgstr "оплата"
-
 msgid "payments"
 msgstr "оплаты"
 
-msgid "Only draft sales can be confirmed."
-msgstr "Подтвердить можно только черновик продажи."
+msgid "Only pending sales can be approved."
+msgstr "Одобрить можно только ожидающую продажу."
 
-msgid "Cannot confirm a sale with no items."
-msgstr "Нельзя подтвердить продажу без позиций."
+msgid "Cannot approve a sale with no items."
+msgstr "Нельзя одобрить продажу без позиций."
 
 #, python-format
 msgid "Insufficient stock for %(sku)s: available %(have)s, requested %(need)s."
-msgstr ""
-"Недостаточно остатка по %(sku)s: доступно %(have)s, запрошено %(need)s."
+msgstr "Недостаточно остатка по %(sku)s: доступно %(have)s, запрошено %(need)s."
 
-msgid "Only confirmed sales can be cancelled."
-msgstr "Отменить можно только подтверждённую продажу."
+msgid "Only approved sales can be cancelled."
+msgstr "Отменить можно только одобрённую продажу."
 
 msgid "English"
 msgstr "Английский"
@@ -302,11 +316,23 @@ msgstr "Русский"
 msgid "Statistics"
 msgstr "Статистика"
 
-msgid "Today"
-msgstr "Сегодня"
+msgid "Back to panel"
+msgstr "Назад в панель"
 
-msgid "Revenue"
-msgstr "Выручка"
+msgid "Excel report"
+msgstr "Отчёт Excel"
+
+msgid "Sales CSV"
+msgstr "Продажи CSV"
+
+msgid "Stock CSV"
+msgstr "Остатки CSV"
+
+msgid "Debts CSV"
+msgstr "Долги CSV"
+
+msgid "Revenue today"
+msgstr "Выручка сегодня"
 
 msgid "Confirmed sales"
 msgstr "Подтверждённые продажи"
@@ -320,6 +346,30 @@ msgstr "Единиц на складе"
 msgid "Outstanding debt"
 msgstr "Общий долг"
 
+msgid "Pending approvals"
+msgstr "Ожидают одобрения"
+
+msgid "Revenue — last 7 days"
+msgstr "Выручка — последние 7 дней"
+
+msgid "Sales by channel — 30 days"
+msgstr "Продажи по каналам — 30 дней"
+
+msgid "No sales in this period."
+msgstr "Нет продаж за этот период."
+
+msgid "Top debtors"
+msgstr "Крупнейшие должники"
+
+msgid "Client"
+msgstr "Клиент"
+
+msgid "Debt"
+msgstr "Долг"
+
+msgid "No outstanding debts."
+msgstr "Нет задолженностей."
+
 msgid "Requests per day"
 msgstr "Запросов в день"
 
@@ -328,6 +378,3 @@ msgstr "День"
 
 msgid "Total"
 msgstr "Всего"
-
-msgid "Back to panel"
-msgstr "Назад в панель"

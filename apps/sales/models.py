@@ -2,19 +2,28 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
 
 class SaleOrder(models.Model):
+    # DB values kept stable; only the labels shown to users changed to the
+    # approval wording (Pending -> Approved) the shop actually uses.
     DRAFT = "draft"
     CONFIRMED = "confirmed"
     CANCELLED = "cancelled"
     STATUS_CHOICES = [
-        (DRAFT, _("Draft")),
-        (CONFIRMED, _("Confirmed")),
+        (DRAFT, _("Pending")),
+        (CONFIRMED, _("Approved")),
         (CANCELLED, _("Cancelled")),
     ]
+
+    # Payment status is DERIVED from payments recorded against the order, never
+    # stored — same principle as stock and client debt.
+    UNPAID = "unpaid"
+    PARTIAL = "partial"
+    PAID = "paid"
 
     INSTAGRAM = "instagram"
     WHATSAPP = "whatsapp"
@@ -43,7 +52,7 @@ class SaleOrder(models.Model):
         max_digits=12,
         decimal_places=2,
         default=Decimal("0"),
-        help_text=_("Set automatically when the sale is confirmed."),
+        help_text=_("Set automatically when the sale is approved."),
     )
     note = models.CharField(_("note"), max_length=255, blank=True)
     created_by = models.ForeignKey(
@@ -64,6 +73,31 @@ class SaleOrder(models.Model):
 
     def __str__(self):
         return f"#{self.pk} — {self.get_status_display()}"
+
+    @staticmethod
+    def payment_status_for(total: Decimal, paid: Decimal) -> str:
+        """Shared classifier so the admin (annotated) and the property agree."""
+        if total <= 0 or paid <= 0:
+            return SaleOrder.UNPAID
+        if paid >= total:
+            return SaleOrder.PAID
+        return SaleOrder.PARTIAL
+
+    @property
+    def paid_amount(self) -> Decimal:
+        return self.payments.aggregate(s=Sum("amount"))["s"] or Decimal("0")
+
+    @property
+    def balance(self) -> Decimal:
+        """Outstanding amount on this order (0 once fully paid). Only approved
+        orders carry a real balance; pending/cancelled ones owe nothing yet."""
+        if self.status != self.CONFIRMED:
+            return Decimal("0")
+        return max(self.total - self.paid_amount, Decimal("0"))
+
+    @property
+    def payment_status(self) -> str:
+        return self.payment_status_for(self.total, self.paid_amount)
 
 
 class SaleItem(models.Model):

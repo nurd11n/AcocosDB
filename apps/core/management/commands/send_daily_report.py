@@ -10,6 +10,7 @@ Scheduled: the `scheduler` container runs this once a day at REPORT_HOUR.
 import csv
 import io
 import logging
+from decimal import Decimal
 
 import requests
 from django.conf import settings
@@ -21,17 +22,36 @@ from openpyxl import Workbook
 from apps.clients.services import debtors_report_rows
 from apps.core.models import BotUser
 from apps.inventory.services import variants_with_stock
+from apps.sales.models import SaleOrder
 from apps.sales.services import todays_confirmed_orders
 
 logger = logging.getLogger(__name__)
 
 
 def _sales_rows() -> list[list]:
-    rows = [["Time", "Client", "Channel", "Items", "Quantities", "Unit Prices", "Order Total"]]
+    rows = [
+        [
+            "Time",
+            "Client",
+            "Channel",
+            "Items",
+            "Quantities",
+            "Unit Prices",
+            "Order Total",
+            "Paid",
+            "Balance",
+            "Payment",
+        ]
+    ]
     orders = list(todays_confirmed_orders())
-    revenue = 0
+    revenue = Decimal("0")
+    collected = Decimal("0")
     for order in orders:
         items = list(order.items.all())
+        # payments prefetched by todays_confirmed_orders — no per-order query.
+        paid = sum((p.amount for p in order.payments.all()), Decimal("0"))
+        balance = max(order.total - paid, Decimal("0"))
+        status = SaleOrder.payment_status_for(order.total, paid)
         rows.append(
             [
                 timezone.localtime(order.confirmed_at).strftime("%H:%M"),
@@ -41,10 +61,27 @@ def _sales_rows() -> list[list]:
                 "; ".join(str(i.quantity) for i in items),
                 "; ".join(str(i.unit_price) for i in items),
                 str(order.total),
+                str(paid),
+                str(balance),
+                status,
             ]
         )
         revenue += order.total
-    rows.append(["", "", "", "", "", f"Orders: {len(orders)}", f"Revenue: {revenue}"])
+        collected += paid
+    rows.append(
+        [
+            "",
+            "",
+            "",
+            "",
+            "",
+            f"Orders: {len(orders)}",
+            f"Revenue: {revenue}",
+            f"Collected: {collected}",
+            f"Owed: {revenue - collected}",
+            "",
+        ]
+    )
     return rows
 
 
