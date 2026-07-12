@@ -1,25 +1,23 @@
-"""Role helpers. Three roles, created by `manage.py setup_roles`:
+"""Role helpers. Two groups, created by `manage.py setup_roles`:
 
-- Owner   — everything, including cost prices and profit.
-- Manager — add/change/view inventory, clients, sales. No deletes, no users, no costs.
-- Viewer  — read-only everywhere.
+- Editor — add/change/view on business models only. No deletes, no cost prices.
+- Viewer — view-only on business models. No cost prices.
+
+Superuser is Django's built-in flag, not a group: it gets everything, including
+Users, Groups, TOTP devices, bot users, WhatsApp/bot logs, request stats, and
+cost prices.
 """
 
-OWNER = "Owner"
-MANAGER = "Manager"
+EDITOR = "Editor"
 VIEWER = "Viewer"
 
-PROJECT_APPS = ["core", "inventory", "clients", "sales", "wa"]
+# Only these apps' models are ever granted to Editor/Viewer. Everything else
+# (core, auth, otp_totp, axes, sessions) stays superuser-only — which also keeps
+# those apps out of the Editor/Viewer sidebar entirely, since Django's admin only
+# lists apps a user has at least one permission in.
+BUSINESS_APPS = ["inventory", "clients", "sales"]
 
 
 def can_see_costs(user) -> bool:
-    """Cost price and profit are Owner-only."""
-    if not user.is_authenticated:
-        return False
-    if user.is_superuser:
-        return True
-    cached = getattr(user, "_can_see_costs", None)
-    if cached is None:
-        cached = user.groups.filter(name=OWNER).exists()
-        user._can_see_costs = cached
-    return cached
+    """Cost price and profit are superuser-only."""
+    return bool(user.is_authenticated and user.is_superuser)

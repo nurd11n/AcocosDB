@@ -33,8 +33,15 @@ class ProductVariantImportResource(resources.ModelResource):
     class Meta:
         model = ProductVariant
         import_id_fields = ("sku",)
-        fields = ("sku", "product", "size", "color", "cost_price", "sale_price",
-                  "low_stock_threshold")
+        fields = (
+            "sku",
+            "product",
+            "size",
+            "color",
+            "cost_price",
+            "sale_price",
+            "low_stock_threshold",
+        )
 
     def before_import_row(self, row, **kwargs):
         name = (row.get("product") or "").strip()

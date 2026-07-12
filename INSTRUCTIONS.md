@@ -106,10 +106,10 @@ business-initiated template messages are paid per message.
 
 ```
 git clone <repo> && cd acocos
-cp .env.example .env        # fill in SECRET_KEY, DB password, ADMIN_URL, BOT_TOKEN
+cp .env.example .env        # fill in SECRET_KEY, DB password, BOT_TOKEN
 make dev                    # web on http://localhost:8000
 make migrate && make superuser
-# open http://localhost:8000/panel/ and enroll your TOTP device
+# open http://localhost:8000/ and enroll your TOTP device
 ```
 
 ## 4. Production checklist (Phase 6)

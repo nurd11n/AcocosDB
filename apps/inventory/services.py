@@ -61,3 +61,13 @@ def low_stock_variants():
         for v in ProductVariant.objects.filter(is_active=True).select_related("product")
         if v.stock <= v.low_stock_threshold
     ]
+
+
+def variants_with_stock():
+    """Every active variant with stock annotated in SQL — used by the daily report."""
+    return (
+        ProductVariant.objects.filter(is_active=True)
+        .select_related("product")
+        .annotate(_stock=Sum("movements__quantity"))
+        .order_by("product__name", "size", "color")
+    )

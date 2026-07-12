@@ -1,9 +1,8 @@
 from django.contrib import admin
-from django.db.models import Sum
+from django.db.models import Count, Sum
 from django.utils.translation import gettext_lazy as _
 from import_export.admin import ExportActionModelAdmin, ImportMixin
 from simple_history.admin import SimpleHistoryAdmin
-from unfold.admin import ModelAdmin, TabularInline
 
 from apps.core.permissions import can_see_costs
 
@@ -13,18 +12,33 @@ from .resources import (
     ProductVariantResource,
     StaffProductVariantResource,
 )
-from .services import add_movement
 
 
 @admin.register(Category)
-class CategoryAdmin(ModelAdmin):
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ["name", "product_count"]
     search_fields = ["name"]
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(_product_count=Count("products"))
 
-class VariantInline(TabularInline):
+    @admin.display(description=_("products"), ordering="_product_count")
+    def product_count(self, obj):
+        return obj._product_count
+
+
+class VariantInline(admin.TabularInline):
     model = ProductVariant
     extra = 0
-    fields = ["sku", "size", "color", "cost_price", "sale_price", "low_stock_threshold", "is_active"]
+    fields = [
+        "sku",
+        "size",
+        "color",
+        "cost_price",
+        "sale_price",
+        "low_stock_threshold",
+        "is_active",
+    ]
 
     def get_fields(self, request, obj=None):
         fields = super().get_fields(request, obj)
@@ -34,7 +48,7 @@ class VariantInline(TabularInline):
 
 
 @admin.register(Product)
-class ProductAdmin(SimpleHistoryAdmin, ModelAdmin):
+class ProductAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     list_display = ["name", "category", "is_active", "created_at"]
     list_filter = ["category", "is_active"]
     search_fields = ["name"]
@@ -43,7 +57,9 @@ class ProductAdmin(SimpleHistoryAdmin, ModelAdmin):
 
 
 @admin.register(ProductVariant)
-class ProductVariantAdmin(SimpleHistoryAdmin, ImportMixin, ExportActionModelAdmin, ModelAdmin):
+class ProductVariantAdmin(
+    SimpleHistoryAdmin, ImportMixin, ExportActionModelAdmin, admin.ModelAdmin
+):
     list_display = ["sku", "product", "size", "color", "current_stock", "sale_price", "is_active"]
     list_filter = ["is_active", "product__category"]
     search_fields = ["sku", "product__name", "color"]
@@ -57,7 +73,7 @@ class ProductVariantAdmin(SimpleHistoryAdmin, ImportMixin, ExportActionModelAdmi
         return [ProductVariantImportResource]
 
     def has_import_permission(self, request):
-        # Imports carry cost prices — Owner only.
+        # Imports carry cost prices — superuser only.
         return can_see_costs(request.user)
 
     def get_queryset(self, request):
@@ -83,7 +99,7 @@ class ProductVariantAdmin(SimpleHistoryAdmin, ImportMixin, ExportActionModelAdmi
 
 
 @admin.register(StockMovement)
-class StockMovementAdmin(ModelAdmin):
+class StockMovementAdmin(admin.ModelAdmin):
     """The ledger is append-only: rows can be added, never edited or deleted."""
 
     list_display = ["created_at", "variant", "movement_type", "quantity", "reason", "created_by"]

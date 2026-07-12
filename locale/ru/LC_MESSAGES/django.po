@@ -1,23 +1,35 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: acocos-crm\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-12 09:53+0600\n"
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
+"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
-msgid "English"
-msgstr "Английский"
+msgid "debt"
+msgstr "долг"
 
-msgid "Russian"
-msgstr "Русский"
+msgid "Clients"
+msgstr "Клиенты"
+
+msgid "Shop"
+msgstr "Магазин"
+
+msgid "Wholesale"
+msgstr "Опт"
 
 msgid "name"
 msgstr "название"
 
 msgid "phone"
 msgstr "телефон"
+
+msgid "source"
+msgstr "источник"
 
 msgid "note"
 msgstr "заметка"
@@ -28,8 +40,92 @@ msgstr "активен"
 msgid "created at"
 msgstr "создано"
 
+msgid "client"
+msgstr "клиент"
+
+msgid "clients"
+msgstr "клиенты"
+
+msgid "Call"
+msgstr "Звонок"
+
+msgid "Message"
+msgstr "Сообщение"
+
+msgid "Visit"
+msgstr "Визит"
+
+msgid "type"
+msgstr "тип"
+
 msgid "created by"
 msgstr "создал(а)"
+
+msgid "interaction"
+msgstr "взаимодействие"
+
+msgid "interactions"
+msgstr "взаимодействия"
+
+msgid "Core"
+msgstr "Система"
+
+msgid "Telegram ID"
+msgstr "Telegram ID"
+
+msgid "can see cost prices"
+msgstr "видит себестоимость"
+
+msgid "receives daily reports"
+msgstr "получает ежедневные отчёты"
+
+msgid "bot user"
+msgstr "пользователь бота"
+
+msgid "bot users"
+msgstr "пользователи бота"
+
+msgid "Telegram"
+msgstr "Telegram"
+
+msgid "WhatsApp"
+msgstr "WhatsApp"
+
+msgid "Incoming"
+msgstr "Входящее"
+
+msgid "Outgoing"
+msgstr "Исходящее"
+
+msgid "channel"
+msgstr "канал"
+
+msgid "external ID"
+msgstr "внешний ID"
+
+msgid "Telegram user ID or WhatsApp phone number"
+msgstr "Telegram ID пользователя или номер WhatsApp"
+
+msgid "direction"
+msgstr "направление"
+
+msgid "text"
+msgstr "текст"
+
+msgid "bot message"
+msgstr "сообщение бота"
+
+msgid "bot messages"
+msgstr "сообщения бота"
+
+msgid "products"
+msgstr "товары"
+
+msgid "stock"
+msgstr "остаток"
+
+msgid "Inventory"
+msgstr "Склад"
 
 msgid "category"
 msgstr "категория"
@@ -37,23 +133,14 @@ msgstr "категория"
 msgid "categories"
 msgstr "категории"
 
-msgid "product"
-msgstr "товар"
-
-msgid "products"
-msgstr "товары"
-
 msgid "description"
 msgstr "описание"
 
 msgid "photo"
 msgstr "фото"
 
-msgid "product variant"
-msgstr "вариант товара"
-
-msgid "product variants"
-msgstr "варианты товара"
+msgid "product"
+msgstr "товар"
 
 msgid "size"
 msgstr "размер"
@@ -70,23 +157,11 @@ msgstr "цена продажи"
 msgid "low stock threshold"
 msgstr "порог низкого остатка"
 
-msgid "stock"
-msgstr "остаток"
+msgid "product variant"
+msgstr "вариант товара"
 
-msgid "stock movement"
-msgstr "движение товара"
-
-msgid "stock movements"
-msgstr "движения товара"
-
-msgid "type"
-msgstr "тип"
-
-msgid "quantity"
-msgstr "количество"
-
-msgid "reason"
-msgstr "причина"
+msgid "product variants"
+msgstr "варианты товара"
 
 msgid "Production intake"
 msgstr "Приход с производства"
@@ -106,8 +181,26 @@ msgstr "Списание"
 msgid "Adjustment"
 msgstr "Корректировка"
 
+msgid "quantity"
+msgstr "количество"
+
+msgid "reason"
+msgstr "причина"
+
+msgid "sale order"
+msgstr "продажа"
+
+msgid "stock movement"
+msgstr "движение товара"
+
+msgid "stock movements"
+msgstr "движения товара"
+
 msgid "Quantity cannot be zero."
 msgstr "Количество не может быть нулевым."
+
+msgid "An adjustment requires a reason."
+msgstr "Для корректировки требуется указать причину."
 
 msgid "Intake movements must have a positive quantity."
 msgstr "Приходные движения должны иметь положительное количество."
@@ -115,56 +208,22 @@ msgstr "Приходные движения должны иметь положи
 msgid "Outgoing movements must have a negative quantity."
 msgstr "Расходные движения должны иметь отрицательное количество."
 
-msgid "An adjustment requires a reason."
-msgstr "Для корректировки требуется указать причину."
+msgid "Confirm selected sales (writes off stock)"
+msgstr "Подтвердить выбранные продажи (списывает остаток)"
 
-msgid "client"
-msgstr "клиент"
+#, python-format
+msgid "Sale #%(id)s confirmed."
+msgstr "Продажа №%(id)s подтверждена."
 
-msgid "clients"
-msgstr "клиенты"
+msgid "Cancel selected sales (returns stock)"
+msgstr "Отменить выбранные продажи (возвращает остаток)"
 
-msgid "interaction"
-msgstr "взаимодействие"
+#, python-format
+msgid "Sale #%(id)s cancelled."
+msgstr "Продажа №%(id)s отменена."
 
-msgid "interactions"
-msgstr "взаимодействия"
-
-msgid "Call"
-msgstr "Звонок"
-
-msgid "Message"
-msgstr "Сообщение"
-
-msgid "Visit"
-msgstr "Визит"
-
-msgid "debt"
-msgstr "долг"
-
-msgid "sale order"
-msgstr "продажа"
-
-msgid "sale orders"
-msgstr "продажи"
-
-msgid "sale item"
-msgstr "позиция продажи"
-
-msgid "sale items"
-msgstr "позиции продажи"
-
-msgid "unit price"
-msgstr "цена за единицу"
-
-msgid "total"
-msgstr "итого"
-
-msgid "status"
-msgstr "статус"
-
-msgid "channel"
-msgstr "канал"
+msgid "Sales"
+msgstr "Продажи"
 
 msgid "Draft"
 msgstr "Черновик"
@@ -175,32 +234,32 @@ msgstr "Подтверждена"
 msgid "Cancelled"
 msgstr "Отменена"
 
-msgid "Shop"
-msgstr "Магазин"
-
-msgid "Wholesale"
-msgstr "Опт"
-
-msgid "confirmed at"
-msgstr "подтверждена"
-
 msgid "Leave empty for a walk-in sale."
 msgstr "Оставьте пустым для продажи без клиента."
+
+msgid "status"
+msgstr "статус"
+
+msgid "total"
+msgstr "итого"
 
 msgid "Set automatically when the sale is confirmed."
 msgstr "Заполняется автоматически при подтверждении продажи."
 
-msgid "payment"
-msgstr "оплата"
+msgid "confirmed at"
+msgstr "подтверждена"
 
-msgid "payments"
-msgstr "оплаты"
+msgid "sale orders"
+msgstr "продажи"
 
-msgid "amount"
-msgstr "сумма"
+msgid "unit price"
+msgstr "цена за единицу"
 
-msgid "method"
-msgstr "способ"
+msgid "sale item"
+msgstr "позиция продажи"
+
+msgid "sale items"
+msgstr "позиции продажи"
 
 msgid "Cash"
 msgstr "Наличные"
@@ -208,62 +267,37 @@ msgstr "Наличные"
 msgid "Transfer"
 msgstr "Перевод"
 
+msgid "amount"
+msgstr "сумма"
+
+msgid "method"
+msgstr "способ"
+
+msgid "payment"
+msgstr "оплата"
+
+msgid "payments"
+msgstr "оплаты"
+
 msgid "Only draft sales can be confirmed."
 msgstr "Подтвердить можно только черновик продажи."
 
 msgid "Cannot confirm a sale with no items."
 msgstr "Нельзя подтвердить продажу без позиций."
 
+#, python-format
+msgid "Insufficient stock for %(sku)s: available %(have)s, requested %(need)s."
+msgstr ""
+"Недостаточно остатка по %(sku)s: доступно %(have)s, запрошено %(need)s."
+
 msgid "Only confirmed sales can be cancelled."
 msgstr "Отменить можно только подтверждённую продажу."
 
-msgid "Insufficient stock for %(sku)s: available %(have)s, requested %(need)s."
-msgstr "Недостаточно остатка по %(sku)s: доступно %(have)s, запрошено %(need)s."
+msgid "English"
+msgstr "Английский"
 
-msgid "Confirm selected sales (writes off stock)"
-msgstr "Подтвердить выбранные продажи (списывает остаток)"
-
-msgid "Cancel selected sales (returns stock)"
-msgstr "Отменить выбранные продажи (возвращает остаток)"
-
-msgid "Sale #%(id)s confirmed."
-msgstr "Продажа №%(id)s подтверждена."
-
-msgid "Sale #%(id)s cancelled."
-msgstr "Продажа №%(id)s отменена."
-
-msgid "bot user"
-msgstr "пользователь бота"
-
-msgid "bot users"
-msgstr "пользователи бота"
-
-msgid "Telegram ID"
-msgstr "Telegram ID"
-
-msgid "can see cost prices"
-msgstr "видит себестоимость"
-
-msgid "WhatsApp ID / phone"
-msgstr "WhatsApp ID / телефон"
-
-msgid "direction"
-msgstr "направление"
-
-msgid "text"
-msgstr "текст"
-
-msgid "Incoming"
-msgstr "Входящее"
-
-msgid "Outgoing"
-msgstr "Исходящее"
-
-msgid "WhatsApp message"
-msgstr "сообщение WhatsApp"
-
-msgid "WhatsApp messages"
-msgstr "сообщения WhatsApp"
+msgid "Russian"
+msgstr "Русский"
 
 msgid "Statistics"
 msgstr "Статистика"
@@ -294,9 +328,6 @@ msgstr "День"
 
 msgid "Total"
 msgstr "Всего"
-
-msgid "Panel"
-msgstr "Панель"
 
 msgid "Back to panel"
 msgstr "Назад в панель"

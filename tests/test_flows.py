@@ -1,10 +1,16 @@
 from decimal import Decimal
 
 import pytest
+from django.contrib.admin.sites import site
+from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
+from django.test import RequestFactory
 
-from apps.clients.models import Client
-from apps.clients.services import client_debt
+from apps.clients.models import Client, Interaction
+from apps.clients.services import client_debt, log_whatsapp_interaction
+from apps.core.management.commands.send_daily_report import _debts_rows, _sales_rows, _stock_rows
+from apps.core.permissions import EDITOR, VIEWER
 from apps.inventory.models import Category, Product, ProductVariant, StockMovement
 from apps.inventory.services import add_movement, adjust_to_count
 from apps.sales.models import Payment, SaleItem, SaleOrder
@@ -18,8 +24,12 @@ def variant():
     cat = Category.objects.create(name="Dresses")
     product = Product.objects.create(category=cat, name="Evening Dress")
     return ProductVariant.objects.create(
-        product=product, sku="EVD-M-RED", size="M", color="red",
-        cost_price=Decimal("1500.00"), sale_price=Decimal("3200.00"),
+        product=product,
+        sku="EVD-M-RED",
+        size="M",
+        color="red",
+        cost_price=Decimal("1500.00"),
+        sale_price=Decimal("3200.00"),
     )
 
 
@@ -78,3 +88,87 @@ def test_adjustment_requires_reason_and_writes_diff(variant, django_user_model):
         adjust_to_count(variant, 7, user, reason="")
     adjust_to_count(variant, 7, user, reason="inventory count")
     assert variant.stock == 7
+
+
+def test_editor_cannot_see_cost_price_field(variant, django_user_model):
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("editor1", password="x" * 12, is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    request = RequestFactory().get("/")
+    request.user = user
+    model_admin = site._registry[ProductVariant]
+    assert "cost_price" not in model_admin.get_fields(request, variant)
+
+
+def test_viewer_has_no_change_permission(django_user_model):
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("viewer1", password="x" * 12, is_staff=True)
+    user.groups.add(Group.objects.get(name=VIEWER))
+    request = RequestFactory().get("/")
+    request.user = user
+    model_admin = site._registry[ProductVariant]
+    assert model_admin.has_view_permission(request) is True
+    assert model_admin.has_change_permission(request) is False
+    assert model_admin.has_delete_permission(request) is False
+
+
+def test_setup_roles_excludes_core_and_wa_apps():
+    call_command("setup_roles")
+    editor = Group.objects.get(name=EDITOR)
+    viewer = Group.objects.get(name=VIEWER)
+    assert not editor.permissions.filter(
+        content_type__app_label__in=["core", "wa", "auth"]
+    ).exists()
+    assert not viewer.permissions.filter(
+        content_type__app_label__in=["core", "wa", "auth"]
+    ).exists()
+    assert not editor.permissions.filter(codename__startswith="delete_").exists()
+
+
+def test_whatsapp_message_auto_creates_client_and_interaction():
+    client = log_whatsapp_interaction("+996700000099", "hello")
+    assert client.source == Client.WHATSAPP
+    assert client.interactions.count() == 1
+    assert client.interactions.first().kind == Interaction.MESSAGE
+
+    # A second message from the same number reuses the client, doesn't duplicate it.
+    log_whatsapp_interaction("+996700000099", "again")
+    assert Client.objects.filter(phone="+996700000099").count() == 1
+    assert client.interactions.count() == 2
+
+
+def test_daily_report_rows_reflect_current_data(variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    client = Client.objects.create(name="Aiperi", phone="+996700000003")
+    order = SaleOrder.objects.create(client=client, channel=SaleOrder.SHOP)
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    Payment.objects.create(client=client, order=order, amount=Decimal("1000"))
+
+    sales = _sales_rows()
+    assert sales[0][0] == "Time"
+    assert any(row[1] == "Aiperi" for row in sales[1:-1])
+
+    stock = _stock_rows()
+    assert stock[0] == [
+        "SKU",
+        "Product",
+        "Size",
+        "Color",
+        "Stock",
+        "Sale Price",
+        "Cost Price",
+        "Stock Value",
+        "Low",
+    ]
+    assert any(row[0] == variant.sku and row[4] == 8 for row in stock[1:])
+
+    debts = _debts_rows()
+    assert debts[0][0] == "Name"
+    assert any(row[0] == "Aiperi" and row[2] == "5400" for row in debts[1:])
+
+
+def test_send_daily_report_command_skips_network_when_unconfigured(capsys):
+    call_command("send_daily_report")
+    out = capsys.readouterr().out.lower()
+    assert "skipped" in out

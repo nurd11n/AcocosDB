@@ -1,7 +1,8 @@
 """ACOCOS Telegram bot (aiogram 3, long polling).
 
-Simple by design: /stock and /today, allowlisted users only. It shares the exact
+/stock, /today, /client, /debts — allowlisted users only. It shares the exact
 same Django models and reply layer as the WhatsApp webhook — no duplicated logic.
+Every incoming/outgoing message is logged to apps.core.models.BotMessage.
 
 Run: python bot/main.py  (or the `bot` service in docker compose)
 Add users: create BotUser rows in the panel with their Telegram ID.
@@ -26,8 +27,8 @@ from aiogram.types import Message  # noqa: E402
 from asgiref.sync import sync_to_async  # noqa: E402
 from django.conf import settings  # noqa: E402
 
-from apps.core.models import BotUser  # noqa: E402
-from apps.wa.replies import HELP, stock_reply, today_reply  # noqa: E402
+from apps.core.models import BotMessage, BotUser  # noqa: E402
+from apps.wa.replies import HELP, client_reply, debts_reply, stock_reply, today_reply  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 dp = Dispatcher()
@@ -38,19 +39,33 @@ def get_allowed_user(telegram_id: int) -> BotUser | None:
     return BotUser.objects.filter(telegram_id=telegram_id, is_active=True).first()
 
 
+@sync_to_async
+def log_message(telegram_id: int, direction: str, text: str) -> None:
+    BotMessage.objects.create(
+        channel=BotMessage.TELEGRAM, external_id=str(telegram_id), direction=direction, text=text
+    )
+
+
 async def guard(message: Message) -> BotUser | None:
     """Allowlist check. Unknown users get silence — the bot doesn't reveal it exists."""
     user = await get_allowed_user(message.from_user.id)
     if user is None:
         logging.warning("Ignored message from unknown Telegram ID %s", message.from_user.id)
+        return None
+    await log_message(message.from_user.id, BotMessage.IN, message.text or "")
     return user
+
+
+async def reply(message: Message, text: str) -> None:
+    await log_message(message.from_user.id, BotMessage.OUT, text)
+    await message.answer(text)
 
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     if await guard(message) is None:
         return
-    await message.answer(f"ACOCOS CRM bot.\n{HELP}")
+    await reply(message, f"ACOCOS CRM bot.\n{HELP}")
 
 
 @dp.message(Command("stock"))
@@ -59,7 +74,7 @@ async def cmd_stock(message: Message, command: CommandObject):
         return
     query = (command.args or "").strip()
     text = await sync_to_async(stock_reply)(query)
-    await message.answer(text)
+    await reply(message, text)
 
 
 @dp.message(Command("today"))
@@ -67,14 +82,31 @@ async def cmd_today(message: Message):
     if await guard(message) is None:
         return
     text = await sync_to_async(today_reply)()
-    await message.answer(text)
+    await reply(message, text)
+
+
+@dp.message(Command("client"))
+async def cmd_client(message: Message, command: CommandObject):
+    if await guard(message) is None:
+        return
+    query = (command.args or "").strip()
+    text = await sync_to_async(client_reply)(query)
+    await reply(message, text)
+
+
+@dp.message(Command("debts"))
+async def cmd_debts(message: Message):
+    if await guard(message) is None:
+        return
+    text = await sync_to_async(debts_reply)()
+    await reply(message, text)
 
 
 @dp.message()
 async def fallback(message: Message):
     if await guard(message) is None:
         return
-    await message.answer(HELP)
+    await reply(message, HELP)
 
 
 async def main():

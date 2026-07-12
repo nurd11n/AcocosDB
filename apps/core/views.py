@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.cache import cache
 from django.shortcuts import render
@@ -9,8 +8,14 @@ from django.utils import timezone
 
 @staff_member_required
 def stats_view(request):
-    """Request counters (from cache) + cached business totals. One page for the owner."""
-    panel_section = settings.ADMIN_URL.strip("/").split("/")[0] or "root"
+    """Request counters (from cache) + cached business totals. Superuser only —
+    admin now lives at the root, so there's no single 'panel' path prefix left
+    to break out separately; total vs. WhatsApp webhook traffic is what's useful.
+    """
+    if not request.user.is_superuser:
+        from django.core.exceptions import PermissionDenied
+
+        raise PermissionDenied
     days = []
     today = timezone.localdate()
     for offset in range(7):
@@ -19,7 +24,6 @@ def stats_view(request):
             {
                 "day": day,
                 "total": cache.get(f"reqcount:{day}:total", 0),
-                "panel": cache.get(f"reqcount:{day}:{panel_section}", 0),
                 "wa": cache.get(f"reqcount:{day}:wa", 0),
             }
         )

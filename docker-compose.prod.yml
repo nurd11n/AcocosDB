@@ -12,6 +12,17 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   web:
     build:
       context: .
@@ -27,6 +38,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
   bot:
     build:
@@ -40,6 +53,24 @@ services:
     env_file: .env
     depends_on:
       db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    entrypoint: []
+    command: python scheduler.py
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   caddy:
@@ -65,6 +96,7 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
   media:
   caddy_data:
   caddy_config:

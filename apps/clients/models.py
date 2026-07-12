@@ -5,8 +5,20 @@ from simple_history.models import HistoricalRecords
 
 
 class Client(models.Model):
+    INSTAGRAM = "instagram"
+    WHATSAPP = "whatsapp"
+    SHOP = "shop"
+    WHOLESALE = "wholesale"
+    SOURCE_CHOICES = [
+        (INSTAGRAM, "Instagram"),
+        (WHATSAPP, "WhatsApp"),
+        (SHOP, _("Shop")),
+        (WHOLESALE, _("Wholesale")),
+    ]
+
     name = models.CharField(_("name"), max_length=200)
     phone = models.CharField(_("phone"), max_length=32, unique=True)
+    source = models.CharField(_("source"), max_length=16, choices=SOURCE_CHOICES, blank=True)
     note = models.TextField(_("note"), blank=True)
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)

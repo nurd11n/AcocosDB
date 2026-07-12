@@ -1,13 +1,12 @@
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
-from unfold.admin import ModelAdmin, TabularInline
 
 from .models import Client, Interaction
 from .services import clients_with_debt
 
 
-class InteractionInline(TabularInline):
+class InteractionInline(admin.TabularInline):
     model = Interaction
     extra = 0
     fields = ["kind", "note", "created_by", "created_at"]
@@ -15,10 +14,10 @@ class InteractionInline(TabularInline):
 
 
 @admin.register(Client)
-class ClientAdmin(SimpleHistoryAdmin, ModelAdmin):
-    list_display = ["name", "phone", "debt", "is_active", "created_at"]
+class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
+    list_display = ["name", "phone", "source", "debt", "is_active", "created_at"]
     search_fields = ["name", "phone"]
-    list_filter = ["is_active"]
+    list_filter = ["source", "is_active"]
     inlines = [InteractionInline]
 
     def get_queryset(self, request):
@@ -31,7 +30,7 @@ class ClientAdmin(SimpleHistoryAdmin, ModelAdmin):
 
 
 @admin.register(Interaction)
-class InteractionAdmin(ModelAdmin):
+class InteractionAdmin(admin.ModelAdmin):
     list_display = ["created_at", "client", "kind", "note", "created_by"]
     list_filter = ["kind"]
     search_fields = ["client__name", "client__phone", "note"]

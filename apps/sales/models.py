@@ -39,7 +39,10 @@ class SaleOrder(models.Model):
     channel = models.CharField(_("channel"), max_length=16, choices=CHANNEL_CHOICES, default=SHOP)
     status = models.CharField(_("status"), max_length=16, choices=STATUS_CHOICES, default=DRAFT)
     total = models.DecimalField(
-        _("total"), max_digits=12, decimal_places=2, default=Decimal("0"),
+        _("total"),
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0"),
         help_text=_("Set automatically when the sale is confirmed."),
     )
     note = models.CharField(_("note"), max_length=255, blank=True)

@@ -91,3 +91,14 @@ def today_summary() -> dict:
     revenue = qs.aggregate(s=Sum("total"))["s"] or Decimal("0")
     items = qs.aggregate(s=Sum("items__quantity"))["s"] or 0
     return {"revenue": revenue, "orders": qs.count(), "items": items}
+
+
+def todays_confirmed_orders():
+    """Today's confirmed sales with items preloaded — used by the daily report."""
+    today = timezone.localdate()
+    return (
+        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date=today)
+        .select_related("client")
+        .prefetch_related("items__variant")
+        .order_by("confirmed_at")
+    )
