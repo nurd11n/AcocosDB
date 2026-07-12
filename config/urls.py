@@ -11,10 +11,10 @@ if settings.OTP_ENABLED:
     admin.site.__class__ = OTPAdminSite
 
 urlpatterns = [
-    path(f"{settings.ADMIN_URL}stats/", stats_view, name="stats"),
-    path(settings.ADMIN_URL, admin.site.urls),
-    path("i18n/", include("django.conf.urls.i18n")),
     path("wa/", include("apps.wa.urls")),
+    path("i18n/", include("django.conf.urls.i18n")),
+    path("stats/", stats_view, name="stats"),
+    path("", admin.site.urls),  # admin at root — must stay last, it's a catch-all
 ]
 
 if settings.DEBUG:

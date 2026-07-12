@@ -2,20 +2,19 @@ from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
-from unfold.admin import ModelAdmin, TabularInline
 
 from .models import Payment, SaleItem, SaleOrder
 from .services import cancel_sale, confirm_sale
 
 
-class SaleItemInline(TabularInline):
+class SaleItemInline(admin.TabularInline):
     model = SaleItem
     extra = 0
     autocomplete_fields = ["variant"]
 
 
 @admin.register(SaleOrder)
-class SaleOrderAdmin(SimpleHistoryAdmin, ModelAdmin):
+class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     list_display = ["id", "client", "channel", "status", "total", "created_at", "confirmed_at"]
     list_filter = ["status", "channel"]
     search_fields = ["id", "client__name", "client__phone"]
@@ -50,7 +49,7 @@ class SaleOrderAdmin(SimpleHistoryAdmin, ModelAdmin):
 
 
 @admin.register(Payment)
-class PaymentAdmin(SimpleHistoryAdmin, ModelAdmin):
+class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     list_display = ["created_at", "client", "amount", "method", "order", "created_by"]
     list_filter = ["method"]
     search_fields = ["client__name", "client__phone"]

@@ -19,8 +19,8 @@
 
 <h2>{% trans "Requests per day" %}</h2>
 <table>
- <tr><th>{% trans "Day" %}</th><th>{% trans "Total" %}</th><th>{% trans "Panel" %}</th><th>WhatsApp</th></tr>
- {% for d in days %}<tr><td>{{ d.day }}</td><td>{{ d.total }}</td><td>{{ d.panel }}</td><td>{{ d.wa }}</td></tr>{% endfor %}
+ <tr><th>{% trans "Day" %}</th><th>{% trans "Total" %}</th><th>WhatsApp</th></tr>
+ {% for d in days %}<tr><td>{{ d.day }}</td><td>{{ d.total }}</td><td>{{ d.wa }}</td></tr>{% endfor %}
 </table>
 <p><a href="../">{% trans "Back to panel" %}</a></p>
 </body></html>

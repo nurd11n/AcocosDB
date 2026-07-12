@@ -5,6 +5,15 @@ DEBUG = False
 if SECRET_KEY.startswith("dev-only"):  # noqa: F405
     raise RuntimeError("Set a real SECRET_KEY in .env before running production.")
 
+# gunicorn runs multiple worker processes; LocMemCache is per-process, so the
+# request counters and cached report totals would silently disagree between
+# workers without a shared cache backend.
+if not REDIS_URL:  # noqa: F405
+    raise RuntimeError(
+        "Set REDIS_URL in .env before running production (cache must be shared "
+        "across gunicorn workers)."
+    )
+
 # TOTP 2FA is mandatory in production — no env override.
 OTP_ENABLED = True
 

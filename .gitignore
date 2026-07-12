@@ -2,9 +2,11 @@
 *.pyc
 __pycache__/
 .venv/
+venv/
 db.sqlite3
 media/
 staticfiles/
 backups/
 .pytest_cache/
 .ruff_cache/
+*.mo

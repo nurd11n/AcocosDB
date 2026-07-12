@@ -1,11 +1,15 @@
-"""Meta WhatsApp Cloud API webhook — deliberately simple for now.
+"""Meta WhatsApp Cloud API webhook.
 
 GET  /wa/webhook/  -> verification handshake (hub.challenge)
-POST /wa/webhook/  -> receive messages, log them, answer two commands:
-    "stock <sku or name>" / "остаток <...>"  -> current stock
-    "today" / "сегодня"                       -> today's sales summary
-Everything else gets a short help reply. Replies are sent only if WHATSAPP_TOKEN
-and WHATSAPP_PHONE_NUMBER_ID are configured.
+POST /wa/webhook/  -> receive messages, log them, auto-link/create the Client by
+    phone (CRM-linking rule — this is what makes the bot a CRM channel, not just a
+    stock lookup tool), and answer with the shared bilingual reply layer. Replies
+    are sent only if WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID are configured.
+
+Unlike the Telegram bot (internal, staff-only, allowlisted), WhatsApp is the
+customer-facing channel: any inbound number gets a reply and becomes a Client.
+The signature check below verifies the request really came from Meta — it isn't
+an allowlist of who may message the business.
 """
 
 import hashlib
@@ -18,7 +22,9 @@ from django.conf import settings
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import WhatsAppMessage
+from apps.clients.services import log_whatsapp_interaction
+from apps.core.models import BotMessage
+
 from .replies import build_reply
 
 logger = logging.getLogger(__name__)
@@ -36,7 +42,9 @@ def _send_text(to: str, body: str) -> None:
             json={"messaging_product": "whatsapp", "to": to, "text": {"body": body}},
             timeout=10,
         )
-        WhatsAppMessage.objects.create(wa_id=to, direction=WhatsAppMessage.OUT, text=body)
+        BotMessage.objects.create(
+            channel=BotMessage.WHATSAPP, external_id=to, direction=BotMessage.OUT, text=body
+        )
     except requests.RequestException:
         logger.exception("Failed to send WhatsApp message")
 
@@ -56,7 +64,10 @@ def _valid_signature(request) -> bool:
 @csrf_exempt
 def webhook(request):
     if request.method == "GET":
-        if settings.WHATSAPP_VERIFY_TOKEN and request.GET.get("hub.verify_token") == settings.WHATSAPP_VERIFY_TOKEN:
+        if (
+            settings.WHATSAPP_VERIFY_TOKEN
+            and request.GET.get("hub.verify_token") == settings.WHATSAPP_VERIFY_TOKEN
+        ):
             return HttpResponse(request.GET.get("hub.challenge", ""))
         return HttpResponseForbidden()
 
@@ -73,12 +84,11 @@ def webhook(request):
     if message and message.get("type") == "text":
         wa_id = message["from"]
         text = message["text"]["body"].strip()
-        WhatsAppMessage.objects.create(wa_id=wa_id, direction=WhatsAppMessage.IN, text=text)
-        # Same rule as the Telegram bot: unknown senders get silence, not data.
-        if wa_id in settings.WHATSAPP_ALLOWED_NUMBERS:
-            _send_text(wa_id, build_reply(text))
-        else:
-            logger.warning("Ignored WhatsApp message from non-allowlisted number %s", wa_id)
+        BotMessage.objects.create(
+            channel=BotMessage.WHATSAPP, external_id=wa_id, direction=BotMessage.IN, text=text
+        )
+        log_whatsapp_interaction(wa_id, text)
+        _send_text(wa_id, build_reply(text))
 
     # Always 200 — Meta retries aggressively on anything else.
     return JsonResponse({"status": "ok"})

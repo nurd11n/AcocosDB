@@ -11,9 +11,9 @@ env = environ.Env(
     DEBUG=(bool, False),
     OTP_ENABLED=(bool, False),
     REDIS_URL=(str, ""),
-    ADMIN_URL=(str, "panel/"),
     TIME_ZONE=(str, "Asia/Bishkek"),
     CURRENCY=(str, "KGS"),
+    REPORT_HOUR=(str, "21:00"),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -22,14 +22,12 @@ DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
-ADMIN_URL = env("ADMIN_URL")  # keep the panel off /admin/
-OTP_ENABLED = env("OTP_ENABLED")  # TOTP 2FA for the admin login
+OTP_ENABLED = env("OTP_ENABLED")  # TOTP 2FA for the admin login — root-mounted, so mandatory
 CURRENCY = env("CURRENCY")
+REPORT_HOUR = env("REPORT_HOUR")  # HH:MM, TIME_ZONE below — used by the scheduler container
 
 INSTALLED_APPS = [
-    "unfold",
-    "unfold.contrib.filters",
-    "unfold.contrib.import_export",
+    "jazzmin",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -149,19 +147,90 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# --- Daily report email (send_daily_report management command) ---
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = env("EMAIL_HOST", default="")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+DEFAULT_FROM_EMAIL = env("EMAIL_HOST_USER", default="acocos@localhost")
+REPORT_RECIPIENTS = env.list("REPORT_RECIPIENTS", default=[])
+
 # --- Bots ---
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN", default="")
 WHATSAPP_VERIFY_TOKEN = env("WHATSAPP_VERIFY_TOKEN", default="")
 WHATSAPP_TOKEN = env("WHATSAPP_TOKEN", default="")
 WHATSAPP_PHONE_NUMBER_ID = env("WHATSAPP_PHONE_NUMBER_ID", default="")
 WHATSAPP_APP_SECRET = env("WHATSAPP_APP_SECRET", default="")
-WHATSAPP_ALLOWED_NUMBERS = env.list("WHATSAPP_ALLOWED_NUMBERS", default=[])
 
-# --- Admin UI ---
-UNFOLD = {
-    "SITE_TITLE": "ACOCOS CRM",
-    "SITE_HEADER": "ACOCOS CRM",
-    "SITE_SYMBOL": "checkroom",
+# --- Admin UI (django-jazzmin) ---
+# Business apps first, technical/security apps last. Editor/Viewer groups are never
+# granted permissions on core/auth/otp_totp/axes, so those sections simply don't
+# render for them — Django's own get_app_list() filtering does the hiding, no
+# custom sidebar code needed (see apps/core/permissions.py + setup_roles).
+JAZZMIN_SETTINGS = {
+    "site_title": "ACOCOS CRM",
+    "site_header": "ACOCOS",
+    "site_brand": "ACOCOS CRM",
+    "welcome_sign": "ACOCOS CRM",
+    "copyright": "ACOCOS",
+    # Native topbar dropdowns — no custom template/view needed for either.
+    "show_theme_chooser": True,
+    "language_chooser": True,
+    "order_with_respect_to": [
+        "inventory",
+        "inventory.Category",
+        "inventory.Product",
+        "inventory.ProductVariant",
+        "inventory.StockMovement",
+        "sales",
+        "sales.SaleOrder",
+        "sales.Payment",
+        "clients",
+        "clients.Client",
+        "clients.Interaction",
+        "core",
+        "auth",
+        "otp_totp",
+        "axes",
+    ],
+    "icons": {
+        "auth": "fas fa-users-cog",
+        "auth.User": "fas fa-user",
+        "auth.Group": "fas fa-users",
+        "inventory.Category": "fas fa-tags",
+        "inventory.Product": "fas fa-tshirt",
+        "inventory.ProductVariant": "fas fa-boxes",
+        "inventory.StockMovement": "fas fa-exchange-alt",
+        "sales.SaleOrder": "fas fa-receipt",
+        "sales.Payment": "fas fa-money-bill-wave",
+        "clients.Client": "fas fa-address-book",
+        "clients.Interaction": "fas fa-comments",
+        "core.BotUser": "fas fa-robot",
+        "core.BotMessage": "fab fa-whatsapp",
+    },
+    "custom_links": {
+        "core": [
+            {"name": "Statistics", "url": "stats", "icon": "fas fa-chart-line"},
+        ],
+    },
+    "show_ui_builder": False,
+    "changeform_format": "horizontal_tabs",
+    "related_modal_active": True,
+}
+
+JAZZMIN_UI_TWEAKS = {
+    "theme": "flatly",
+    "navbar": "navbar-white navbar-light",
+    "sidebar": "sidebar-light-primary",
+    "brand_colour": "navbar-primary",
+    "accent": "accent-primary",
+    "no_navbar_border": True,
+    "sidebar_nav_flat_style": True,
+    # Follows OS preference on first visit; the theme chooser lets a user pin
+    # light/dark/auto after that (persisted client-side by Jazzmin itself).
+    "default_theme_mode": "auto",
 }
 
 LOGGING = {
