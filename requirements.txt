@@ -1,0 +1,15 @@
+Django>=5.1,<5.2
+django-environ>=0.11
+django-unfold>=0.40
+django-otp>=1.5
+qrcode>=7.4
+django-axes>=7.0
+django-simple-history>=3.7
+django-import-export[xlsx]>=4.0
+whitenoise>=6.7
+psycopg[binary]>=3.2
+django-redis>=5.4
+Pillow>=10.4
+requests>=2.32
+aiogram>=3.13
+gunicorn>=23.0
