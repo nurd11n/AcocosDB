@@ -1,8 +1,18 @@
 # Production: docker compose -f docker-compose.prod.yml up -d
+#
+# Every service restarts unless-stopped and rotates its logs (10m × 3 files) so
+# a chatty container can never fill the disk and take the database down with it.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgres:16
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -15,6 +25,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - redisdata:/data
     healthcheck:
@@ -28,6 +39,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.prod
     env_file: .env
@@ -35,6 +47,13 @@ services:
       - media:/app/media
     expose:
       - "8000"
+    healthcheck:
+      # /healthz/ returns 200 only when DB + cache both answer; 503 otherwise.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz/')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       db:
         condition: service_healthy
@@ -46,6 +65,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     entrypoint: []
     command: python bot/main.py
     environment:
@@ -62,6 +82,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     entrypoint: []
     command: python scheduler.py
     environment:
@@ -76,6 +97,7 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     ports:
       - "80:80"
@@ -85,16 +107,47 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  # Encrypted, checksummed backups every 6 hours, synced offsite to B2.
   backup:
-    image: postgres:16
+    build:
+      context: .
+      dockerfile: docker/backup.Dockerfile
     restart: unless-stopped
+    logging: *default-logging
+    entrypoint: ["sh", "/usr/local/bin/backup.sh"]
     env_file: .env
-    entrypoint: ["sh", "/backup.sh"]
     volumes:
-      - ./docker/backup.sh:/backup.sh:ro
       - ./backups:/backups
+      - media:/media:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Weekly restore drill: restores the latest dump into a scratch DB, asserts,
+  # Telegrams the Owner the result, and drops it. Reuses the backup image.
+  restore-drill:
+    build:
+      context: .
+      dockerfile: docker/backup.Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    entrypoint: ["sh", "/usr/local/bin/restore_drill.sh"]
+    env_file: .env
+    volumes:
+      - ./backups:/backups:ro
+      - ./secrets/age_identity.txt:/run/age_identity.txt:ro
+    environment:
+      AGE_IDENTITY_FILE: /run/age_identity.txt
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
+  # SECURITY: pgdata (and media) hold client names, phones, and debts. Docker
+  # named volumes are NOT encrypted — the Docker data root (default
+  # /var/lib/docker) MUST live on an encrypted host disk (LUKS, or a
+  # provider-encrypted volume). Verify with `lsblk -o NAME,MOUNTPOINT,TYPE` +
+  # `cryptsetup status`, or your cloud's disk-encryption setting, before go-live.
   pgdata:
   redisdata:
   media:

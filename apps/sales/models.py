@@ -2,9 +2,11 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
+
+from apps.core.currency import CURRENCY_CHOICES
 
 
 class SaleOrder(models.Model):
@@ -47,12 +49,22 @@ class SaleOrder(models.Model):
     )
     channel = models.CharField(_("channel"), max_length=16, choices=CHANNEL_CHOICES, default=SHOP)
     status = models.CharField(_("status"), max_length=16, choices=STATUS_CHOICES, default=DRAFT)
+    currency = models.CharField(
+        _("currency"), max_length=3, choices=CURRENCY_CHOICES, default=settings.CURRENCY
+    )
     total = models.DecimalField(
         _("total"),
         max_digits=12,
         decimal_places=2,
         default=Decimal("0"),
         help_text=_("Set automatically when the sale is approved."),
+    )
+    # Rate FROZEN at confirm time (1 unit of `currency` = rate_to_kgs сом) and the
+    # total pre-converted to сом with it. Every aggregate sums total_kgs and never
+    # re-converts, so a change to today's rate can't move a historical figure.
+    rate_to_kgs = models.DecimalField(_("rate to KGS"), max_digits=12, decimal_places=6, default=1)
+    total_kgs = models.DecimalField(
+        _("total, KGS"), max_digits=12, decimal_places=2, default=Decimal("0")
     )
     note = models.CharField(_("note"), max_length=255, blank=True)
     created_by = models.ForeignKey(
@@ -70,6 +82,13 @@ class SaleOrder(models.Model):
         verbose_name = _("sale order")
         verbose_name_plural = _("sale orders")
         ordering = ["-created_at"]
+        indexes = [
+            # today_summary / daily report filter by status + confirmed_at date.
+            models.Index(fields=["status", "confirmed_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(total__gte=0), name="saleorder_total_nonneg"),
+        ]
 
     def __str__(self):
         return f"#{self.pk} — {self.get_status_display()}"
@@ -85,7 +104,11 @@ class SaleOrder(models.Model):
 
     @property
     def paid_amount(self) -> Decimal:
-        return self.payments.aggregate(s=Sum("amount"))["s"] or Decimal("0")
+        # Only payments in the order's OWN currency count toward its balance —
+        # debt/payment matching is always per-currency, never auto-converted.
+        return self.payments.filter(currency=self.currency).aggregate(s=Sum("amount"))[
+            "s"
+        ] or Decimal("0")
 
     @property
     def balance(self) -> Decimal:
@@ -116,6 +139,13 @@ class SaleItem(models.Model):
     class Meta:
         verbose_name = _("sale item")
         verbose_name_plural = _("sale items")
+        indexes = [
+            # Dashboard top-products / dead-stock aggregate sale items by variant.
+            models.Index(fields=["variant"]),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="saleitem_quantity_positive"),
+        ]
 
     def __str__(self):
         return f"{self.variant} × {self.quantity}"
@@ -126,9 +156,21 @@ class SaleItem(models.Model):
 
 
 class Payment(models.Model):
+    """Counts immediately toward revenue and debt the moment it's saved — no
+    approval blocking. `reviewed` is the day-end checklist flag, not a gate on
+    whether the payment counts. Never deleted: voiding creates a reversing
+    entry (see services.void_payment) so the audit trail stays intact."""
+
     CASH = "cash"
+    MBANK = "mbank"
     TRANSFER = "transfer"
-    METHOD_CHOICES = [(CASH, _("Cash")), (TRANSFER, _("Transfer"))]
+    OTHER = "other"
+    METHOD_CHOICES = [
+        (CASH, _("Cash")),
+        (MBANK, "MBank"),
+        (TRANSFER, _("Transfer")),
+        (OTHER, _("Other")),
+    ]
 
     client = models.ForeignKey(
         "clients.Client",
@@ -145,8 +187,36 @@ class Payment(models.Model):
         related_name="payments",
     )
     amount = models.DecimalField(_("amount"), max_digits=12, decimal_places=2)
+    currency = models.CharField(
+        _("currency"), max_length=3, choices=CURRENCY_CHOICES, default=settings.CURRENCY
+    )
+    # Rate FROZEN when the payment is recorded (null only until the first save
+    # snapshots it). Dashboard debt totals compute amount * rate_to_kgs; never
+    # re-converted, so historical debt in сом is stable.
+    rate_to_kgs = models.DecimalField(
+        _("rate to KGS"), max_digits=12, decimal_places=6, null=True, blank=True
+    )
     method = models.CharField(_("method"), max_length=16, choices=METHOD_CHOICES, default=CASH)
     note = models.CharField(_("note"), max_length=255, blank=True)
+    reviewed = models.BooleanField(_("reviewed"), default=False)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name=_("reviewed by"),
+        null=True,
+        blank=True,
+        related_name="+",
+        on_delete=models.SET_NULL,
+    )
+    reviewed_at = models.DateTimeField(_("reviewed at"), null=True, blank=True)
+    reversed_payment = models.ForeignKey(
+        "self",
+        verbose_name=_("reverses payment"),
+        null=True,
+        blank=True,
+        related_name="reversal",
+        on_delete=models.PROTECT,
+        help_text=_("Set automatically when this row voids an earlier payment."),
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         verbose_name=_("created by"),
@@ -161,6 +231,35 @@ class Payment(models.Model):
         verbose_name = _("payment")
         verbose_name_plural = _("payments")
         ordering = ["-created_at"]
+        indexes = [
+            # Per-client debt/history queries scan by client over time.
+            models.Index(fields=["client", "created_at"]),
+        ]
+        constraints = [
+            # Payments are positive; the ONLY exception is a reversal row (see
+            # services.void_payment), which is negative and links the payment it
+            # voids. Everything else must be a real, positive amount.
+            models.CheckConstraint(
+                condition=Q(amount__gt=0) | Q(reversed_payment__isnull=False),
+                name="payment_amount_positive_unless_reversal",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        # Freeze the rate the first time the payment is written, from whatever
+        # path created it (service, admin inline, void). A reversal inherits its
+        # original's rate (set explicitly by void_payment) so it cancels exactly.
+        if self.rate_to_kgs is None:
+            from apps.core.currency import snapshot_rate_to_base
+            from django.utils import timezone
+
+            self.rate_to_kgs = snapshot_rate_to_base(self.currency, timezone.localdate())
+        super().save(*args, **kwargs)
+
+    @property
+    def amount_kgs(self) -> Decimal:
+        """The payment converted to сом at its FROZEN rate (never re-converted)."""
+        return (self.amount * (self.rate_to_kgs or Decimal("1"))).quantize(Decimal("0.01"))
 
     def __str__(self):
-        return f"{self.amount} — {self.client}"
+        return f"{self.amount} {self.currency} — {self.client}"

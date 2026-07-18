@@ -31,6 +31,13 @@ def main():
         wait = seconds_until_next_run()
         print(f"Sleeping {wait / 3600:.1f}h until next report.", flush=True)
         time.sleep(wait)
+        # Refresh FX rates before the report so its «≈ сом» totals use today's
+        # rates. Both are best-effort — fetch_rates keeps the last known rate on
+        # failure, and check=False means a hiccup in one never blocks the other.
+        print("Running fetch_rates...", flush=True)
+        subprocess.run([sys.executable, "manage.py", "fetch_rates"], check=False)
+        print("Running cleanup_draft_sales...", flush=True)
+        subprocess.run([sys.executable, "manage.py", "cleanup_draft_sales"], check=False)
         print("Running send_daily_report...", flush=True)
         subprocess.run([sys.executable, "manage.py", "send_daily_report"], check=False)
 

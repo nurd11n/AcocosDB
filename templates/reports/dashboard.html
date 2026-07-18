@@ -1,0 +1,49 @@
+{% load i18n static %}<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'ru' }}"{% if THEME %} data-theme="{{ THEME }}"{% endif %}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ACOCOS — {% trans "Дашборд" %}</title>
+<link rel="stylesheet" href="{% static 'pos/tokens.css' %}">
+<link rel="stylesheet" href="{% static 'pos/app.css' %}">
+<link rel="stylesheet" href="{% static 'pos/dashboard.css' %}">
+<script src="{% static 'vendor/htmx/htmx.min.js' %}"></script>
+<link rel="icon" href="{% static 'pos/icons/icon-192.png' %}">
+<meta name="theme-color" content="#2C6FB5">
+</head>
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+<div class="dash animate">
+ <header class="dash-header">
+  <div class="dash-header__title">ACOCOS — {% trans "Дашборд" %}</div>
+  <div class="dash-header__actions">
+   <a class="top__link" href="{% url 'pos:index' %}">{% trans "К продажам" %}</a>
+   <form method="post" action="{% url 'set-theme' %}" id="theme-form">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <input type="hidden" name="theme" id="theme-form-value" value="{% if THEME == 'dark' %}light{% else %}dark{% endif %}">
+    <button type="submit" class="theme-toggle" aria-label="{% trans "Тема" %}">
+      <span class="theme-toggle__icon theme-toggle__icon--sun">☀</span><span class="theme-toggle__icon theme-toggle__icon--moon">☾</span>
+    </button>
+   </form>
+  </div>
+ </header>
+
+ <div class="period" role="tablist" aria-label="{% trans "Период" %}">
+  {% for key, label in periods %}
+  <button type="button" class="period__pill" role="tab"
+    {% if key == period %}aria-current="true"{% endif %}
+    hx-get="{% url 'dashboard' %}?period={{ key }}"
+    hx-target="#dash-panel" hx-swap="innerHTML"
+    hx-push-url="{% url 'dashboard' %}?period={{ key }}">{{ label }}</button>
+  {% endfor %}
+ </div>
+
+ <div id="dash-panel">
+  {% include "reports/_dashboard_panel.html" %}
+ </div>
+</div>
+
+<script src="{% static 'pos/js/pos.js' %}"></script>
+<script src="{% static 'pos/js/dashboard.js' %}"></script>
+</body>
+</html>

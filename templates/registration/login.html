@@ -1,0 +1,50 @@
+{% load i18n static %}<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'ru' }}"{% if THEME %} data-theme="{{ THEME }}"{% endif %}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ACOCOS — {% trans "Log in" %}</title>
+<link rel="stylesheet" href="{% static 'pos/tokens.css' %}">
+<link rel="stylesheet" href="{% static 'pos/app.css' %}">
+<link rel="icon" href="{% static 'pos/icons/icon-192.png' %}">
+<meta name="theme-color" content="#2C6FB5">
+</head>
+<body>
+<div class="login-page">
+ {# Static image, not from the DB — the login page must render with the DB down. #}
+ <div class="login-photo" role="img" aria-label="{% trans 'Витрина ACOCOS' %}"></div>
+ <div class="login-form-col">
+  <div class="login-card">
+   <h1 class="login-wordmark">ACOCOS</h1>
+   <p class="login-sub">{% trans "Sign in to continue" %}</p>
+   {% if form.non_field_errors or form.errors %}
+    {# One message for every failure — never reveal which factor was wrong. #}
+    <div class="login-error" role="alert">{% trans "Неверный логин, пароль или код." %}</div>
+   {% endif %}
+   <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="login-field">
+     <label for="{{ form.username.id_for_label }}">{% trans "Username" %}</label>
+     {{ form.username }}
+    </div>
+    <div class="login-field">
+     <label for="{{ form.password.id_for_label }}">{% trans "Password" %}</label>
+     {{ form.password }}
+    </div>
+    {% if form.otp_token %}
+    <div class="login-field login-otp">
+     <label for="{{ form.otp_token.id_for_label }}">{% trans "Authentication code" %}</label>
+     {{ form.otp_token }}
+     {{ form.otp_device }}
+     {{ form.otp_challenge }}
+    </div>
+    {% endif %}
+    {# `next` is already validated by LoginView.get_redirect_url (open-redirect guard). #}
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="btn btn-primary" style="margin-top:var(--space-4)">{% trans "Log in" %}</button>
+   </form>
+  </div>
+ </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<form method="post">{% csrf_token %}
+  <input type="hidden" name="action" value="{{ action_name }}">
+  <input type="hidden" name="apply" value="1">
+  {% for pk in selected %}<input type="hidden" name="_selected_action" value="{{ pk }}">{% endfor %}
+
+  <table style="margin:12px 0;border-collapse:collapse">
+   <tr>
+     <th style="text-align:left;padding:4px 12px 4px 0">{% trans "Item" %}</th>
+     <th style="text-align:left;padding:4px 12px">{% trans "Current stock" %}</th>
+     <th style="text-align:left;padding:4px 12px">
+       {% if mode == "count" %}{% trans "Counted quantity" %}{% else %}{% trans "Quantity" %}{% endif %}
+     </th>
+   </tr>
+   {% for v in variants %}
+   <tr>
+     <td style="padding:4px 12px 4px 0">{{ v }} [{{ v.sku }}]</td>
+     <td style="padding:4px 12px">{{ v.stock }}</td>
+     <td style="padding:4px 12px">
+       {% if mode == "count" %}
+         <input type="number" name="count_{{ v.pk }}" value="{{ v.stock }}" style="width:100px">
+       {% else %}
+         <input type="number" name="qty_{{ v.pk }}" placeholder="0" min="0" style="width:100px">
+       {% endif %}
+     </td>
+   </tr>
+   {% endfor %}
+  </table>
+
+  {% if mode == "count" %}
+  <p><label>{% trans "Reason" %}:
+     <input type="text" name="reason" style="width:400px" required></label></p>
+  {% endif %}
+
+  <div class="submit-row">
+   <button type="submit" class="default">{% trans "Apply" %}</button>
+   <a href="{% url 'admin:inventory_productvariant_changelist' %}" class="button cancel-link">{% trans "Cancel" %}</a>
+  </div>
+</form>
+{% endblock %}

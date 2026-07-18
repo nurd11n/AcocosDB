@@ -16,10 +16,20 @@ class Client(models.Model):
         (WHOLESALE, _("Wholesale")),
     ]
 
-    name = models.CharField(_("name"), max_length=200)
+    first_name = models.CharField(_("first name"), max_length=100, default="")
+    last_name = models.CharField(_("last name"), max_length=100, blank=True)
     phone = models.CharField(_("phone"), max_length=32, unique=True)
     source = models.CharField(_("source"), max_length=16, choices=SOURCE_CHOICES, blank=True)
     note = models.TextField(_("note"), blank=True)
+    # Marketing reachability. telegram_chat_id is set only once a client presses
+    # /start on the bot — the ONLY way Telegram lets us message them (there is no
+    # send-by-phone). marketing_consent gates every broadcast and is cleared by
+    # a «СТОП»/«STOP» reply. whatsapp_opted_in gates the (later) WhatsApp channel.
+    telegram_chat_id = models.BigIntegerField(
+        _("Telegram chat ID"), null=True, blank=True, unique=True
+    )
+    marketing_consent = models.BooleanField(_("marketing consent"), default=False)
+    whatsapp_opted_in = models.BooleanField(_("WhatsApp opt-in"), default=False)
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
     history = HistoricalRecords()
@@ -27,10 +37,17 @@ class Client(models.Model):
     class Meta:
         verbose_name = _("client")
         verbose_name_plural = _("clients")
-        ordering = ["name"]
+        ordering = ["first_name", "last_name"]
 
     def __str__(self):
         return f"{self.name} ({self.phone})"
+
+    @property
+    def name(self) -> str:
+        """Combined display name — kept as a read property so reports, bot
+        replies, and the WhatsApp CRM-linking code didn't need to change when
+        the field split into first_name/last_name."""
+        return f"{self.first_name} {self.last_name}".strip()
 
 
 class Interaction(models.Model):

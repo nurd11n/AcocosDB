@@ -1,0 +1,6 @@
+{% extends "errors/base.html" %}
+{% load i18n %}
+{% block code %}403{% endblock %}
+{% block message %}{% trans "Сессия устарела. Войдите заново." %}{% endblock %}
+{% block action_url %}/login/{% endblock %}
+{% block action_label %}{% trans "Войти" %}{% endblock %}

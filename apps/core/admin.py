@@ -1,6 +1,41 @@
+from django import forms
+from django.conf import settings
 from django.contrib import admin
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
-from .models import BotMessage, BotUser
+from .currency import CURRENCY_CODES
+from .models import BotMessage, BotUser, ExchangeRate
+
+
+class ExchangeRateForm(forms.ModelForm):
+    class Meta:
+        model = ExchangeRate
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        extra = [c for c in CURRENCY_CODES if c != settings.CURRENCY]
+        self.fields["currency"] = forms.ChoiceField(
+            choices=[(c, c) for c in extra], label=_("currency")
+        )
+        if not self.instance.pk:
+            self.fields["date"].initial = timezone.localdate()
+
+
+@admin.register(ExchangeRate)
+class ExchangeRateAdmin(admin.ModelAdmin):
+    """Manual FX rates for the dashboard converter and report totals. 1 unit of
+    `currency` = `rate` of the base currency on that date. Superuser-only."""
+
+    form = ExchangeRateForm
+    list_display = ["date", "currency", "one_unit"]
+    list_filter = ["currency"]
+    date_hierarchy = "date"
+
+    @admin.display(description=_("rate"))
+    def one_unit(self, obj):
+        return f"1 {obj.currency} = {obj.rate.normalize():f} {settings.CURRENCY}"
 
 
 @admin.register(BotUser)

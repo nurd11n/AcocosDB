@@ -1,0 +1,70 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Продажа" %} №{{ order.pk }}{% endblock %}
+{% block content %}
+<div class="card">
+ {% if order.status == "cancelled" %}
+   <h2 style="color:var(--debt);text-transform:none;font-size:16px;font-weight:500">{% trans "Продажа отменена" %}</h2>
+   <p class="muted">{% trans "Товар возвращён на склад." %}</p>
+ {% else %}
+   <h2 style="color:var(--paid);text-transform:none;font-size:16px;font-weight:500">
+     {% trans "Продажа" %} №{{ order.pk }} {% trans "проведена" %}
+     {% if status %}<span class="badge badge--{{ status|status_css }}">{{ status|status_label }}</span>{% endif %}
+   </h2>
+ {% endif %}
+
+ {% for item in items %}
+ <div class="line-row">
+   <div class="line-row__label">{{ item.variant }}</div>
+   <div class="line-row__total num">{{ item.quantity }} {% trans "шт" %}</div>
+   <div class="line-row__total num muted">{% trans "Осталось" %}: {{ item.variant.stock }}</div>
+ </div>
+ {% endfor %}
+
+ <p class="num" style="margin-top:var(--space-3);font-size:16px;font-weight:500">
+  {% trans "Итого" %}: {{ order.total }} {{ order.currency }}
+ </p>
+
+ {% if order.client %}
+   {% with debts=order.client|client_debts %}
+   <div class="client-chip" style="margin-top:var(--space-3)">
+     <div>
+       <div class="client-chip__name">{{ order.client.name }}</div>
+     </div>
+     <div class="client-chip__debt num">
+       <span class="hint">{% trans "Долг клиента" %}</span><br>
+       {% if debts %}
+         {% for cur, amt in debts.items %}
+           <span class="{% if amt > 0 %}badge badge--debt{% else %}muted{% endif %}">{{ amt }} {{ cur }}</span>{% if not forloop.last %}<br>{% endif %}
+         {% endfor %}
+       {% else %}
+         <span class="badge badge--paid">0</span>
+       {% endif %}
+     </div>
+   </div>
+   {% endwith %}
+ {% endif %}
+
+ {% if order.status == "confirmed" and order.client.phone %}
+ <a class="btn btn-ghost" href="{% url 'pos:share_receipt' order.pk %}" target="_blank" rel="noopener"
+    style="margin-top:var(--space-3)">{% trans "Отправить чек в WhatsApp" %}</a>
+ {% endif %}
+
+ {% if can_cancel %}
+ <a class="btn btn-ghost" href="{% url 'pos:sale_return' order.pk %}" style="margin-top:var(--space-4)">
+   {% trans "Оформить возврат" %}</a>
+ <form method="post" action="{% url 'pos:sale_cancel' order.pk %}"
+   data-network-safe data-confirm="{% trans "Отменить эту продажу? Товар вернётся на склад." %}" data-error-target="cancel-error"
+   style="margin-top:var(--space-2)">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Отменить продажу" %}</button>
+ </form>
+ <p id="cancel-error" class="error" hidden></p>
+ {% endif %}
+</div>
+
+{% if perms.sales.add_saleorder %}
+<a class="btn btn-primary" href="{% url 'pos:index' %}?new=1">
+  {% trans "Новая продажа" %}</a>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,14 @@
+{% load i18n %}
+{% if not q %}<p class="hint">{% trans "Последние клиенты" %}</p>{% endif %}
+{% for c in clients %}
+<div class="line-row">
+  <div class="line-row__label">
+    <strong>{{ c.name }}</strong><br><span class="muted">{{ c.phone }}</span>
+  </div>
+  <button type="button" class="btn btn-ghost btn-icon" style="width:auto;padding:0 var(--space-3)"
+    hx-post="{% url 'pos:client_set' order.pk c.pk %}" hx-target="#client-section" hx-swap="innerHTML">
+    {% trans "Выбрать" %}</button>
+</div>
+{% empty %}
+<p class="muted">{% trans "Ничего не найдено" %}</p>
+{% endfor %}

@@ -1,0 +1,46 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{{ client.name }}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{{ client.name }}</h2>
+ <p class="muted">{{ client.phone }}</p>
+ <p>
+  <span class="hint">{% trans "Долг" %}</span><br>
+  {% if debts %}
+    {% for cur, amt in debts.items %}
+      <span class="{% if amt > 0 %}badge badge--debt{% else %}badge badge--paid{% endif %}">{{ amt }} {{ cur }}</span>
+    {% endfor %}
+  {% else %}
+    <span class="badge badge--paid">0</span>
+  {% endif %}
+ </p>
+ {% if client.note %}<p class="muted">{{ client.note }}</p>{% endif %}
+ {% if debts and client.phone %}
+ <a class="btn btn-ghost btn-ghost--debt" href="{% url 'pos:debt_reminder' client.pk %}" target="_blank" rel="noopener"
+    style="margin-top:var(--space-3)">{% trans "Напомнить о долге в WhatsApp" %}</a>
+ {% endif %}
+</div>
+
+<div class="card">
+ <h2>{% trans "История покупок" %}</h2>
+ {% for o in orders %}
+ <div class="line-row">
+   <div class="line-row__label"><a href="{% url 'pos:sale_result' o.pk %}">{{ o.confirmed_at|date:"d.m.Y H:i" }}</a></div>
+   <div class="line-row__total num">{{ o.total }} {{ o.currency }}</div>
+ </div>
+ {% empty %}
+ <p class="muted">{% trans "Покупок пока нет" %}</p>
+ {% endfor %}
+</div>
+
+<div class="card">
+ <h2>{% trans "Взаимодействия" %}</h2>
+ {% for i in interactions %}
+  <p class="muted" style="margin:var(--space-1) 0">
+    <span class="hint">{{ i.created_at|date:"d.m.Y H:i" }}</span> — {{ i.get_kind_display }}: {{ i.note|truncatechars:80 }}</p>
+ {% empty %}
+  <p class="muted">{% trans "Пока нет записей" %}</p>
+ {% endfor %}
+</div>
+{% endblock %}

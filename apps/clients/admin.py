@@ -1,9 +1,15 @@
+from decimal import Decimal
+
 from django.contrib import admin
+from django.db.models import DecimalField, F, Q, Sum, Value
+from django.db.models.functions import Coalesce
+from django.urls import reverse
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
 from .models import Client, Interaction
-from .services import clients_with_debt
+from .services import client_debts_by_currency
 
 
 class InteractionInline(admin.TabularInline):
@@ -15,25 +21,65 @@ class InteractionInline(admin.TabularInline):
 
 @admin.register(Client)
 class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
-    list_display = ["name", "phone", "source", "debt", "is_active", "created_at"]
-    search_fields = ["name", "phone"]
+    list_display = ["first_name", "last_name", "phone", "source", "debt", "is_active", "created_at"]
+    search_fields = ["first_name", "last_name", "phone"]
     list_filter = ["source", "is_active"]
+    readonly_fields = ["unpaid_orders"]
     inlines = [InteractionInline]
 
     def get_queryset(self, request):
-        # Debt for the whole page in one query (two correlated subqueries).
-        return clients_with_debt()
+        # Debt is per-currency now, so it can't be a single annotated column —
+        # one extra pair of grouped queries for the whole page (no N+1), cached
+        # on the ModelAdmin instance for the duration of this request/response.
+        self._debts = client_debts_by_currency()
+        return super().get_queryset(request)
 
-    @admin.display(description=_("debt"), ordering="sales_total")
+    @admin.display(description=_("debt"))
     def debt(self, obj):
-        return obj.sales_total - obj.payments_total
+        debts = {cur: amt for cur, amt in self._debts.get(obj.pk, {}).items() if amt > 0}
+        if not debts:
+            return "—"
+        return ", ".join(f"{amt} {cur}" for cur, amt in sorted(debts.items()))
+
+    @admin.display(description=_("unpaid orders"))
+    def unpaid_orders(self, obj):
+        """Approved orders this client still owes on — quick navigation from the
+        client straight to what's outstanding."""
+        if not obj.pk:
+            return "—"
+        from apps.sales.models import SaleOrder
+
+        orders = (
+            SaleOrder.objects.filter(client=obj, status=SaleOrder.CONFIRMED)
+            .annotate(
+                paid=Coalesce(
+                    Sum("payments__amount", filter=Q(payments__currency=F("currency"))),
+                    Value(Decimal("0")),
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                )
+            )
+            .order_by("-confirmed_at")
+        )
+        rows = [(o, o.total - o.paid) for o in orders if o.total - o.paid > 0]
+        if not rows:
+            return _("None — all settled.")
+        body = format_html_join(
+            "",
+            '<tr><td style="padding:2px 10px 2px 0"><a href="{}">#{}</a></td>'
+            '<td style="padding:2px 10px;text-align:right">{} {}</td></tr>',
+            (
+                (reverse("admin:sales_saleorder_change", args=[o.pk]), o.pk, balance, o.currency)
+                for o, balance in rows
+            ),
+        )
+        return format_html("<table>{}</table>", body)
 
 
 @admin.register(Interaction)
 class InteractionAdmin(admin.ModelAdmin):
     list_display = ["created_at", "client", "kind", "note", "created_by"]
     list_filter = ["kind"]
-    search_fields = ["client__name", "client__phone", "note"]
+    search_fields = ["client__first_name", "client__last_name", "client__phone", "note"]
     list_select_related = ["client", "created_by"]
     autocomplete_fields = ["client"]
 

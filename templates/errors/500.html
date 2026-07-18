@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACOCOS — 500</title>
+<style>
+ /* Inline + hardcoded on purpose: this page must render even when the database,
+    cache, and static-file manifest are all unavailable. No external CSS, no
+    {% templatetag openblock %} url {% templatetag closeblock %}, no context
+    processors. Hex is hardcoded (can't reach tokens.css) and prefers-color-scheme
+    is honoured directly. Values mirror tokens.css so it matches the rest. */
+ :root { color-scheme: light dark; }
+ * { box-sizing: border-box; }
+ body {
+   margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+   background: #F5F6F7; color: #14181C; padding: 16px;
+   font-family: -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5;
+ }
+ .card {
+   width: 100%; max-width: 420px; background: #FFFFFF; border: 1px solid #E3E6E9;
+   border-radius: 12px; padding: 40px 24px; text-align: center;
+ }
+ .icon { color: #8A939D; display: block; margin: 0 auto 16px; }
+ p { font-size: 19px; font-weight: 500; margin: 0 0 8px; }
+ .cid { font-size: 11px; color: #8A939D; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        user-select: all; margin: 8px 0 0; }
+ a { display: inline-flex; align-items: center; justify-content: center; margin-top: 24px;
+     min-height: 44px; padding: 10px 16px; border-radius: 8px; background: #2C6FB5;
+     color: #FFFFFF; text-decoration: none; font-size: 15px; font-weight: 500; }
+ @media (prefers-color-scheme: dark) {
+   body { background: #14181C; color: #EEF1F4; }
+   .card { background: #1C2126; border-color: #2C333A; }
+   .icon, .cid { color: #7E8894; }
+   a { background: #6BA8E0; color: #14181C; }
+ }
+</style>
+</head>
+<body>
+ <div class="card">
+  <svg class="icon" width="64" height="64" viewBox="0 0 64 64" fill="none"
+       stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+       role="img" aria-label="Отключённый кабель">
+   <path d="M8 40 h9"/>
+   <rect x="17" y="34" width="10" height="12" rx="2"/>
+   <path d="M27 38 h4 M27 42 h4"/>
+   <rect x="37" y="32" width="11" height="16" rx="2"/>
+   <path d="M33 38 h4 M33 42 h4"/>
+   <path d="M48 40 h8"/>
+   <path d="M31 24 l2 4 M31 52 l2 -4"/>
+  </svg>
+  <p>Что-то сломалось. Мы записали ошибку.</p>
+  <p class="cid">Код ошибки: {{ correlation_id }}</p>
+  <a href="/pos/">Вернуться к продажам</a>
+ </div>
+</body>
+</html>

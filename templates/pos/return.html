@@ -1,0 +1,26 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Возврат" %} №{{ order.pk }}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{% trans "Возврат по продаже" %} №{{ order.pk }}</h2>
+ <p class="hint">{% trans "Укажите, сколько единиц возвращается. Товар вернётся на склад, сумма продажи уменьшится." %}</p>
+ <form method="post" action="{% url 'pos:sale_return' order.pk %}">
+  {% csrf_token %}
+  {% for item in items %}
+  <div class="line-row">
+    <div class="line-row__label">
+      {{ item.variant }}<br>
+      <span class="muted">{% trans "продано" %}: {{ item.quantity }} {% trans "шт" %} × {{ item.unit_price }} {{ order.currency }}</span>
+    </div>
+    <input type="number" name="return_{{ item.pk }}" value="0" min="0" max="{{ item.quantity }}"
+      inputmode="numeric" style="max-width:80px" aria-label="{% trans "К возврату" %}">
+  </div>
+  {% endfor %}
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-4)">
+    {% trans "Оформить возврат" %}</button>
+  <a class="btn btn-ghost" href="{% url 'pos:sale_result' order.pk %}" style="margin-top:var(--space-2)">
+    {% trans "Отмена" %}</a>
+ </form>
+</div>
+{% endblock %}

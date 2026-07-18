@@ -1,8 +1,17 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
+
+from apps.core.currency import CURRENCY_CHOICES
+
+# Movement-type groupings, at module level so the model's CheckConstraints (in a
+# nested Meta, which can't see class-body names) share the same source of truth
+# as the IN_TYPES/OUT_TYPES sets used in Python.
+INTAKE_TYPES = ("production_in", "purchase_in", "return_in")
+OUTGOING_TYPES = ("sale_out", "writeoff_out")
 
 
 class Category(models.Model):
@@ -24,17 +33,57 @@ class Product(models.Model):
     name = models.CharField(_("name"), max_length=200)
     description = models.TextField(_("description"), blank=True)
     photo = models.ImageField(_("photo"), upload_to="products/", blank=True)
+    # A ~400px JPEG derived from `photo` on save — the grid tile ships this, not
+    # the original (a 4MB phone photo × dozens of tiles would wreck load time).
+    thumbnail = models.ImageField(
+        _("thumbnail"), upload_to="products/thumbs/", blank=True, editable=False
+    )
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
-    history = HistoricalRecords()
+    history = HistoricalRecords(excluded_fields=["thumbnail"])
 
     class Meta:
         verbose_name = _("product")
         verbose_name_plural = _("products")
         ordering = ["name"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._orig_photo_name = self.photo.name if self.photo else None
+
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)  # write the photo to disk first
+        current = self.photo.name if self.photo else None
+        if self.photo and (current != self._orig_photo_name or not self.thumbnail):
+            self._make_thumbnail()
+            super().save(update_fields=["thumbnail"])
+        elif not self.photo and self.thumbnail:
+            self.thumbnail.delete(save=False)
+            self.thumbnail = ""
+            super().save(update_fields=["thumbnail"])
+        self._orig_photo_name = current
+
+    def _make_thumbnail(self):
+        from io import BytesIO
+
+        from django.core.files.base import ContentFile
+        from PIL import Image
+
+        self.photo.open()
+        img = Image.open(self.photo).convert("RGB")
+        img.thumbnail((400, 400))  # max box, aspect preserved
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=82, optimize=True)
+        self.thumbnail.save(f"thumb_{self.pk}.jpg", ContentFile(buf.getvalue()), save=False)
+
+    @property
+    def grid_image(self):
+        """The small image a tile should show — thumbnail if we have it, else
+        the original (which only happens before the first thumbnail is built)."""
+        return self.thumbnail or self.photo
 
 
 class ProductVariant(models.Model):
@@ -44,6 +93,13 @@ class ProductVariant(models.Model):
     sku = models.CharField("SKU", max_length=64, unique=True)
     size = models.CharField(_("size"), max_length=32, blank=True)
     color = models.CharField(_("color"), max_length=64, blank=True)
+    currency = models.CharField(
+        _("currency"),
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=settings.CURRENCY,
+        help_text=_("Applies to both cost price and sale price."),
+    )
     cost_price = models.DecimalField(_("cost price"), max_digits=12, decimal_places=2)
     sale_price = models.DecimalField(_("sale price"), max_digits=12, decimal_places=2)
     low_stock_threshold = models.PositiveIntegerField(_("low stock threshold"), default=2)
@@ -61,6 +117,12 @@ class ProductVariant(models.Model):
 
     @property
     def stock(self) -> int:
+        # Prefer a queryset-annotated `_stock` (list views, bot replies) so
+        # iterating N variants costs 1 query, not N. The per-row aggregate is
+        # the fallback for a single loose instance.
+        annotated = getattr(self, "_stock", None)
+        if annotated is not None:
+            return annotated
         agg = self.movements.aggregate(s=models.Sum("quantity"))
         return agg["s"] or 0
 
@@ -87,8 +149,8 @@ class StockMovement(models.Model):
         (WRITEOFF_OUT, _("Write-off")),
         (ADJUSTMENT, _("Adjustment")),
     ]
-    IN_TYPES = {PRODUCTION_IN, PURCHASE_IN, RETURN_IN}
-    OUT_TYPES = {SALE_OUT, WRITEOFF_OUT}
+    IN_TYPES = set(INTAKE_TYPES)
+    OUT_TYPES = set(OUTGOING_TYPES)
 
     variant = models.ForeignKey(
         ProductVariant,
@@ -120,7 +182,26 @@ class StockMovement(models.Model):
         verbose_name = _("stock movement")
         verbose_name_plural = _("stock movements")
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["variant", "movement_type"])]
+        indexes = [
+            models.Index(fields=["variant", "movement_type"]),
+            # The ledger-sum-per-variant and daily-report queries scan by
+            # variant over a time range; clean() alone can't help the planner.
+            models.Index(fields=["variant", "created_at"]),
+        ]
+        # DB-level integrity — clean() is bypassed by bulk_create/update, these
+        # constraints are not. ADJUSTMENT may be either sign (reason required in
+        # clean()), so it's exempt from the sign rules but still can't be zero.
+        constraints = [
+            models.CheckConstraint(condition=~Q(quantity=0), name="stockmovement_quantity_nonzero"),
+            models.CheckConstraint(
+                condition=~Q(movement_type__in=INTAKE_TYPES) | Q(quantity__gt=0),
+                name="stockmovement_intake_positive",
+            ),
+            models.CheckConstraint(
+                condition=~Q(movement_type__in=OUTGOING_TYPES) | Q(quantity__lt=0),
+                name="stockmovement_outgoing_negative",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.get_movement_type_display()} {self.quantity:+d} — {self.variant}"

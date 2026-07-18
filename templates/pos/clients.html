@@ -1,0 +1,24 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Клиенты" %}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{% trans "Поиск клиента" %}</h2>
+ <form method="get">
+  <input type="search" name="q" inputmode="tel" placeholder="{% trans "Телефон или имя" %}"
+    value="{{ q }}" autofocus>
+ </form>
+</div>
+
+{% if q %}
+<div class="card">
+ {% for c in clients %}
+ <a href="{% url 'pos:client_detail' c.pk %}" class="line-row" style="text-decoration:none;color:var(--text)">
+   <div class="line-row__label"><strong>{{ c.name }}</strong><br><span class="muted">{{ c.phone }}</span></div>
+ </a>
+ {% empty %}
+ <p class="muted">{% trans "Ничего не найдено" %}</p>
+ {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
