@@ -1,0 +1,167 @@
+{% load i18n dash_extras %}
+{# ---- metric cards ---- #}
+<div class="metrics">
+ {% with rv=metrics.revenue.delta_view %}
+ <div class="metric">
+  <div class="metric__label">{% trans "Выручка" %}</div>
+  <div class="metric__value" data-count="{{ metrics.revenue.value|raw_int }}" data-suffix=" сом">{{ metrics.revenue.value|som }}</div>
+  <div class="metric__delta metric__delta--{{ rv.token }}">{% if rv.pct %}{{ rv.arrow }} {{ rv.pct }}% {% endif %}{{ rv.text }}</div>
+ </div>
+ {% endwith %}
+ {% with pv=metrics.profit.delta_view %}
+ <div class="metric">
+  <div class="metric__label">{% trans "Прибыль" %}</div>
+  <div class="metric__value" data-count="{{ metrics.profit.value|raw_int }}" data-suffix=" сом">{{ metrics.profit.value|som }}</div>
+  <div class="metric__sub">{% if metrics.profit.margin is not None %}{% trans "маржа" %} {{ metrics.profit.margin }}%{% endif %}</div>
+  <div class="metric__delta metric__delta--{{ pv.token }}">{% if pv.pct %}{{ pv.arrow }} {{ pv.pct }}% {% endif %}{{ pv.text }}</div>
+ </div>
+ {% endwith %}
+ {% with uv=metrics.units.delta_view %}
+ <div class="metric">
+  <div class="metric__label">{% trans "Продано" %}</div>
+  <div class="metric__value" data-count="{{ metrics.units.value|raw_int }}" data-suffix=" {% trans "шт" %}">{{ metrics.units.value|grp }} {% trans "шт" %}</div>
+  <div class="metric__delta metric__delta--{{ uv.token }}">{% if uv.pct %}{{ uv.arrow }} {{ uv.pct }}% {% endif %}{{ uv.text }}</div>
+ </div>
+ {% endwith %}
+ {% with dv=metrics.debt.delta_view %}
+ <div class="metric">
+  <div class="metric__label">{% trans "Долги" %}</div>
+  <div class="metric__value" data-count="{{ metrics.debt.value|raw_int }}" data-suffix=" сом">{{ metrics.debt.value|som }}</div>
+  <div class="metric__sub">{{ metrics.debt.clients }} {% trans "клиент(ов)" %}</div>
+  <div class="metric__delta metric__delta--{{ dv.token }}">{% if dv.pct %}{{ dv.arrow }} {{ dv.pct }}% {% endif %}{{ dv.text }}</div>
+ </div>
+ {% endwith %}
+</div>
+
+{# ---- primary chart: revenue over time (server-rendered SVG) ---- #}
+<div class="panel panel--full">
+ <h2 class="panel__title">{% trans "Выручка по дням" %}</h2>
+ <p class="panel__caption">{% trans "≈ сом, по курсу на день продажи" %}</p>
+ {% if chart.has_data %}
+ <div class="chart-wrap">
+  <div class="chart">
+   <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="{{ chart_aria }}">
+    <title>{{ chart_aria }}</title>
+    <defs>
+     <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" class="area-stop-top"/>
+      <stop offset="100%" class="area-stop-bottom"/>
+     </linearGradient>
+    </defs>
+    {% for g in chart.grid %}
+     <line class="chart__grid" x1="0" y1="{{ g.y }}" x2="{{ chart.width }}" y2="{{ g.y }}"/>
+     <text class="chart__gridlabel" x="2" y="{{ g.y }}" dy="-3">{{ g.label }}</text>
+    {% endfor %}
+    <path class="chart__area" d="{{ chart.area }}"/>
+    <path class="chart__line" d="{{ chart.line }}" data-line/>
+    {% if chart.last %}<circle class="chart__dot" cx="{{ chart.last.x }}" cy="{{ chart.last.y }}" r="3.5"/>{% endif %}
+    {% for x in chart.xlabels %}<text class="chart__xlabel" x="{{ x.x }}" y="{{ chart.height }}" dy="-6" text-anchor="middle">{{ x.label }}</text>{% endfor %}
+    <line class="chart__guide" data-guide x1="0" y1="0" x2="0" y2="{{ chart.base }}"/>
+    {% for pt in chart.points %}
+     <rect class="chart__hit" data-pt x="{{ pt.x }}" y="0" width="1" height="{{ chart.base }}"
+       data-cx="{{ pt.x }}" data-cy="{{ pt.y }}" data-label="{{ pt.label }}" data-value="{{ pt.value|som }}"></rect>
+    {% endfor %}
+   </svg>
+  </div>
+  <div class="chart-tooltip" data-tooltip></div>
+ </div>
+ {% else %}
+ <div class="empty">{% trans "Нет продаж за этот период" %}</div>
+ {% endif %}
+</div>
+
+<div class="panels">
+ {# ---- channels: ranked bars ---- #}
+ <div class="panel">
+  <h2 class="panel__title">{% trans "Каналы продаж" %}</h2>
+  {% if channel_bars %}
+  <div class="bars">
+   {% for b in channel_bars %}
+   <div class="bar__row">
+    <span class="bar__label">{{ b.label }}</span>
+    <span class="bar__amt">{{ b.value|som }}</span>
+    <span class="bar__track"><span class="bar__fill" style="--pct: {{ b.frac }}"></span></span>
+   </div>
+   {% endfor %}
+  </div>
+  {% else %}<div class="empty">{% trans "Нет продаж за этот период" %}</div>{% endif %}
+ </div>
+
+ {# ---- payment methods: donut ---- #}
+ <div class="panel">
+  <h2 class="panel__title">{% trans "Способы оплаты" %}</h2>
+  {% if donut.has_data %}
+  <div class="donut-wrap">
+   <svg class="donut" viewBox="0 0 {{ donut.size }} {{ donut.size }}" width="140" height="140" role="img"
+     aria-label="{% trans 'Способы оплаты' %}">
+    <g transform="rotate(-90 {{ donut.cx }} {{ donut.cy }})">
+     {% for s in donut.segments %}
+     <circle class="donut__seg" cx="{{ donut.cx }}" cy="{{ donut.cy }}" r="{{ donut.r }}"
+       style="stroke: {{ s.color }}; stroke-width: {{ donut.stroke }}px; stroke-dasharray: {{ s.dash }}; stroke-dashoffset: {{ s.offset }};"></circle>
+     {% endfor %}
+    </g>
+   </svg>
+   <div class="legend">
+    {% for s in donut.segments %}
+    <div class="legend__row">
+     <span class="legend__swatch" style="background: {{ s.color }}"></span>
+     <span>{{ s.label }} · {{ s.pct }}%</span>
+     <span class="legend__val">{{ s.value|som }}</span>
+    </div>
+    {% endfor %}
+   </div>
+  </div>
+  {% else %}<div class="empty">{% trans "Нет оплат за этот период" %}</div>{% endif %}
+ </div>
+</div>
+
+<div class="panels panels--equal">
+ {# ---- top products ---- #}
+ <div class="panel">
+  <h2 class="panel__title">{% trans "Топ товаров" %}</h2>
+  {% if top_products %}
+  <table class="dtable">
+   <thead><tr><th>{% trans "Товар" %}</th><th class="num">{% trans "шт" %}</th><th class="num">{% trans "выручка" %}</th><th class="num">{% trans "прибыль" %}</th></tr></thead>
+   <tbody>
+    {% for p in top_products %}
+    <tr><td>{{ p.name }}</td><td class="num">{{ p.units|grp }}</td><td class="num">{{ p.revenue|som }}</td><td class="num">{{ p.profit|som }}</td></tr>
+    {% endfor %}
+   </tbody>
+  </table>
+  {% else %}<div class="empty">{% trans "Нет продаж за этот период" %}</div>{% endif %}
+ </div>
+
+ {# ---- debt aging ---- #}
+ <div class="panel">
+  <h2 class="panel__title">{% trans "Долги по срокам" %}</h2>
+  <table class="dtable">
+   <thead><tr><th>{% trans "Срок" %}</th><th class="num">{% trans "сумма" %}</th></tr></thead>
+   <tbody>
+    <tr><td>0–30 {% trans "дней" %}</td><td class="num">{{ metrics.debt.aging.d0_30|som }}</td></tr>
+    <tr><td>31–60 {% trans "дней" %}</td><td class="num"><span class="chip chip--partial">{{ metrics.debt.aging.d31_60|som }}</span></td></tr>
+    <tr><td>60+ {% trans "дней" %}</td><td class="num"><span class="chip chip--debt">{{ metrics.debt.aging.d60_plus|som }}</span></td></tr>
+   </tbody>
+  </table>
+ </div>
+</div>
+
+{# ---- dead stock: the highest-value panel — dead capital sitting on shelves ---- #}
+<div class="panel panel--full">
+ <h2 class="panel__title">{% trans "Залежавшийся товар" %}</h2>
+ <p class="panel__caption">{% trans "Есть на складе, но не продавалось 90+ дней" %}</p>
+ {% if dead_stock %}
+ <table class="dtable">
+  <thead><tr><th>{% trans "Товар" %}</th><th class="num">{% trans "на складе" %}</th><th class="num">{% trans "дней без продаж" %}</th><th class="num">{% trans "заморожено, сом" %}</th></tr></thead>
+  <tbody>
+   {% for d in dead_stock %}
+   <tr>
+    <td>{{ d.name }}</td>
+    <td class="num">{{ d.units|grp }}</td>
+    <td class="num">{% if d.never_sold %}{% trans "не продавалось" %}{% else %}{{ d.days_idle|grp }}{% endif %}</td>
+    <td class="num">{{ d.capital|som }}</td>
+   </tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ {% else %}<div class="empty">{% trans "Нет залежавшегося товара" %}</div>{% endif %}
+</div>

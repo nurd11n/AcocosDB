@@ -19,6 +19,7 @@ import logging
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -28,6 +29,39 @@ from apps.core.models import BotMessage
 from .replies import build_reply
 
 logger = logging.getLogger(__name__)
+
+# The webhook is public (Meta calls it, unauthenticated), so it's hardened three
+# ways: a payload-size cap (Meta payloads are a few KB), a per-IP rate limit, and
+# the HMAC signature check. Meta payloads are small; anything large or fast is not
+# Meta.
+MAX_WEBHOOK_BYTES = 128 * 1024  # 128 KB
+RATE_LIMIT = 300  # requests per source IP...
+RATE_WINDOW = 60  # ...per this many seconds
+
+
+def _client_ip(request) -> str:
+    """The caller's real IP. Read X-Real-IP, which Caddy sets to the true TCP peer
+    and OVERWRITES (see Caddyfile) — so it can't be spoofed. We deliberately do NOT
+    read X-Forwarded-For: its leftmost entry is client-controlled (Caddy only
+    appends the real IP), so rotating it would defeat the per-IP limit. REMOTE_ADDR
+    is the fallback for a direct hit (dev, no proxy)."""
+    real = request.META.get("HTTP_X_REAL_IP", "").strip()
+    return real or request.META.get("REMOTE_ADDR", "unknown")
+
+
+def _rate_limited(ip: str) -> bool:
+    """Fixed-window per-IP counter in the cache. add-then-incr so a missing key
+    (window rolled over, or Redis restarted) is seeded, never raises."""
+    key = f"wa:rl:{ip}"
+    count = cache.get(key)
+    if count is not None and count >= RATE_LIMIT:
+        return True
+    if not cache.add(key, 1, RATE_WINDOW):
+        try:
+            cache.incr(key)
+        except ValueError:
+            cache.set(key, 1, RATE_WINDOW)
+    return False
 
 
 def _send_text(to: str, body: str) -> None:
@@ -71,6 +105,14 @@ def webhook(request):
             return HttpResponse(request.GET.get("hub.challenge", ""))
         return HttpResponseForbidden()
 
+    # Cheap rejects first, before the HMAC and before touching the DB.
+    declared = int(request.META.get("CONTENT_LENGTH") or 0)
+    if declared > MAX_WEBHOOK_BYTES:
+        return HttpResponse(status=413)
+    if _rate_limited(_client_ip(request)):
+        return HttpResponse(status=429)
+    if len(request.body) > MAX_WEBHOOK_BYTES:  # in case Content-Length lied
+        return HttpResponse(status=413)
     if not _valid_signature(request):
         return HttpResponseForbidden()
 

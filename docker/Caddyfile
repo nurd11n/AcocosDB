@@ -1,4 +1,10 @@
 {$DOMAIN} {
-    reverse_proxy web:8000
+    reverse_proxy web:8000 {
+        # Set X-Real-IP to the actual TCP peer, OVERWRITING anything the client
+        # sent. Django + django-axes read only this header for the client IP, so
+        # it can't be spoofed (unlike X-Forwarded-For, whose leftmost entry the
+        # client controls — Caddy only appends the real IP to that one).
+        header_up X-Real-IP {remote_host}
+    }
     encode gzip
 }

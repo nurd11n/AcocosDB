@@ -1,14 +1,11 @@
 """All stock math lives here. Admin, bots, and sales call these functions."""
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import F, Sum
+from django.db.models.functions import Coalesce
 from django.utils.translation import gettext as _
 
 from .models import ProductVariant, StockMovement
-
-
-def get_stock(variant: ProductVariant) -> int:
-    return variant.stock
 
 
 def add_movement(variant, movement_type, quantity, user=None, reason="", sale_order=None):
@@ -55,12 +52,16 @@ def stock_totals() -> dict:
 
 
 def low_stock_variants():
-    """Variants at or below their threshold — used by the nightly bot alert."""
-    return [
-        v
-        for v in ProductVariant.objects.filter(is_active=True).select_related("product")
-        if v.stock <= v.low_stock_threshold
-    ]
+    """Variants at or below their threshold — used by the /restock bot command
+    and the nightly digest. Stock is annotated and compared in SQL: one query
+    regardless of catalog size (the old Python loop was one query per variant)."""
+    return list(
+        ProductVariant.objects.filter(is_active=True)
+        .select_related("product")
+        .annotate(_stock=Coalesce(Sum("movements__quantity"), 0))
+        .filter(_stock__lte=F("low_stock_threshold"))
+        .order_by("product__name", "size", "color")
+    )
 
 
 def variants_with_stock():

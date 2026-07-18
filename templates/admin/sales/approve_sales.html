@@ -1,0 +1,40 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<form method="post">{% csrf_token %}
+  <input type="hidden" name="action" value="approve_selected">
+  <input type="hidden" name="apply" value="1">
+  {% for pk in selected %}<input type="hidden" name="_selected_action" value="{{ pk }}">{% endfor %}
+
+  <p>{% blocktrans count counter=orders|length %}You are approving {{ counter }} sale. Stock will be written off.{% plural %}You are approving {{ counter }} sales. Stock will be written off.{% endblocktrans %}</p>
+
+  <ul>
+   {% for o in orders %}
+   <li>#{{ o.id }} —
+     {% if o.client %}{{ o.client }}{% else %}<em>{% trans "walk-in" %}</em>{% endif %}
+     — {{ o.total }} {{ o.currency }}</li>
+   {% endfor %}
+  </ul>
+
+  <fieldset class="module aligned" style="padding:12px 16px;max-width:560px">
+   <h2 style="margin-top:0">{% trans "Payment received now" %}</h2>
+   <p><label><input type="radio" name="pay" value="full" checked>
+      {% trans "Paid in full" %}</label></p>
+   <p><label><input type="radio" name="pay" value="partial">
+      {% trans "Partial amount" %}:</label>
+      <input type="text" name="amount" placeholder="0.00" style="width:120px">
+      <span class="help" style="display:inline">{% trans "(applied to each selected sale, in that sale's own currency)" %}</span></p>
+   <p><label><input type="radio" name="pay" value="loan">
+      {% trans "Loan — pay later (no payment now)" %}</label></p>
+   <p class="help" style="margin-top:10px">
+     {% trans "Payments are only recorded for sales that have a client. Walk-in sales are treated as paid on the spot." %}
+   </p>
+  </fieldset>
+
+  <div class="submit-row">
+   <button type="submit" class="default">{% trans "Approve" %}</button>
+   <a href="{% url 'admin:sales_saleorder_changelist' %}" class="button cancel-link">{% trans "Cancel" %}</a>
+  </div>
+</form>
+{% endblock %}

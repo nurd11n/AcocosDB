@@ -1,0 +1,29 @@
+{% load i18n %}
+{% for tile in tiles %}
+<button type="button" class="tile" {% if tile.out %}disabled{% endif %}
+  hx-get="{% url 'pos:variant_picker' order.pk tile.product_id %}" hx-target="#variant-picker" hx-swap="innerHTML">
+  {% if tile.image_url %}
+    <img class="tile__photo" src="{{ tile.image_url }}" alt=""
+      loading="lazy" width="400" height="300">
+  {% else %}
+    <div class="tile__photo tile__photo--empty" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 3a2 2 0 0 1 2 2c0 .9-.6 1.6-1.4 1.9L12 7v1.2l8.4 5.4c.6.4.9 1 .9 1.7 0 1-.9 1.7-1.9 1.7H4.6c-1 0-1.9-.7-1.9-1.7 0-.7.3-1.3.9-1.7L12 8.2V7l-.6-.1A2 2 0 0 1 10 5a2 2 0 0 1 2-2z"/>
+      </svg>
+    </div>
+  {% endif %}
+  <div class="tile__name">{{ tile.name }}</div>
+  {% if tile.price is not None %}
+    <div class="tile__price num">{% if tile.price_varies %}{% trans "от" %} {% endif %}{{ tile.price }} {{ tile.currency }}</div>
+  {% endif %}
+  {% if tile.out %}
+    <span class="badge badge--neutral tile__badge">{% trans "нет в наличии" %}</span>
+  {% elif tile.low %}
+    <span class="badge badge--partial tile__badge">{% trans "осталось" %} {{ tile.stock }}</span>
+  {% else %}
+    <span class="badge badge--paid tile__badge">{% trans "в наличии" %}</span>
+  {% endif %}
+</button>
+{% empty %}
+<p class="muted" style="grid-column:1/-1">{% trans "Ничего не найдено" %}</p>
+{% endfor %}

@@ -1,5 +1,8 @@
-from django.contrib import admin
+from decimal import Decimal, InvalidOperation
+
+from django.contrib import admin, messages
 from django.db.models import Count, Sum
+from django.template.response import TemplateResponse
 from django.utils.translation import gettext_lazy as _
 from import_export.admin import ExportActionModelAdmin, ImportMixin
 from simple_history.admin import SimpleHistoryAdmin
@@ -12,6 +15,7 @@ from .resources import (
     ProductVariantResource,
     StaffProductVariantResource,
 )
+from .services import add_movement, adjust_to_count
 
 
 @admin.register(Category)
@@ -34,6 +38,7 @@ class VariantInline(admin.TabularInline):
         "sku",
         "size",
         "color",
+        "currency",
         "cost_price",
         "sale_price",
         "low_stock_threshold",
@@ -49,20 +54,50 @@ class VariantInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
-    list_display = ["name", "category", "is_active", "created_at"]
+    list_display = ["name", "category", "current_stock", "is_active", "created_at"]
     list_filter = ["category", "is_active"]
     search_fields = ["name"]
     inlines = [VariantInline]
     list_select_related = ["category"]
+
+    def get_queryset(self, request):
+        # Stock per product = sum across its variants, annotated in SQL.
+        return super().get_queryset(request).annotate(_stock=Sum("variants__movements__quantity"))
+
+    @admin.display(description=_("stock"), ordering="_stock")
+    def current_stock(self, obj):
+        return obj._stock or 0
+
+
+def _parse_qty(raw: str) -> int | None:
+    try:
+        value = int(Decimal(raw.strip()))
+    except (InvalidOperation, AttributeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 @admin.register(ProductVariant)
 class ProductVariantAdmin(
     SimpleHistoryAdmin, ImportMixin, ExportActionModelAdmin, admin.ModelAdmin
 ):
-    list_display = ["sku", "product", "size", "color", "current_stock", "sale_price", "is_active"]
+    list_display = [
+        "sku",
+        "product",
+        "size",
+        "color",
+        "current_stock",
+        "sale_price",
+        "currency",
+        "is_active",
+    ]
     list_filter = ["is_active", "product__category"]
     search_fields = ["sku", "product__name", "color"]
+    actions = [
+        "receive_stock_selected",
+        "writeoff_selected",
+        "recount_selected",
+    ]
 
     def get_export_resource_classes(self, request):
         if can_see_costs(request.user):
@@ -97,10 +132,96 @@ class ProductVariantAdmin(
             fields = [f for f in fields if f != "cost_price"]
         return fields
 
+    # --- Stock buttons: the owner never opens the raw movement form. Each asks
+    # for a number (and a reason for recount) and writes the ledger row behind
+    # the scenes via apps.inventory.services. ---
+
+    def _intake_or_writeoff(self, request, queryset, movement_type, title, action_name):
+        variants = list(queryset.select_related("product"))
+        if request.POST.get("apply"):
+            applied = 0
+            for v in variants:
+                qty = _parse_qty(request.POST.get(f"qty_{v.pk}", ""))
+                if not qty:
+                    continue
+                add_movement(v, movement_type, qty, user=request.user, reason=str(title))
+                applied += 1
+            if applied:
+                self.message_user(request, _("Updated stock for %(n)s item(s).") % {"n": applied})
+            else:
+                self.message_user(
+                    request, _("No quantities entered — nothing changed."), level=messages.WARNING
+                )
+            return None
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": title,
+            "variants": variants,
+            "selected": [str(v.pk) for v in variants],
+            "action_name": action_name,
+            "mode": "qty",
+            "opts": self.model._meta,
+        }
+        return TemplateResponse(request, "admin/inventory/stock_action.html", context)
+
+    @admin.action(description=_("Receive stock (Принять на склад)"))
+    def receive_stock_selected(self, request, queryset):
+        return self._intake_or_writeoff(
+            request,
+            queryset,
+            StockMovement.PRODUCTION_IN,
+            _("Receive stock"),
+            "receive_stock_selected",
+        )
+
+    @admin.action(description=_("Write off (Списать)"))
+    def writeoff_selected(self, request, queryset):
+        return self._intake_or_writeoff(
+            request, queryset, StockMovement.WRITEOFF_OUT, _("Write off stock"), "writeoff_selected"
+        )
+
+    @admin.action(description=_("Recount (Пересчёт)"))
+    def recount_selected(self, request, queryset):
+        variants = list(queryset.select_related("product"))
+        if request.POST.get("apply"):
+            reason = request.POST.get("reason", "").strip()
+            if not reason:
+                self.message_user(
+                    request, _("A reason is required for a recount."), level=messages.ERROR
+                )
+            else:
+                applied = 0
+                for v in variants:
+                    raw = request.POST.get(f"count_{v.pk}", "").strip()
+                    if raw == "":
+                        continue
+                    try:
+                        counted = int(raw)
+                    except ValueError:
+                        continue
+                    adjust_to_count(v, counted, request.user, reason)
+                    applied += 1
+                self.message_user(request, _("Recounted %(n)s item(s).") % {"n": applied})
+                return None
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": _("Recount"),
+            "variants": variants,
+            "selected": [str(v.pk) for v in variants],
+            "action_name": "recount_selected",
+            "mode": "count",
+            "opts": self.model._meta,
+        }
+        return TemplateResponse(request, "admin/inventory/stock_action.html", context)
+
 
 @admin.register(StockMovement)
 class StockMovementAdmin(admin.ModelAdmin):
-    """The ledger is append-only: rows can be added, never edited or deleted."""
+    """The ledger is append-only and not in the sidebar — stock changes go
+    through the Receive/Write off/Recount buttons on the variant list. This
+    stays reachable by direct URL for a superuser auditing the raw log."""
 
     list_display = ["created_at", "variant", "movement_type", "quantity", "reason", "created_by"]
     list_filter = ["movement_type"]
@@ -108,6 +229,9 @@ class StockMovementAdmin(admin.ModelAdmin):
     list_select_related = ["variant__product", "created_by"]
     fields = ["variant", "movement_type", "quantity", "reason"]
     autocomplete_fields = ["variant"]
+
+    def has_module_permission(self, request):
+        return False
 
     def has_change_permission(self, request, obj=None):
         return False

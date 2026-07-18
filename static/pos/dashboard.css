@@ -1,0 +1,215 @@
+/* Owner dashboard — desktop-first analytics, stacks at 390px. Inherits tokens.css
+   (palette, Inter, spacing, radii, tabular-nums). No new colours here. */
+
+.dash {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) var(--space-6);
+}
+
+.dash-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.dash-header__title { font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+.dash-header__actions { display: flex; align-items: center; gap: var(--space-2); }
+
+/* --- period selector: a segmented control driven by ?period= --- */
+.period {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-sunken);
+  border-radius: 20px;
+}
+.period__pill {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 12px;
+  min-height: var(--tap-min);
+  border-radius: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.period__pill[aria-current="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 500;
+}
+
+/* --- metric cards --- */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.metric {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  min-height: 92px; /* reserved so nothing shifts as numbers count up */
+}
+.metric__label { font-size: 11px; color: var(--text-2); }
+.metric__value {
+  font-size: 19px;
+  font-weight: 500;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.metric__sub { font-size: 11px; color: var(--text-3); }
+.metric__delta { font-size: 11px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.metric__delta--paid { color: var(--paid); }
+.metric__delta--debt { color: var(--debt); }
+.metric__delta--text-2 { color: var(--text-2); }
+.metric__delta--text-3 { color: var(--text-3); }
+
+/* --- panels (charts + tables) --- */
+.panels { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-3); }
+.panels--equal { grid-template-columns: 1fr 1fr; }
+.panel {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.panel--full { grid-column: 1 / -1; }
+.panel__title { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 var(--space-2); }
+.panel__caption { font-size: 11px; color: var(--text-3); margin: 0 0 var(--space-3); }
+.panel__more { font-size: 12px; color: var(--accent); text-decoration: none; }
+.empty { color: var(--text-3); font-size: 13px; text-align: center; padding: var(--space-6) 0; }
+
+/* --- SVG chart --- */
+.chart { width: 100%; height: auto; display: block; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart__grid { stroke: var(--border); stroke-width: 0.5; }
+.chart__gridlabel { fill: var(--text-3); font-size: 11px; }
+.chart__xlabel { fill: var(--text-3); font-size: 11px; }
+.chart__area { fill: url(#areaGrad); }
+.chart__line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart__dot { fill: var(--accent); }
+.chart__hit { fill: transparent; cursor: crosshair; }
+.chart__guide { stroke: var(--border-strong); stroke-width: 0.5; visibility: hidden; }
+.area-stop-top { stop-color: var(--accent); stop-opacity: 0.28; }
+.area-stop-bottom { stop-color: var(--accent); stop-opacity: 0; }
+html[data-theme="dark"] .area-stop-top { stop-opacity: 0.2; }
+@media (prefers-color-scheme: dark) { html:not([data-theme]) .area-stop-top { stop-opacity: 0.2; } }
+
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--shadow);
+  visibility: hidden;
+  white-space: nowrap;
+  z-index: 5;
+}
+.chart-wrap { position: relative; }
+
+/* --- ranked bars (channels) --- */
+.bars { display: flex; flex-direction: column; gap: var(--space-3); }
+.bar__row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; }
+.bar__label { font-size: 12px; color: var(--text); }
+.bar__amt { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; text-align: right; }
+.bar__track {
+  grid-column: 1 / -1;
+  height: 6px;
+  background: var(--surface-sunken);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bar__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transform-origin: left center;
+  transform: scaleX(var(--pct, 0));
+}
+
+/* --- donut --- */
+.donut-wrap { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.donut { flex: none; }
+.donut__seg { fill: none; transition: stroke-dashoffset 400ms var(--ease, cubic-bezier(0.2, 0, 0, 1)); }
+.legend { display: flex; flex-direction: column; gap: var(--space-2); font-size: 12px; }
+.legend__row { display: flex; align-items: center; gap: var(--space-2); }
+.legend__swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.legend__val { color: var(--text-2); font-variant-numeric: tabular-nums; margin-left: auto; }
+
+/* --- tables --- */
+.dtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dtable th {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 0.5px solid var(--border);
+}
+.dtable td { padding: 0 8px; border-bottom: 0.5px solid var(--border); height: 44px; vertical-align: middle; }
+.dtable tr:last-child td { border-bottom: 0; }
+.dtable td.num, .dtable th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.dtable tbody tr:hover { background: var(--surface-sunken); }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 11px; }
+.chip--partial { background: var(--partial-bg); color: var(--partial); }
+.chip--debt { background: var(--debt-bg); color: var(--debt); }
+
+/* --- responsive: stack at narrow widths --- */
+@media (max-width: 900px) {
+  .panels { grid-template-columns: 1fr; }
+  .metrics { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .metrics { grid-template-columns: 1fr 1fr; }
+  .dash { padding: var(--space-3); }
+}
+
+/* =========================================================================
+   Motion — dashboard is opened once or twice a day, so delight is affordable.
+   Animate only transform/opacity. Heights are reserved above so nothing shifts.
+   ========================================================================= */
+@keyframes dash-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate .metric { animation: dash-rise 300ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) both; }
+.animate .metric:nth-child(1) { animation-delay: 0ms; }
+.animate .metric:nth-child(2) { animation-delay: 40ms; }
+.animate .metric:nth-child(3) { animation-delay: 80ms; }
+.animate .metric:nth-child(4) { animation-delay: 120ms; }
+.animate .panel { animation: dash-rise 300ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) both; animation-delay: 120ms; }
+
+.animate .chart__line {
+  stroke-dasharray: var(--len, 2000);
+  stroke-dashoffset: var(--len, 2000);
+  animation: chart-draw 600ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) forwards;
+}
+@keyframes chart-draw { to { stroke-dashoffset: 0; } }
+.animate .chart__area { animation: dash-fade 400ms 100ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) both; }
+@keyframes dash-fade { from { opacity: 0; } to { opacity: 1; } }
+.animate .bar__fill { animation: bar-grow 400ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) both; }
+@keyframes bar-grow { from { transform: scaleX(0); } }
+
+/* HTMX period swap cross-fade */
+#dash-panel.htmx-swapping { opacity: 0; transition: opacity 150ms var(--ease, cubic-bezier(0.2, 0, 0, 1)); }
+#dash-panel { transition: opacity 150ms var(--ease, cubic-bezier(0.2, 0, 0, 1)); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

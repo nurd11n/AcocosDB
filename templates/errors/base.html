@@ -1,0 +1,21 @@
+{% load i18n static %}<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'ru' }}"{% if THEME %} data-theme="{{ THEME }}"{% endif %}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACOCOS — {% block code %}{% endblock %}</title>
+<link rel="stylesheet" href="{% static 'pos/tokens.css' %}">
+<link rel="stylesheet" href="{% static 'pos/app.css' %}">
+</head>
+<body>
+<div class="error-page">
+ <div class="error-card">
+  {% block icon %}{% endblock %}
+  <p class="error-message">{% block message %}{% endblock %}</p>
+  {% block extra %}{% endblock %}
+  <a class="btn btn-primary" href="{% block action_url %}/pos/{% endblock %}">
+    {% block action_label %}{% trans "Вернуться к продажам" %}{% endblock %}</a>
+ </div>
+</div>
+</body>
+</html>

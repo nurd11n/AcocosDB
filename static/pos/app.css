@@ -1,0 +1,522 @@
+/* ACOCOS /pos/ + /login/ — component styles. Every colour, spacing, and
+   radius here is a var() from tokens.css; no literal hex/px sizing outside
+   that file. See /POS-DESIGN.md for the reasoning behind each rule. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* The HTML `hidden` attribute must always win, even over a component that sets
+   its own display. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+}
+
+body {
+  font-family: var(--font);
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+a { color: inherit; }
+
+/* Money everywhere: fixed-width digits stop totals jittering as they update. */
+.num, .tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- focus + motion + a11y floor --- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* /pos/ motion — subtle and fast. A client is waiting, so nothing here draws
+   in, staggers, or counts up: just a press affordance and a quick fade as HTMX
+   fragments (basket lines, autocomplete, the money bar) settle. Only transform
+   and opacity animate — both are compositor-only, so they never trigger layout.
+   The dashboard keeps its richer motion in dashboard.css. */
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .tile, .top__link, .theme-toggle {
+    transition: transform var(--dur-pos) var(--ease), background-color var(--dur-pos) var(--ease),
+      border-color var(--dur-pos) var(--ease);
+  }
+  .btn:active, .tile:not(:disabled):active, .top__link:active, .theme-toggle:active { transform: scale(0.96); }
+  .htmx-added { animation: pos-fade var(--dur-pos) var(--ease); }
+}
+@keyframes pos-fade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  /* 0.01ms, not `none`, so any animationend listener still fires exactly once. */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- layout --- */
+.wrap {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) calc(var(--nav-height) + var(--space-4));
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border-bottom: 0.5px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 6;
+}
+.top__brand { font-weight: 500; font-size: 16px; letter-spacing: -0.01em; }
+.top__actions { display: flex; align-items: center; gap: var(--space-2); }
+.top__link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-sunken);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-control);
+}
+@media (hover: hover) {
+  .top__link:hover { border-color: var(--border-strong); background: var(--accent-bg); }
+}
+
+.theme-toggle {
+  display: inline-flex;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-sunken);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text-2);
+  font-size: 16px;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .theme-toggle:hover { border-color: var(--border-strong); background: var(--accent-bg); }
+}
+/* Reflects the state actually rendered (explicit cookie OR the OS-driven
+   fallback), not just the cookie — a pure-CSS match for tokens.css's
+   prefers-color-scheme rule, so it's correct with zero JS and no flash. */
+.theme-toggle__icon--sun { display: none; }
+.theme-toggle__icon--moon { display: inline; }
+html[data-theme="dark"] .theme-toggle__icon--sun { display: inline; }
+html[data-theme="dark"] .theme-toggle__icon--moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .theme-toggle__icon--sun { display: inline; }
+  html:not([data-theme]) .theme-toggle__icon--moon { display: none; }
+}
+
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--nav-height);
+  display: flex;
+  background: var(--surface);
+  border-top: 0.5px solid var(--border);
+  z-index: 5;
+}
+.bottom-nav a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--text-3);
+  text-decoration: none;
+  font-size: 11px;
+  min-height: var(--tap-min);
+}
+.bottom-nav a[aria-current="page"] { color: var(--accent); font-weight: 500; }
+.bottom-nav .ic { font-size: 17px; line-height: 1; }
+
+/* --- cards + sections --- */
+.card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  box-shadow: var(--shadow);
+}
+.card h2 {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  margin: 0 0 var(--space-3);
+}
+
+.muted { color: var(--text-2); font-size: 13px; }
+.hint { color: var(--text-3); font-size: 12px; }
+
+.error {
+  color: var(--debt);
+  background: var(--debt-bg);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+  font-size: 13px;
+  margin: 0 0 var(--space-3);
+}
+
+/* --- forms --- */
+label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin: var(--space-3) 0 var(--space-1);
+}
+label:first-child { margin-top: 0; }
+
+input, select, textarea {
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 10px var(--space-3);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 16px; /* prevents iOS auto-zoom on focus */
+}
+input::placeholder { color: var(--text-3); }
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+}
+
+.row { display: flex; gap: var(--space-2); }
+.row > * { flex: 1; min-width: 0; }
+
+/* --- buttons --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-min);
+  padding: 10px var(--space-4);
+  border-radius: var(--radius-control);
+  border: 0.5px solid transparent;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  width: 100%;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--border);
+}
+.btn-ghost--debt { color: var(--debt); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-icon {
+  width: var(--tap-min);
+  min-width: var(--tap-min);
+  padding: 0;
+  flex: none;
+}
+
+/* --- product grid + tile --- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+}
+.tile {
+  position: relative;
+  text-align: left;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-2);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+}
+.tile:disabled { opacity: 0.45; cursor: not-allowed; }
+.tile__photo {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: calc(var(--radius-card) - 4px);
+  background: var(--surface-sunken);
+  display: block;
+  margin-bottom: var(--space-2);
+}
+.tile__photo--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+.tile__name { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
+.tile__price { font-size: 13px; color: var(--text-2); }
+.tile__badge {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+}
+
+/* --- status badges: colour + word, never colour alone --- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.badge--paid { background: var(--paid-bg); color: var(--paid); }
+.badge--partial { background: var(--partial-bg); color: var(--partial); }
+.badge--debt { background: var(--debt-bg); color: var(--debt); }
+.badge--neutral { background: var(--surface-sunken); color: var(--text-3); }
+
+/* --- client chip --- */
+.client-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  background: var(--accent-bg);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+}
+.client-chip__name { font-weight: 500; }
+.client-chip__phone { color: var(--text-2); font-size: 13px; }
+.client-chip__debt { text-align: right; font-size: 13px; white-space: nowrap; }
+
+/* --- line rows --- */
+.line-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 0.5px solid var(--border);
+}
+.line-row:last-child { border-bottom: none; }
+.line-row__label { flex: 1; min-width: 0; }
+.line-row__label strong { font-weight: 500; }
+.line-row__total { text-align: right; white-space: nowrap; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+td, th { padding: var(--space-2) var(--space-1); border-bottom: 0.5px solid var(--border); text-align: left; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- money bar: the signature element, always visible above the keyboard --- */
+.money-bar {
+  position: sticky;
+  bottom: var(--nav-height);
+  background: var(--surface);
+  border-top: 0.5px solid var(--border);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  box-shadow: var(--shadow);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-4) calc(var(--space-4) * -1) 0;
+  z-index: 4;
+}
+.money-bar__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: 14px;
+}
+.money-bar__row--total {
+  border-top: 0.5px solid var(--border);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+}
+.money-bar__row--total .money-bar__label,
+.money-bar__row--total .money-bar__amount {
+  font-size: 22px;
+  font-weight: 500;
+}
+.money-bar__row--paid .money-bar__label,
+.money-bar__row--paid .money-bar__amount { color: var(--paid); }
+.money-bar__row--partial .money-bar__label,
+.money-bar__row--partial .money-bar__amount { color: var(--partial); }
+.money-bar__row--debt .money-bar__label,
+.money-bar__row--debt .money-bar__amount { color: var(--debt); }
+.money-bar__amount { font-variant-numeric: tabular-nums; }
+.money-bar__conv { font-size: 12px; color: var(--text-3); display: block; }
+.money-bar .btn { margin-top: var(--space-3); }
+
+/* --- login: split layout, the one place with room for character ---
+   The whole page renders with the database down: the photo is a static file,
+   nothing here queries. On mobile the photo collapses to a short header band. */
+.login-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 140px 1fr;
+}
+.login-photo {
+  background: var(--accent-bg) url("login.jpg") center / cover no-repeat;
+}
+.login-form-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+}
+.login-card {
+  width: 100%;
+  max-width: 360px;
+}
+.login-wordmark {
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-1);
+}
+.login-sub { color: var(--text-2); font-size: 13px; margin: 0 0 var(--space-5); }
+.login-field { margin-bottom: var(--space-3); }
+.login-field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+.login-card input[type="text"],
+.login-card input[type="password"],
+.login-card input[type="number"] {
+  width: 100%;
+}
+.login-otp input { letter-spacing: 0.35em; font-variant-numeric: tabular-nums; }
+.login-error {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--debt-bg);
+  color: var(--debt);
+  border-radius: var(--radius-control);
+  font-size: 13px;
+}
+
+@media (min-width: 768px) {
+  .login-page {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr;
+  }
+  .login-photo { grid-row: auto; }
+}
+
+/* --- error pages (404/403/400/csrf/lockout): a single centred card --- */
+.error-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+.error-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+}
+.error-icon { color: var(--text-3); margin: 0 auto var(--space-4); display: block; }
+.error-message { font-size: 19px; font-weight: 500; color: var(--text); margin: 0 0 var(--space-2); }
+.error-cid {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  user-select: all;
+  margin: var(--space-2) 0 0;
+}
+.error-card .btn { margin-top: var(--space-5); }
+
+/* ===================================================================
+   Desktop (>=768px). No separate codebase, no device detection: the same
+   markup, re-placed with CSS. The cart (client + items + payment + money
+   bar, i.e. #sale-body) becomes a sticky right rail; products fill the
+   left. Scoped to the sale screen with :has(#sale-body) so the read-only
+   pages (Сегодня/Клиенты) stay a single comfortable column.
+   =================================================================== */
+@media (min-width: 768px) {
+  /* Read-only pages: a comfortable centred reading column. */
+  .wrap {
+    max-width: 720px;
+    padding-bottom: calc(var(--nav-height) + var(--space-6));
+  }
+
+  /* Product grid gets the width it deserves: 4 columns, hover affordance. */
+  .grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  @media (hover: hover) {
+    .tile {
+      transition: transform var(--dur-pos) var(--ease), background-color var(--dur-pos) var(--ease);
+    }
+    .tile:not(:disabled):hover {
+      background: var(--surface-sunken);
+    }
+  }
+
+  /* Sale screen: two columns — products left, cart rail right. */
+  .wrap:has(#sale-body) {
+    max-width: 1200px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: var(--space-4);
+    align-items: start;
+  }
+  .wrap:has(#sale-body) > * {
+    grid-column: 1;
+    min-width: 0;
+  }
+  .wrap:has(#sale-body) > #sale-body {
+    grid-column: 2;
+    grid-row: 1 / 100; /* span the whole left stack */
+    position: sticky;
+    top: 76px; /* clear the sticky header */
+  }
+  /* Inside the rail the money bar is no longer a floating bottom bar. */
+  .wrap:has(#sale-body) .money-bar {
+    position: static;
+    margin: var(--space-3) 0 0;
+    border-radius: var(--radius-card);
+    border-top: 0.5px solid var(--border);
+  }
+}
+
+@media (min-width: 1280px) {
+  .grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}

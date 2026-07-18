@@ -1,0 +1,56 @@
+{% load i18n pos_extras %}
+<div class="card">
+ <h2>{% trans "Клиент" %}</h2>
+ {% if order.client %}
+   {% with debts=order.client|client_debts %}
+   <div class="client-chip">
+     <div>
+       <div class="client-chip__name">{{ order.client.name }}</div>
+       <div class="client-chip__phone">{{ order.client.phone }}</div>
+     </div>
+     <div class="client-chip__debt num">
+       <span class="hint">{% trans "Долг" %}</span><br>
+       {% if debts %}
+         {% for cur, amt in debts.items %}
+           <span class="{% if amt > 0 %}badge badge--debt{% else %}muted{% endif %}">{{ amt }} {{ cur }}</span>{% if not forloop.last %}<br>{% endif %}
+         {% endfor %}
+       {% else %}
+         <span class="badge badge--paid">0</span>
+       {% endif %}
+     </div>
+   </div>
+   {% endwith %}
+   <button class="btn btn-ghost" type="button" style="margin-top:var(--space-3)"
+     hx-post="{% url 'pos:client_clear' order.pk %}" hx-target="#client-section" hx-swap="innerHTML">
+     {% trans "Изменить" %}</button>
+ {% elif new_client_open %}
+   <form hx-post="{% url 'pos:client_create' order.pk %}" hx-target="#client-section" hx-swap="innerHTML">
+     {% if new_client_error %}<div class="error">{{ new_client_error }}</div>{% endif %}
+     <label>{% trans "Имя" %}</label>
+     <input name="first_name" value="{{ new_client_values.first_name|default:'' }}" required>
+     <label>{% trans "Фамилия" %}</label>
+     <input name="last_name" value="{{ new_client_values.last_name|default:'' }}">
+     <label>{% trans "Телефон" %}</label>
+     <input name="phone" type="tel" inputmode="tel" value="{{ new_client_values.phone|default:'' }}" required>
+     <div class="row" style="margin-top:var(--space-3)">
+       <button type="submit" class="btn btn-primary">{% trans "Сохранить" %}</button>
+       <button type="button" class="btn btn-ghost"
+         hx-post="{% url 'pos:client_clear' order.pk %}" hx-target="#client-section" hx-swap="innerHTML">
+         {% trans "Отмена" %}</button>
+     </div>
+   </form>
+ {% else %}
+   <input type="search" name="q" placeholder="{% trans "Телефон или имя" %}" inputmode="tel"
+     hx-get="{% url 'pos:client_search' order.pk %}" hx-trigger="keyup changed delay:300ms, load"
+     hx-target="#client-results" hx-swap="innerHTML">
+   <div id="client-results" style="margin-top:var(--space-2)"></div>
+   <div class="row" style="margin-top:var(--space-3)">
+     <button type="button" class="btn btn-ghost"
+       hx-post="{% url 'pos:client_clear' order.pk %}" hx-target="#client-section" hx-swap="innerHTML">
+       {% trans "Без клиента" %}</button>
+     <button type="button" class="btn btn-ghost"
+       hx-post="{% url 'pos:client_new_form' order.pk %}" hx-target="#client-section" hx-swap="innerHTML">
+       {% trans "+ Новый клиент" %}</button>
+   </div>
+ {% endif %}
+</div>

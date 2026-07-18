@@ -1,0 +1,22 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Новая продажа" %}{% endblock %}
+{% block content %}
+<div id="client-section">
+  {% include "pos/partials/client_section.html" %}
+</div>
+
+<div class="card">
+ <h2>{% trans "Товары" %}</h2>
+ <input type="search" name="q" id="product-search" placeholder="{% trans "Поиск по названию или артикулу" %}" autofocus
+   hx-get="{% url 'pos:product_grid' order.pk %}" hx-trigger="keyup changed delay:300ms, load"
+   hx-target="#product-grid" hx-swap="innerHTML">
+ <div id="product-grid" class="grid" style="margin-top:var(--space-3)"></div>
+</div>
+
+<div id="variant-picker"></div>
+
+<div id="sale-body">
+  {% include "pos/partials/sale_body.html" %}
+</div>
+{% endblock %}

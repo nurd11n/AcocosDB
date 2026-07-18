@@ -9,7 +9,16 @@ class ProductVariantResource(resources.ModelResource):
 
     class Meta:
         model = ProductVariant
-        fields = ("id", "sku", "product__name", "size", "color", "cost_price", "sale_price")
+        fields = (
+            "id",
+            "sku",
+            "product__name",
+            "size",
+            "color",
+            "currency",
+            "cost_price",
+            "sale_price",
+        )
         export_order = fields
 
 
@@ -18,7 +27,7 @@ class StaffProductVariantResource(resources.ModelResource):
 
     class Meta:
         model = ProductVariant
-        fields = ("id", "sku", "product__name", "size", "color", "sale_price")
+        fields = ("id", "sku", "product__name", "size", "color", "currency", "sale_price")
         export_order = fields
 
 
@@ -38,6 +47,7 @@ class ProductVariantImportResource(resources.ModelResource):
             "product",
             "size",
             "color",
+            "currency",
             "cost_price",
             "sale_price",
             "low_stock_threshold",

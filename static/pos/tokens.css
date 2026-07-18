@@ -1,0 +1,136 @@
+/* ACOCOS /pos/ design tokens — the only place a colour, spacing, or radius
+   value is allowed to be a literal. Every other stylesheet and template
+   reads these as var(--x); never hardcode a hex value elsewhere.
+   See /POS-DESIGN.md for the reasoning behind each choice. */
+
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* --- colour: light (default) --- */
+  --page: #F5F6F7;
+  --surface: #FFFFFF;
+  --surface-sunken: #EDEFF1;
+  --border: #E3E6E9;
+  --text: #14181C;
+  --text-2: #5B6670;
+  --text-3: #8A939C;
+  --accent: #2C6FB5;
+  --accent-bg: #E8F0F9;
+  --paid: #1D7A4F;
+  --paid-bg: #E4F3EB;
+  /* darker amber than the original #B26B00 so text passes WCAG AA (>=4.5:1) on
+     --surface — the one semantic colour that failed on white. */
+  --partial: #8A5300;
+  --partial-bg: #FBF0DE;
+  --debt: #B3271F;
+  --debt-bg: #FAE9E8;
+  --border-strong: #C7CDD2; /* tooltip guide line, slightly stronger than --border */
+
+  /* Categorical ramp for charts — a monochrome accent scale, NOT a rainbow:
+     payment methods carry no valence, and a red/green set would collide with
+     --paid/--partial/--debt. Derived from --accent + --surface, so it re-mixes
+     per theme automatically (color-mix resolves at use time). */
+  --cat-1: var(--accent);
+  --cat-2: color-mix(in srgb, var(--accent) 72%, var(--surface));
+  --cat-3: color-mix(in srgb, var(--accent) 48%, var(--surface));
+  --cat-4: color-mix(in srgb, var(--accent) 28%, var(--surface));
+
+  /* --- type --- */
+  --font: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* --- spacing (4px unit) --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  /* --- radius --- */
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-pill: 20px;
+
+  /* --- misc --- */
+  --tap-min: 44px;
+  --nav-height: 56px; /* set at :root, not .bottom-nav — .money-bar is a
+    sibling subtree and custom properties don't cross sibling boundaries */
+  --shadow: 0 1px 3px rgba(20, 24, 28, 0.08);
+  --on-accent: #FFFFFF; /* text/icon colour on top of a filled --accent button */
+
+  /* --- motion --- one shared easing so /pos/ and the dashboard feel alike.
+     /pos/ is opened dozens of times a day with a client waiting, so its
+     durations stay short (≤120ms); the dashboard can afford more. */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-pos: 120ms;
+}
+
+/* Follow the OS by default when no explicit choice has been made. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) {
+    --page: #14181C;
+    --surface: #1C2126;
+    --surface-sunken: #23292F;
+    --border: #2C333A;
+    --text: #EEF1F4;
+    --text-2: #9AA5B0;
+    --text-3: #6B7680;
+    --accent: #6BA8E0;
+    --accent-bg: #1B2C3D;
+    --paid: #4FBF8B;
+    --paid-bg: #142C22;
+    --partial: #E5A245;
+    --partial-bg: #2E2416;
+    --debt: #E86A62;
+    --debt-bg: #2F1917;
+    --border-strong: #3C444C;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Explicit choice, stored in a cookie and rendered server-side — see
+   apps/core/views.py::set_theme. Wins over the OS preference either way. */
+html[data-theme="dark"] {
+  --page: #14181C;
+  --surface: #1C2126;
+  --surface-sunken: #23292F;
+  --border: #2C333A;
+  --text: #EEF1F4;
+  --text-2: #9AA5B0;
+  --text-3: #6B7680;
+  --accent: #6BA8E0;
+  --accent-bg: #1B2C3D;
+  --paid: #4FBF8B;
+  --paid-bg: #142C22;
+  --partial: #E5A245;
+  --partial-bg: #2E2416;
+  --debt: #E86A62;
+  --debt-bg: #2F1917;
+  --border-strong: #3C444C;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme="light"] {
+  --page: #F5F6F7;
+  --surface: #FFFFFF;
+  --surface-sunken: #EDEFF1;
+  --border: #E3E6E9;
+  --text: #14181C;
+  --text-2: #5B6670;
+  --text-3: #8A939C;
+  --accent: #2C6FB5;
+  --accent-bg: #E8F0F9;
+  --paid: #1D7A4F;
+  --paid-bg: #E4F3EB;
+  --partial: #8A5300;
+  --partial-bg: #FBF0DE;
+  --debt: #B3271F;
+  --debt-bg: #FAE9E8;
+  --border-strong: #C7CDD2;
+  --shadow: 0 1px 3px rgba(20, 24, 28, 0.08);
+}

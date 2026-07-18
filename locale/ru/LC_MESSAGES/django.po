@@ -1,14 +1,141 @@
+#
 msgid ""
 msgstr ""
 "Project-Id-Version: acocos-crm\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-18 01:29+0600\n"
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
+msgid "Audience"
+msgstr "Аудитория"
+
+msgid ""
+"Consent and a linked Telegram chat are always required on top of these "
+"filters. Save, then use “Send” to preview the count."
+msgstr ""
+"Согласие и привязанный Telegram-чат обязательны в дополнение к этим "
+"фильтрам. Сохраните, затем нажмите «Отправить», чтобы увидеть количество."
+
+msgid "Status"
+msgstr "Статус"
+
+msgid "reachable"
+msgstr "охват"
+
+msgid "Send now (Telegram)"
+msgstr "Отправить сейчас (Telegram)"
+
+msgid "Only the owner can send campaigns."
+msgstr "Только владелец может отправлять рассылки."
+
+#, python-format
+msgid "«%(name)s»: no reachable clients — nothing sent."
+msgstr "«%(name)s»: нет доступных клиентов — ничего не отправлено."
+
+#, python-format
+msgid "«%(name)s» failed: %(err)s"
+msgstr "«%(name)s» — ошибка: %(err)s"
+
+#, python-format
+msgid "«%(name)s» sent to %(n)s client(s)."
+msgstr "«%(name)s» отправлено клиентам: %(n)s."
+
+msgid "Campaigns"
+msgstr "Рассылки"
+
+msgid "Telegram"
+msgstr "Telegram"
+
+msgid "WhatsApp"
+msgstr "WhatsApp"
+
+msgid "Draft"
+msgstr "Черновик"
+
+msgid "Sending"
+msgstr "Отправляется"
+
+msgid "Sent"
+msgstr "Отправлено"
+
+msgid "name"
+msgstr "название"
+
+msgid "message (Russian)"
+msgstr "сообщение (рус.)"
+
+msgid "products"
+msgstr "товары"
+
+msgid "Their photos are sent as a media group with the message."
+msgstr "Их фотографии отправляются группой вместе с сообщением."
+
+msgid "channel"
+msgstr "канал"
+
+msgid "status"
+msgstr "статус"
+
+msgid "only clients who bought before"
+msgstr "только клиенты, которые уже покупали"
+
+msgid "only clients with debt"
+msgstr "только клиенты с долгом"
+
+msgid "only clients inactive for N days"
+msgstr "только клиенты без покупок N дней"
+
+msgid "Leave empty to ignore. E.g. 60 = haven't purchased in 60 days."
+msgstr "Оставьте пустым, чтобы не учитывать. Напр. 60 = не покупали 60 дней."
+
+msgid "created by"
+msgstr "создал(а)"
+
+msgid "created at"
+msgstr "создано"
+
+msgid "campaign"
+msgstr "рассылка"
+
+msgid "campaigns"
+msgstr "рассылки"
+
+msgid "Pending"
+msgstr "Ожидает"
+
+msgid "Failed"
+msgstr "Ошибка"
+
+msgid "Skipped"
+msgstr "Пропущено"
+
+msgid "client"
+msgstr "клиент"
+
+msgid "error"
+msgstr "ошибка"
+
+msgid "sent at"
+msgstr "отправлено в"
+
+msgid "campaign recipient"
+msgstr "получатель рассылки"
+
+msgid "campaign recipients"
+msgstr "получатели рассылки"
+
 msgid "debt"
 msgstr "долг"
+
+msgid "unpaid orders"
+msgstr "неоплаченные продажи"
+
+msgid "None — all settled."
+msgstr "Нет — всё оплачено."
 
 msgid "Clients"
 msgstr "Клиенты"
@@ -19,8 +146,11 @@ msgstr "Магазин"
 msgid "Wholesale"
 msgstr "Опт"
 
-msgid "name"
-msgstr "название"
+msgid "first name"
+msgstr "имя"
+
+msgid "last name"
+msgstr "фамилия"
 
 msgid "phone"
 msgstr "телефон"
@@ -31,14 +161,17 @@ msgstr "источник"
 msgid "note"
 msgstr "заметка"
 
+msgid "Telegram chat ID"
+msgstr "ID чата Telegram"
+
+msgid "marketing consent"
+msgstr "согласие на рассылку"
+
+msgid "WhatsApp opt-in"
+msgstr "согласие на WhatsApp"
+
 msgid "active"
 msgstr "активен"
-
-msgid "created at"
-msgstr "создано"
-
-msgid "client"
-msgstr "клиент"
 
 msgid "clients"
 msgstr "клиенты"
@@ -55,17 +188,61 @@ msgstr "Визит"
 msgid "type"
 msgstr "тип"
 
-msgid "created by"
-msgstr "создал(а)"
-
 msgid "interaction"
 msgstr "взаимодействие"
 
 msgid "interactions"
 msgstr "взаимодействия"
 
+msgid "currency"
+msgstr "валюта"
+
+msgid "rate"
+msgstr "курс"
+
 msgid "Core"
 msgstr "Система"
+
+msgid "Неверный логин, пароль или код."
+msgstr "Неверный логин, пароль или код."
+
+msgid "Kyrgyzstani som"
+msgstr "Кыргызский сом"
+
+msgid "US dollar"
+msgstr "Доллар США"
+
+msgid "Russian ruble"
+msgstr "Российский рубль"
+
+msgid "Manual"
+msgstr "Вручную"
+
+msgid "NBKR"
+msgstr "НБКР"
+
+msgid "date"
+msgstr "дата"
+
+msgid "How many units of the base currency equal 1 unit of this currency."
+msgstr "Сколько единиц базовой валюты равны 1 единице этой валюты."
+
+msgid "exchange rate"
+msgstr "обменный курс"
+
+msgid "exchange rates"
+msgstr "обменные курсы"
+
+#, python-format
+msgid "The base currency (%(base)s) is always 1 — no rate needed."
+msgstr "Базовая валюта (%(base)s) всегда равна 1 — курс не нужен."
+
+#, python-format
+msgid "Unknown currency. Configured currencies: %(list)s."
+msgstr "Неизвестная валюта. Настроенные валюты: %(list)s."
+
+msgid "Rate must be greater than zero."
+msgstr "Курс должен быть больше нуля."
 
 msgid "Telegram ID"
 msgstr "Telegram ID"
@@ -82,20 +259,11 @@ msgstr "пользователь бота"
 msgid "bot users"
 msgstr "пользователи бота"
 
-msgid "Telegram"
-msgstr "Telegram"
-
-msgid "WhatsApp"
-msgstr "WhatsApp"
-
 msgid "Incoming"
 msgstr "Входящее"
 
 msgid "Outgoing"
 msgstr "Исходящее"
-
-msgid "channel"
-msgstr "канал"
 
 msgid "external ID"
 msgstr "внешний ID"
@@ -115,11 +283,40 @@ msgstr "сообщение бота"
 msgid "bot messages"
 msgstr "сообщения бота"
 
-msgid "products"
-msgstr "товары"
-
 msgid "stock"
 msgstr "остаток"
+
+#, python-format
+msgid "Updated stock for %(n)s item(s)."
+msgstr "Обновлён остаток для %(n)s позиций."
+
+msgid "No quantities entered — nothing changed."
+msgstr "Количество не указано — изменений нет."
+
+msgid "Receive stock (Принять на склад)"
+msgstr "Принять на склад"
+
+msgid "Receive stock"
+msgstr "Приём на склад"
+
+msgid "Write off (Списать)"
+msgstr "Списать"
+
+msgid "Write off stock"
+msgstr "Списание со склада"
+
+msgid "Recount (Пересчёт)"
+msgstr "Пересчёт"
+
+msgid "A reason is required for a recount."
+msgstr "Для пересчёта необходимо указать причину."
+
+#, python-format
+msgid "Recounted %(n)s item(s)."
+msgstr "Пересчитано позиций: %(n)s."
+
+msgid "Recount"
+msgstr "Пересчёт"
 
 msgid "Inventory"
 msgstr "Склад"
@@ -136,6 +333,9 @@ msgstr "описание"
 msgid "photo"
 msgstr "фото"
 
+msgid "thumbnail"
+msgstr "миниатюра"
+
 msgid "product"
 msgstr "товар"
 
@@ -144,6 +344,9 @@ msgstr "размер"
 
 msgid "color"
 msgstr "цвет"
+
+msgid "Applies to both cost price and sale price."
+msgstr "Применяется к себестоимости и цене продажи."
 
 msgid "cost price"
 msgstr "себестоимость"
@@ -205,6 +408,72 @@ msgstr "Приходные движения должны иметь положи
 msgid "Outgoing movements must have a negative quantity."
 msgstr "Расходные движения должны иметь отрицательное количество."
 
+msgid "POS"
+msgstr "Точка продаж"
+
+msgid "Спасибо за покупку в ACOCOS! 🌸"
+msgstr "Спасибо за покупку в ACOCOS! 🌸"
+
+#, python-format
+msgid "Итого: %(total)s %(cur)s"
+msgstr "Итого: %(total)s %(cur)s"
+
+#, python-format
+msgid ""
+"Здравствуйте, %(name)s! Напоминаем о задолженности %(amounts)s. Спасибо! — "
+"ACOCOS"
+msgstr ""
+"Здравствуйте, %(name)s! Напоминаем о задолженности %(amounts)s. Спасибо! — "
+"ACOCOS"
+
+msgid "долг"
+msgstr "долг"
+
+msgid "частично"
+msgstr "частично"
+
+msgid "оплачено"
+msgstr "оплачено"
+
+msgid "Имя и телефон обязательны."
+msgstr "Имя и телефон обязательны."
+
+msgid "Клиент с этим телефоном уже есть."
+msgstr "Клиент с этим телефоном уже есть."
+
+#, python-format
+msgid ""
+"Товар в %(vc)s нельзя добавить в продажу в %(oc)s — оформите отдельной "
+"продажей."
+msgstr ""
+"Товар в %(vc)s нельзя добавить в продажу в %(oc)s — оформите отдельной "
+"продажей."
+
+msgid "Возврат оформлён."
+msgstr "Возврат оформлён."
+
+msgid "Чек отправлен"
+msgstr "Чек отправлен"
+
+msgid "Напоминание о долге"
+msgstr "Напоминание о долге"
+
+msgid "Mark reviewed (Отметить проверенным)"
+msgstr "Отметить проверенным"
+
+msgid "Only a superuser can mark payments as reviewed."
+msgstr "Только суперпользователь может отмечать платежи проверенными."
+
+#, python-format
+msgid "Marked %(n)s payment(s) reviewed."
+msgstr "Отмечено проверенными платежей: %(n)s."
+
+msgid "Reports"
+msgstr "Отчёты"
+
+msgid "payment review"
+msgstr "проверка платежей"
+
 msgid "Paid"
 msgstr "Оплачено"
 
@@ -214,8 +483,25 @@ msgstr "Частично"
 msgid "Unpaid"
 msgstr "Не оплачено"
 
+msgid "confirm overpayment"
+msgstr "подтвердить переплату"
+
+msgid "Tick to allow a payment larger than the order's remaining balance."
+msgstr "Отметьте, чтобы разрешить платёж больше остатка по заказу."
+
+#, python-format
+msgid ""
+"This would overpay the order (total %(total)s, already paid %(paid)s). Tick "
+"'confirm overpayment' to proceed anyway."
+msgstr ""
+"Это приведёт к переплате по заказу (итого %(total)s, уже оплачено %(paid)s)."
+" Отметьте «подтвердить переплату», чтобы продолжить."
+
 msgid "payments (for loans / partial payment)"
 msgstr "платежи (рассрочка / частичная оплата)"
+
+msgid "total"
+msgstr "итого"
 
 msgid "paid"
 msgstr "оплачено"
@@ -226,12 +512,25 @@ msgstr "к оплате"
 msgid "payment"
 msgstr "оплата"
 
-msgid "Approve selected sales (writes off stock)"
-msgstr "Одобрить выбранные продажи (списывает остаток)"
+msgid "Approve selected sales — record payment"
+msgstr "Одобрить выбранные продажи — записать оплату"
 
 #, python-format
-msgid "Sale #%(id)s approved."
-msgstr "Продажа №%(id)s одобрена."
+msgid "Approved %(n)s sale(s)."
+msgstr "Одобрено продаж: %(n)s."
+
+msgid "None of the selected sales are pending."
+msgstr "Ни одна из выбранных продаж не ожидает одобрения."
+
+msgid "Approve sales"
+msgstr "Одобрение продаж"
+
+msgid "Mark fully paid (settle balance)"
+msgstr "Отметить как полностью оплаченные (погасить остаток)"
+
+#, python-format
+msgid "Settled %(n)s order(s)."
+msgstr "Погашено заказов: %(n)s."
 
 msgid "Cancel selected sales (returns stock)"
 msgstr "Отменить выбранные продажи (возвращает остаток)"
@@ -240,11 +539,15 @@ msgstr "Отменить выбранные продажи (возвращает
 msgid "Sale #%(id)s cancelled."
 msgstr "Продажа №%(id)s отменена."
 
+msgid "Void selected payments (creates a reversing entry)"
+msgstr "Аннулировать выбранные платежи (создаёт обратную запись)"
+
+#, python-format
+msgid "Voided %(n)s payment(s)."
+msgstr "Аннулировано платежей: %(n)s."
+
 msgid "Sales"
 msgstr "Продажи"
-
-msgid "Pending"
-msgstr "Ожидает"
 
 msgid "Approved"
 msgstr "Одобрена"
@@ -255,14 +558,14 @@ msgstr "Отменена"
 msgid "Leave empty for a walk-in sale."
 msgstr "Оставьте пустым для продажи без клиента."
 
-msgid "status"
-msgstr "статус"
-
-msgid "total"
-msgstr "итого"
-
 msgid "Set automatically when the sale is approved."
 msgstr "Заполняется автоматически при одобрении продажи."
+
+msgid "rate to KGS"
+msgstr "курс к сому"
+
+msgid "total, KGS"
+msgstr "итого, сом"
 
 msgid "confirmed at"
 msgstr "подтверждена"
@@ -285,11 +588,30 @@ msgstr "Наличные"
 msgid "Transfer"
 msgstr "Перевод"
 
+msgid "Other"
+msgstr "Прочее"
+
 msgid "amount"
 msgstr "сумма"
 
 msgid "method"
 msgstr "способ"
+
+msgid "reviewed"
+msgstr "проверено"
+
+msgid "reviewed by"
+msgstr "проверил(а)"
+
+msgid "reviewed at"
+msgstr "дата проверки"
+
+msgid "reverses payment"
+msgstr "аннулирует платёж"
+
+msgid "Set automatically when this row voids an earlier payment."
+msgstr ""
+"Заполняется автоматически, когда эта запись аннулирует более ранний платёж."
 
 msgid "payments"
 msgstr "оплаты"
@@ -301,11 +623,39 @@ msgid "Cannot approve a sale with no items."
 msgstr "Нельзя одобрить продажу без позиций."
 
 #, python-format
-msgid "Insufficient stock for %(sku)s: available %(have)s, requested %(need)s."
-msgstr "Недостаточно остатка по %(sku)s: доступно %(have)s, запрошено %(need)s."
+msgid ""
+"Insufficient stock for %(sku)s: available %(have)s, requested %(need)s."
+msgstr ""
+"Недостаточно остатка по %(sku)s: доступно %(have)s, запрошено %(need)s."
 
 msgid "Only approved sales can be cancelled."
 msgstr "Отменить можно только одобрённую продажу."
+
+msgid "Only approved sales can have returns."
+msgstr "Возврат возможен только для проведённых продаж."
+
+msgid "Nothing to return."
+msgstr "Нечего возвращать."
+
+msgid "Unknown item in this sale."
+msgstr "Неизвестная позиция в этой продаже."
+
+#, python-format
+msgid "Cannot return %(qty)s of %(sku)s — only %(have)s were sold."
+msgstr "Нельзя вернуть %(qty)s шт. %(sku)s — продано только %(have)s."
+
+msgid "Only approved sales can be settled."
+msgstr "Погасить можно только одобрённую продажу."
+
+msgid "This payment is already a reversal — nothing to void."
+msgstr "Этот платёж уже является аннулированием — аннулировать нечего."
+
+msgid "Voiding a reviewed payment requires a superuser."
+msgstr "Аннулирование проверенного платежа требует прав суперпользователя."
+
+#, python-format
+msgid "Void of payment #%(id)s"
+msgstr "Аннулирование платежа №%(id)s"
 
 msgid "English"
 msgstr "Английский"
@@ -313,11 +663,92 @@ msgstr "Английский"
 msgid "Russian"
 msgstr "Русский"
 
+msgid "Item"
+msgstr "Товар"
+
+msgid "Current stock"
+msgstr "Текущий остаток"
+
+msgid "Counted quantity"
+msgstr "Посчитанное количество"
+
+msgid "Quantity"
+msgstr "Количество"
+
+msgid "Reason"
+msgstr "Причина"
+
+msgid "Apply"
+msgstr "Применить"
+
+msgid "Cancel"
+msgstr "Отменить"
+
+#, python-format
+msgid "You are approving %(counter)s sale. Stock will be written off."
+msgid_plural "You are approving %(counter)s sales. Stock will be written off."
+msgstr[0] "Вы одобряете %(counter)s продажу. Остаток будет списан."
+msgstr[1] "Вы одобряете %(counter)s продажи. Остаток будет списан."
+msgstr[2] "Вы одобряете %(counter)s продаж. Остаток будет списан."
+
+msgid "walk-in"
+msgstr "без клиента"
+
+msgid "Payment received now"
+msgstr "Получена оплата сейчас"
+
+msgid "Paid in full"
+msgstr "Оплачено полностью"
+
+msgid "Partial amount"
+msgstr "Частичная сумма"
+
+msgid "(applied to each selected sale, in that sale's own currency)"
+msgstr "(применяется к каждой выбранной продаже, в её собственной валюте)"
+
+msgid "Loan — pay later (no payment now)"
+msgstr "В долг — оплата позже (сейчас без оплаты)"
+
+msgid ""
+"Payments are only recorded for sales that have a client. Walk-in sales are "
+"treated as paid on the spot."
+msgstr ""
+"Оплаты записываются только для продаж с клиентом. Продажи без клиента "
+"считаются оплаченными на месте."
+
+msgid "Approve"
+msgstr "Одобрить"
+
 msgid "Statistics"
 msgstr "Статистика"
 
 msgid "Back to panel"
 msgstr "Назад в панель"
+
+msgid "View money in"
+msgstr "Показывать деньги в"
+
+msgid "Using rate for date"
+msgstr "По курсу на дату"
+
+msgid "Convert"
+msgstr "Пересчитать"
+
+#, python-format
+msgid ""
+"No rate set for %(cur)s on or before this date — showing base currency. Add "
+"one under Exchange rates."
+msgstr ""
+"Нет курса для %(cur)s на эту дату или ранее — показана базовая валюта. "
+"Добавьте курс в разделе «Обменные курсы»."
+
+#, python-format
+msgid "1 %(cur)s = %(rate)s %(base)s"
+msgstr "1 %(cur)s = %(rate)s %(base)s"
+
+#, python-format
+msgid "Base currency: %(base)s"
+msgstr "Базовая валюта: %(base)s"
 
 msgid "Excel report"
 msgstr "Отчёт Excel"
@@ -370,6 +801,21 @@ msgstr "Долг"
 msgid "No outstanding debts."
 msgstr "Нет задолженностей."
 
+msgid "Bestsellers — 30 days"
+msgstr "Хиты продаж — 30 дней"
+
+msgid "Sold"
+msgstr "Продано"
+
+msgid "Slow movers — in stock, barely sold"
+msgstr "Залежавшиеся — есть в наличии, плохо продаются"
+
+msgid "In stock"
+msgstr "На складе"
+
+msgid "No stock on hand."
+msgstr "Нет товара в наличии."
+
 msgid "Requests per day"
 msgstr "Запросов в день"
 
@@ -378,3 +824,364 @@ msgstr "День"
 
 msgid "Total"
 msgstr "Всего"
+
+msgid "Некорректный запрос."
+msgstr "Некорректный запрос."
+
+msgid "Нет доступа."
+msgstr "Нет доступа."
+
+msgid "Сессия устарела. Войдите заново."
+msgstr "Сессия устарела. Войдите заново."
+
+msgid "Войти"
+msgstr "Войти"
+
+msgid "Пустая вешалка"
+msgstr "Пустая вешалка"
+
+msgid "Страница не найдена."
+msgstr "Страница не найдена."
+
+msgid "Вернуться к продажам"
+msgstr "Вернуться к продажам"
+
+msgid "Слишком много попыток входа. Попробуйте через час."
+msgstr "Слишком много попыток входа. Попробуйте через час."
+
+msgid "Нужен код подтверждения."
+msgstr "Нужен код подтверждения."
+
+msgid "Продажа"
+msgstr "Продажа"
+
+msgid "Дашборд"
+msgstr "Дашборд"
+
+msgid "Админпанель"
+msgstr "Админпанель"
+
+msgid "Тема"
+msgstr "Тема"
+
+msgid "Сегодня"
+msgstr "Сегодня"
+
+msgid "Клиенты"
+msgstr "Клиенты"
+
+msgid "Выход"
+msgstr "Выход"
+
+msgid "Долг"
+msgstr "Долг"
+
+msgid "Напомнить о долге в WhatsApp"
+msgstr "Напомнить о долге в WhatsApp"
+
+msgid "История покупок"
+msgstr "История покупок"
+
+msgid "Покупок пока нет"
+msgstr "Покупок пока нет"
+
+msgid "Взаимодействия"
+msgstr "Взаимодействия"
+
+msgid "Пока нет записей"
+msgstr "Пока нет записей"
+
+msgid "Поиск клиента"
+msgstr "Поиск клиента"
+
+msgid "Телефон или имя"
+msgstr "Телефон или имя"
+
+msgid "Ничего не найдено"
+msgstr "Ничего не найдено"
+
+msgid "Последние клиенты"
+msgstr "Последние клиенты"
+
+msgid "Выбрать"
+msgstr "Выбрать"
+
+msgid "Клиент"
+msgstr "Клиент"
+
+msgid "Изменить"
+msgstr "Изменить"
+
+msgid "Имя"
+msgstr "Имя"
+
+msgid "Фамилия"
+msgstr "Фамилия"
+
+msgid "Телефон"
+msgstr "Телефон"
+
+msgid "Сохранить"
+msgstr "Сохранить"
+
+msgid "Отмена"
+msgstr "Отмена"
+
+msgid "Без клиента"
+msgstr "Без клиента"
+
+msgid "+ Новый клиент"
+msgstr "+ Новый клиент"
+
+msgid "от"
+msgstr "от"
+
+msgid "нет в наличии"
+msgstr "нет в наличии"
+
+msgid "осталось"
+msgstr "осталось"
+
+msgid "в наличии"
+msgstr "в наличии"
+
+msgid "Позиции"
+msgstr "Позиции"
+
+msgid "шт"
+msgstr "шт"
+
+msgid "Удалить"
+msgstr "Удалить"
+
+msgid "Оплата"
+msgstr "Оплата"
+
+msgid "Сумма"
+msgstr "Сумма"
+
+msgid "Валюта"
+msgstr "Валюта"
+
+msgid "Способ"
+msgstr "Способ"
+
+msgid "Оплачено полностью"
+msgstr "Оплачено полностью"
+
+msgid "В долг"
+msgstr "В долг"
+
+msgid "Оплата в другой валюте не засчитывается против остатка этого заказа."
+msgstr "Оплата в другой валюте не засчитывается против остатка этого заказа."
+
+msgid "Итого"
+msgstr "Итого"
+
+msgid "Оплачено"
+msgstr "Оплачено"
+
+msgid "Остаток"
+msgstr "Остаток"
+
+msgid "Подтвердить продажу?"
+msgstr "Подтвердить продажу?"
+
+msgid "Подтвердить продажу"
+msgstr "Подтвердить продажу"
+
+msgid "Вариант"
+msgstr "Вариант"
+
+msgid "Количество"
+msgstr "Количество"
+
+msgid "Добавить"
+msgstr "Добавить"
+
+msgid "Продажа отменена"
+msgstr "Продажа отменена"
+
+msgid "Товар возвращён на склад."
+msgstr "Товар возвращён на склад."
+
+msgid "проведена"
+msgstr "проведена"
+
+msgid "Осталось"
+msgstr "Осталось"
+
+msgid "Долг клиента"
+msgstr "Долг клиента"
+
+msgid "Отправить чек в WhatsApp"
+msgstr "Отправить чек в WhatsApp"
+
+msgid "Оформить возврат"
+msgstr "Оформить возврат"
+
+msgid "Отменить эту продажу? Товар вернётся на склад."
+msgstr "Отменить эту продажу? Товар вернётся на склад."
+
+msgid "Отменить продажу"
+msgstr "Отменить продажу"
+
+msgid "Новая продажа"
+msgstr "Новая продажа"
+
+msgid "Возврат"
+msgstr "Возврат"
+
+msgid "Возврат по продаже"
+msgstr "Возврат по продаже"
+
+msgid ""
+"Укажите, сколько единиц возвращается. Товар вернётся на склад, сумма продажи"
+" уменьшится."
+msgstr ""
+"Укажите, сколько единиц возвращается. Товар вернётся на склад, сумма продажи"
+" уменьшится."
+
+msgid "продано"
+msgstr "продано"
+
+msgid "К возврату"
+msgstr "К возврату"
+
+msgid "Товары"
+msgstr "Товары"
+
+msgid "Поиск по названию или артикулу"
+msgstr "Поиск по названию или артикулу"
+
+msgid "Выручка сегодня"
+msgstr "Выручка сегодня"
+
+msgid "Пока нет продаж. Начните новую."
+msgstr "Пока нет продаж. Начните новую."
+
+msgid "нет курса для"
+msgstr "нет курса для"
+
+msgid "продаж"
+msgstr "продаж"
+
+msgid "товаров"
+msgstr "товаров"
+
+msgid "Непроверенные платежи"
+msgstr "Непроверенные платежи"
+
+msgid "Скачать отчёт"
+msgstr "Скачать отчёт"
+
+msgid "Продажи сегодня"
+msgstr "Продажи сегодня"
+
+msgid "без клиента"
+msgstr "без клиента"
+
+msgid "Log in"
+msgstr "Войти"
+
+msgid "Витрина ACOCOS"
+msgstr "Витрина ACOCOS"
+
+msgid "Sign in to continue"
+msgstr "Войдите, чтобы продолжить"
+
+msgid "Username"
+msgstr "Логин"
+
+msgid "Password"
+msgstr "Пароль"
+
+msgid "Authentication code"
+msgstr "Код аутентификации"
+
+msgid "Выручка"
+msgstr "Выручка"
+
+msgid "Прибыль"
+msgstr "Прибыль"
+
+msgid "маржа"
+msgstr "маржа"
+
+msgid "Продано"
+msgstr "Продано"
+
+msgid "Долги"
+msgstr "Долги"
+
+msgid "клиент(ов)"
+msgstr "клиент(ов)"
+
+msgid "Выручка по дням"
+msgstr "Выручка по дням"
+
+msgid "≈ сом, по курсу на день продажи"
+msgstr "≈ сом, по курсу на день продажи"
+
+msgid "Нет продаж за этот период"
+msgstr "Нет продаж за этот период"
+
+msgid "Каналы продаж"
+msgstr "Каналы продаж"
+
+msgid "Способы оплаты"
+msgstr "Способы оплаты"
+
+msgid "Нет оплат за этот период"
+msgstr "Нет оплат за этот период"
+
+msgid "Топ товаров"
+msgstr "Топ товаров"
+
+msgid "Товар"
+msgstr "Товар"
+
+msgid "выручка"
+msgstr "выручка"
+
+msgid "прибыль"
+msgstr "прибыль"
+
+msgid "Долги по срокам"
+msgstr "Долги по срокам"
+
+msgid "Срок"
+msgstr "Срок"
+
+msgid "сумма"
+msgstr "сумма"
+
+msgid "дней"
+msgstr "дней"
+
+msgid "Залежавшийся товар"
+msgstr "Залежавшийся товар"
+
+msgid "Есть на складе, но не продавалось 90+ дней"
+msgstr "Есть на складе, но не продавалось 90+ дней"
+
+msgid "на складе"
+msgstr "на складе"
+
+msgid "дней без продаж"
+msgstr "дней без продаж"
+
+msgid "заморожено, сом"
+msgstr "заморожено, сом"
+
+msgid "не продавалось"
+msgstr "не продавалось"
+
+msgid "Нет залежавшегося товара"
+msgstr "Нет залежавшегося товара"
+
+msgid "К продажам"
+msgstr "К продажам"
+
+msgid "Период"
+msgstr "Период"
