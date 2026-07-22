@@ -30,6 +30,21 @@ a { color: inherit; }
   font-variant-numeric: tabular-nums;
 }
 
+/* --- icons: inline sprite glyphs, colour via currentColor (shared across /pos/
+   and the dashboard; the sprite is included once per page from _icons.svg) --- */
+.ic { width: 1em; height: 1em; fill: currentColor; flex: none; }
+.top__link { gap: 6px; }
+.top__link .ic { width: 15px; height: 15px; }
+.theme-toggle .ic { width: 18px; height: 18px; }
+/* On narrow screens the header nav collapses to icon-only so it never overflows;
+   the download bar keeps its labels (it wraps). aria-label carries the meaning. */
+@media (max-width: 600px) {
+  .top__actions .top__link .lbl,
+  .dash-header__actions .top__link .lbl { display: none; }
+  .top__actions .top__link,
+  .dash-header__actions .top__link { padding: 0 var(--space-2); }
+}
+
 /* --- focus + motion + a11y floor --- */
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -73,12 +88,29 @@ a { color: inherit; }
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--surface);
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 2px solid var(--rule);
   position: sticky;
   top: 0;
   z-index: 6;
 }
-.top__brand { font-weight: 500; font-size: 16px; letter-spacing: -0.01em; }
+.top__brand { font-weight: 800; font-size: 24px; letter-spacing: -0.03em; }
+@media (min-width: 560px) {
+  .top__brand { font-size: 30px; }
+}
+
+/* --- currency rate strip: today's NBKR/manual rates, in its own card so it
+   reads with the same weight as the Клиент/Товары sections above/below it --- */
+.rates-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.rates-strip__item {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
 .top__actions { display: flex; align-items: center; gap: var(--space-2); }
 .top__link {
   font-size: 13px;
@@ -89,12 +121,15 @@ a { color: inherit; }
   padding: 0 var(--space-3);
   display: inline-flex;
   align-items: center;
+  /* A 1px --border-strong edge defines the button on BOTH the lighter --surface
+     header bar (/pos/) and the darker page background (dashboard/storage), where
+     the fill contrast alone would otherwise read as plain text on /pos/. */
   background: var(--surface-sunken);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
 }
 @media (hover: hover) {
-  .top__link:hover { border-color: var(--border-strong); background: var(--accent-bg); }
+  .top__link:hover { border-color: var(--accent); background: var(--accent-bg); }
 }
 
 .theme-toggle {
@@ -104,14 +139,14 @@ a { color: inherit; }
   align-items: center;
   justify-content: center;
   background: var(--surface-sunken);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
   color: var(--text-2);
   font-size: 16px;
   cursor: pointer;
 }
 @media (hover: hover) {
-  .theme-toggle:hover { border-color: var(--border-strong); background: var(--accent-bg); }
+  .theme-toggle:hover { border-color: var(--accent); background: var(--accent-bg); }
 }
 /* Reflects the state actually rendered (explicit cookie OR the OS-driven
    fallback), not just the cookie — a pure-CSS match for tokens.css's
@@ -136,7 +171,7 @@ html[data-theme="dark"] .theme-toggle__icon--moon { display: none; }
   border-top: 0.5px solid var(--border);
   z-index: 5;
 }
-.bottom-nav a {
+.bottom-nav a, .bottom-nav__logout {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -148,26 +183,167 @@ html[data-theme="dark"] .theme-toggle__icon--moon { display: none; }
   font-size: 11px;
   min-height: var(--tap-min);
 }
+/* Logout is a POST form (Django's LogoutView is POST-only), styled to match
+   the plain nav links exactly — no visible border/background of its own. */
+.bottom-nav__logout-form { flex: 1; display: flex; margin: 0; }
+.bottom-nav__logout {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
 .bottom-nav a[aria-current="page"] { color: var(--accent); font-weight: 500; }
-.bottom-nav .ic { font-size: 17px; line-height: 1; }
+.bottom-nav .ic { width: 21px; height: 21px; }
+
+/* --- notes / tasks board --- */
+.note {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  box-shadow: var(--shadow);
+}
+.note--pinned { border-color: var(--accent); }
+.note--done { opacity: 0.62; }
+.note__toggle { flex: none; margin: 0; }
+.note__check {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.note__check .ic { width: 15px; height: 15px; }
+.note--done .note__check { background: var(--paid); border-color: var(--paid); color: var(--on-accent); }
+.note__body { flex: 1; min-width: 0; }
+.note__title { font-weight: 500; font-size: 15px; }
+.note--done .note__title { text-decoration: line-through; }
+.note__text { font-size: 14px; color: var(--text-2); margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note__meta { font-size: 11px; color: var(--text-3); margin-top: var(--space-2); }
+.note__actions { display: flex; flex-direction: column; gap: var(--space-1); flex: none; }
+.note__act {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-control);
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  text-decoration: none;
+}
+.note__act .ic { width: 17px; height: 17px; }
+.note__act.is-on { color: var(--accent); }
+@media (hover: hover) {
+  .note__act:hover { background: var(--surface-sunken); color: var(--text); }
+}
+
+/* shared muted list-count line + composed empty state (icon + friendly line) */
+.list-count { font-size: 12px; color: var(--text-2); margin: var(--space-4) 0 var(--space-3); }
+.empty {
+  color: var(--text-3);
+  font-size: 13px;
+  text-align: center;
+  padding: var(--space-6) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+.empty .ic { width: 30px; height: 30px; opacity: 0.5; }
+.empty p { margin: 0; }
+
+/* --- clients: filter/sort pills + list --- */
+/* Stack the two pill groups so they never force horizontal overflow on a phone;
+   each group sizes to its content and wraps internally if truly needed. */
+.filters { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); margin-top: var(--space-3); }
+.filters__set { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.filters__label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); }
+.filters__group { flex-wrap: wrap; max-width: 100%; }
+@media (min-width: 560px) { .filters { flex-direction: row; flex-wrap: wrap; align-items: flex-end; gap: var(--space-4); } }
+.filters__group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-sunken);
+  border-radius: 20px;
+}
+.fpill {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 12px;
+  min-height: var(--tap-min);
+  border-radius: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.fpill.is-on { background: var(--accent); color: var(--on-accent); font-weight: 500; }
+.client-list { padding: 0; overflow: hidden; }
+.client-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  text-decoration: none;
+  color: var(--text);
+  border-bottom: 0.5px solid var(--border);
+}
+.client-row:last-child { border-bottom: 0; }
+.client-row__main { min-width: 0; flex: 1; }
+.client-row__debt { flex: none; }
+.client-row__name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-row__phone { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.client-row__debt {
+  font-size: 13px;
+  color: var(--debt);
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+@media (hover: hover) { .client-row:hover { background: var(--surface-sunken); } }
 
 /* --- cards + sections --- */
 .card {
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-card);
   padding: var(--space-4);
   margin-bottom: var(--space-3);
   box-shadow: var(--shadow);
 }
 .card h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-2);
+  letter-spacing: 0.12em;
+  color: var(--accent);
   margin: 0 0 var(--space-3);
 }
+.card h2 .ic { width: 15px; height: 15px; color: var(--accent); }
 
 .muted { color: var(--text-2); font-size: 13px; }
 .hint { color: var(--text-3); font-size: 12px; }
@@ -195,14 +371,19 @@ input, select, textarea {
   width: 100%;
   min-height: var(--tap-min);
   padding: 10px var(--space-3);
-  border: 0.5px solid var(--border);
+  border: 2px solid var(--border-strong);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
   font-family: inherit;
+  font-weight: 600;
   font-size: 16px; /* prevents iOS auto-zoom on focus */
 }
-input::placeholder { color: var(--text-3); }
+/* Search fields carry the heavier --rule border (matches the client-chip/
+   header treatment) — they're the primary way in on the sale + clients
+   screens, so they read as the loudest field on the card. */
+input[type="search"] { border-color: var(--rule); font-weight: 500; }
+input::placeholder { color: var(--text-3); font-weight: 400; }
 input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
 }
@@ -230,13 +411,30 @@ input:focus, select:focus, textarea:focus {
   background: var(--accent);
   color: var(--on-accent);
   border-color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+@media (hover: hover) {
+  .btn-primary:not(:disabled):hover { transform: translateY(-2px); }
 }
 .btn-ghost {
   background: transparent;
-  color: var(--accent);
-  border-color: var(--border);
+  color: var(--text);
+  border: 2px solid var(--rule);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
-.btn-ghost--debt { color: var(--debt); }
+@media (hover: hover) {
+  .btn-ghost:not(:disabled):hover { background: var(--rule); color: var(--surface); }
+}
+.btn-ghost--debt { color: var(--debt); border-color: var(--debt); }
+@media (hover: hover) {
+  .btn-ghost--debt:not(:disabled):hover { background: var(--debt); color: var(--on-accent); }
+}
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-icon {
   width: var(--tap-min);
@@ -255,12 +453,16 @@ input:focus, select:focus, textarea:focus {
   position: relative;
   text-align: left;
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-card);
   padding: var(--space-2);
   color: var(--text);
   font-family: inherit;
   cursor: pointer;
+  overflow: hidden;
+}
+@media (hover: hover) {
+  .tile:not(:disabled):hover { border-color: var(--accent); transform: translateY(-2px); }
 }
 .tile:disabled { opacity: 0.45; cursor: not-allowed; }
 .tile__photo {
@@ -277,29 +479,39 @@ input:focus, select:focus, textarea:focus {
   align-items: center;
   justify-content: center;
   color: var(--text-3);
+  background: linear-gradient(160deg, var(--accent-2), var(--surface-sunken));
 }
-.tile__name { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
-.tile__price { font-size: 13px; color: var(--text-2); }
+.tile__name { font-size: 13px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 2px; }
+.tile__price { font-size: 13px; color: var(--text); font-weight: 600; }
 .tile__badge {
   position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
+  top: 0;
+  right: 0;
+  border-radius: 0;
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-/* --- status badges: colour + word, never colour alone --- */
+/* --- status badges: colour + word, never colour alone. Solid fills (not soft
+   tints) at weight 800 — declarative, high-contrast; --on-accent flips per
+   theme so the fill always clears AA (see tokens.css). --accent (plum) never
+   appears here: paid/partial/debt/neutral are the only fills a badge takes. */
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
-  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  border-radius: 4px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 800;
   white-space: nowrap;
 }
-.badge--paid { background: var(--paid-bg); color: var(--paid); }
-.badge--partial { background: var(--partial-bg); color: var(--partial); }
-.badge--debt { background: var(--debt-bg); color: var(--debt); }
-.badge--neutral { background: var(--surface-sunken); color: var(--text-3); }
+.badge--paid { background: var(--paid); color: var(--on-accent); }
+.badge--partial { background: var(--partial); color: var(--on-accent); }
+.badge--debt { background: var(--debt); color: var(--on-accent); }
+.badge--neutral { background: var(--text-3); color: var(--on-accent); }
 
 /* --- client chip --- */
 .client-chip {
@@ -307,7 +519,8 @@ input:focus, select:focus, textarea:focus {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  background: var(--accent-bg);
+  background: var(--surface);
+  border: 2px solid var(--rule);
   border-radius: var(--radius-card);
   padding: var(--space-3);
 }
@@ -353,14 +566,20 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 14px;
 }
 .money-bar__row--total {
-  border-top: 0.5px solid var(--border);
+  border-top: 2px solid var(--rule);
   margin-top: var(--space-1);
   padding-top: var(--space-2);
 }
-.money-bar__row--total .money-bar__label,
+.money-bar__row--total .money-bar__label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
 .money-bar__row--total .money-bar__amount {
-  font-size: 22px;
-  font-weight: 500;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 .money-bar__row--paid .money-bar__label,
 .money-bar__row--paid .money-bar__amount { color: var(--paid); }
@@ -396,9 +615,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   max-width: 360px;
 }
 .login-wordmark {
-  font-size: 28px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
   margin: 0 0 var(--space-1);
 }
 .login-sub { color: var(--text-2); font-size: 13px; margin: 0 0 var(--space-5); }
@@ -445,20 +664,13 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   width: 100%;
   max-width: 420px;
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-card);
   padding: var(--space-6) var(--space-5);
   text-align: center;
 }
 .error-icon { color: var(--text-3); margin: 0 auto var(--space-4); display: block; }
 .error-message { font-size: 19px; font-weight: 500; color: var(--text); margin: 0 0 var(--space-2); }
-.error-cid {
-  font-size: 11px;
-  color: var(--text-3);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  user-select: all;
-  margin: var(--space-2) 0 0;
-}
 .error-card .btn { margin-top: var(--space-5); }
 
 /* ===================================================================

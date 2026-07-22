@@ -1,0 +1,24 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Заметка" %}{% endblock %}
+{% block content %}
+
+<div class="card">
+ <h2><svg class="ic"><use href="#i-edit"/></svg>{% trans "Изменить заметку" %}</h2>
+ <form method="post" action="{% url 'notes:edit' note.pk %}">
+  {% csrf_token %}
+  <input type="text" name="title" maxlength="200" value="{{ note.title }}" placeholder="{% trans 'Заголовок' %}" autocomplete="off">
+  <textarea name="body" rows="8" placeholder="{% trans 'Текст…' %}">{{ note.body }}</textarea>
+  <div class="row" style="margin-top:var(--space-3)">
+   <button type="submit" class="btn btn-primary">{% trans "Сохранить" %}</button>
+   <a class="btn btn-ghost" href="{% url 'notes:index' %}">{% trans "Отмена" %}</a>
+  </div>
+ </form>
+</div>
+
+<form method="post" action="{% url 'notes:delete' note.pk %}">
+ {% csrf_token %}
+ <button type="submit" class="btn btn-ghost btn-ghost--debt"><svg class="ic"><use href="#i-close"/></svg>{% trans "Удалить заметку" %}</button>
+</form>
+
+{% endblock %}

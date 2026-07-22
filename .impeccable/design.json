@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-19T00:00:00Z",
+  "title": "Design System: ACOCOS CRM",
+  "extensions": {
+    "colorMeta": {
+      "accent": { "role": "primary", "displayName": "Chalk Blue", "canonical": "#2C6FB5", "dark": "#6BA8E0", "tonalRamp": ["#0E2A46", "#153E66", "#1D5288", "#2C6FB5", "#5892CC", "#8BB6DE", "#BBD5EE", "#E8F0F9"] },
+      "paid": { "role": "tertiary", "displayName": "Paid Green", "canonical": "#1D7A4F", "dark": "#4FBF8B", "tonalRamp": ["#0B3120", "#12492F", "#186140", "#1D7A4F", "#3AA073", "#6FC29B", "#A9DCC4", "#E4F3EB"] },
+      "partial": { "role": "tertiary", "displayName": "Partial Amber", "canonical": "#8A5300", "dark": "#E5A245", "tonalRamp": ["#3A2300", "#573500", "#734600", "#8A5300", "#B26B00", "#D99436", "#EEC488", "#FBF0DE"] },
+      "debt": { "role": "tertiary", "displayName": "Debt Red", "canonical": "#B3271F", "dark": "#E86A62", "tonalRamp": ["#4A0F0B", "#6E1712", "#921F19", "#B3271F", "#CF5049", "#E08079", "#EFB6B2", "#FAE9E8"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#14181C", "dark": "#EEF1F4", "tonalRamp": ["#14181C", "#2B3238", "#434C54", "#5B6670", "#7A848D", "#8A939C", "#C7CDD2", "#F5F6F7"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "ACOCOS wordmark on the login page — the one place with room for character." },
+      "headline": { "displayName": "Headline", "purpose": "Dashboard title and error-page message." },
+      "title": { "displayName": "Title", "purpose": "The /pos/ header brand mark." },
+      "body": { "displayName": "Body", "purpose": "All UI text, rows, and table cells." },
+      "label": { "displayName": "Label", "purpose": "Field labels, metric labels, panel titles, table headers." },
+      "money": { "displayName": "Money", "purpose": "The 22px tabular total on the money bar — the typographic signature." }
+    },
+    "shadows": [
+      { "name": "ambient-lift", "value": "0 1px 3px rgba(20,24,28,0.08)", "purpose": "The single shadow token. Floats truly-detached surfaces: cards, the money bar, the chart tooltip. Never paired with a prominent border as decoration." }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(0.2, 0, 0, 1)", "purpose": "The one shared easing so /pos/ and the dashboard feel alike." },
+      { "name": "dur-pos", "value": "120ms", "purpose": "/pos/ transitions stay short — a client is waiting. Press affordance and HTMX-fragment fade only." },
+      { "name": "dur-dash", "value": "300-600ms", "purpose": "Dashboard is opened once or twice a day, so line-draw / bar-grow / count-up choreography is affordable." }
+    ],
+    "breakpoints": [
+      { "name": "pos-desktop", "value": "768px" },
+      { "name": "dash-stack", "value": "900px" },
+      { "name": "grid-5col", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single filled button per screen — «Подтвердить продажу» below the money bar.",
+      "html": "<button class=\"ds-btn-primary\">Подтвердить продажу</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; padding: 10px 16px; border: 0.5px solid #2C6FB5; border-radius: 8px; background: #2C6FB5; color: #fff; font: 500 15px/1.5 Inter, sans-serif; cursor: pointer; transition: transform 120ms cubic-bezier(0.2,0,0,1), background-color 120ms; } .ds-btn-primary:active { transform: scale(0.96); } .ds-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; } .ds-btn-primary:focus-visible { outline: 2px solid #2C6FB5; outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary actions — undo, cancel. Transparent fill, accent text, hairline border.",
+      "html": "<button class=\"ds-btn-ghost\">Отменить продажу</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; padding: 10px 16px; border: 0.5px solid #E3E6E9; border-radius: 8px; background: transparent; color: #2C6FB5; font: 500 15px/1.5 Inter, sans-serif; cursor: pointer; } .ds-btn-ghost:focus-visible { outline: 2px solid #2C6FB5; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "16px font-size prevents iOS auto-zoom; visible resting border in both themes.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Поиск товара или SKU\">",
+      "css": ".ds-input { width: 100%; min-height: 44px; padding: 10px 12px; border: 0.5px solid #E3E6E9; border-radius: 8px; background: #fff; color: #14181C; font: 400 16px Inter, sans-serif; } .ds-input::placeholder { color: #8A939C; } .ds-input:focus { border-color: #2C6FB5; outline: none; } .ds-input:focus-visible { outline: 2px solid #2C6FB5; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-paid",
+      "description": "Colour + word, never colour alone. Variants: paid / partial / debt / neutral.",
+      "html": "<span class=\"ds-badge ds-badge-paid\">оплачено</span> <span class=\"ds-badge ds-badge-partial\">частично</span> <span class=\"ds-badge ds-badge-debt\">долг</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 20px; font: 500 11px Inter, sans-serif; white-space: nowrap; } .ds-badge-paid { background: #E4F3EB; color: #1D7A4F; } .ds-badge-partial { background: #FBF0DE; color: #8A5300; } .ds-badge-debt { background: #FAE9E8; color: #B3271F; }"
+    },
+    {
+      "name": "Metric Card",
+      "kind": "card",
+      "refersTo": "metric-card",
+      "description": "Dashboard KPI. Reserves 92px min-height so count-up never shifts layout. Border, no shadow.",
+      "html": "<div class=\"ds-metric\"><div class=\"ds-metric__label\">Выручка</div><div class=\"ds-metric__value\">1 240 500 сом</div><div class=\"ds-metric__delta\">↑ 12% к прошлому периоду</div></div>",
+      "css": ".ds-metric { min-height: 92px; padding: 12px; border: 0.5px solid #E3E6E9; border-radius: 12px; background: #fff; } .ds-metric__label { font: 400 11px Inter, sans-serif; color: #5B6670; } .ds-metric__value { margin-top: 2px; font: 500 19px Inter, sans-serif; color: #14181C; font-variant-numeric: tabular-nums; } .ds-metric__delta { margin-top: 4px; font: 400 11px Inter, sans-serif; color: #1D7A4F; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Period Segmented Control",
+      "kind": "nav",
+      "refersTo": "link-button",
+      "description": "Dashboard period selector. Active pill filled accent; sunken trough.",
+      "html": "<div class=\"ds-period\"><button class=\"ds-period__pill\" aria-current=\"true\">Месяц</button><button class=\"ds-period__pill\">3 мес</button><button class=\"ds-period__pill\">Год</button></div>",
+      "css": ".ds-period { display: inline-flex; gap: 2px; padding: 3px; background: #EDEFF1; border-radius: 20px; } .ds-period__pill { appearance: none; border: 0; background: transparent; color: #5B6670; font: 400 12px Inter, sans-serif; padding: 8px 12px; min-height: 44px; border-radius: 16px; cursor: pointer; white-space: nowrap; } .ds-period__pill[aria-current=\"true\"] { background: #2C6FB5; color: #fff; font-weight: 500; }"
+    },
+    {
+      "name": "Money Bar",
+      "kind": "custom",
+      "refersTo": "money-bar",
+      "description": "The signature element. Sticky above the keyboard; Остаток carries the live payment-status colour. The 22px tabular total is the loudest text on the screen.",
+      "html": "<div class=\"ds-money\"><div class=\"ds-money__row\"><span>Итого</span><span class=\"ds-money__amt\">3 200 сом</span></div><div class=\"ds-money__row\"><span>Оплачено</span><span class=\"ds-money__amt\">1 200 сом</span></div><div class=\"ds-money__row ds-money__row--total ds-money__row--debt\"><span>Остаток · долг</span><span class=\"ds-money__amt\">2 000 сом</span></div><button class=\"ds-btn-primary\">Подтвердить продажу</button></div>",
+      "css": ".ds-money { background: #fff; border-top: 0.5px solid #E3E6E9; border-radius: 12px 12px 0 0; box-shadow: 0 1px 3px rgba(20,24,28,0.08); padding: 12px 16px; } .ds-money__row { display: flex; align-items: baseline; justify-content: space-between; padding: 2px 0; font: 400 14px Inter, sans-serif; } .ds-money__amt { font-variant-numeric: tabular-nums; } .ds-money__row--total { border-top: 0.5px solid #E3E6E9; margin-top: 4px; padding-top: 8px; font-size: 22px; font-weight: 500; } .ds-money__row--debt { color: #B3271F; } .ds-money .ds-btn-primary { margin-top: 12px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Instrument Panel",
+    "overview": "ACOCOS is read the way a pilot reads a cockpit: under time pressure, at a glance, with a client waiting at the counter. It is a tool touched roughly 50x a day on a phone, not a page anyone browses. Every visual decision serves one reading — what is the money doing right now? — and everything else recedes to make that reading instant. The signature is the pinned money bar, the largest text on the screen, in fixed-width digits so totals never jitter. A single chalk-blue accent does all the work of primary actions and selection, chosen precisely so it never competes with the reserved payment-status trio (green paid / amber partial / red debt). Surfaces are near-flat, borders are hairlines, depth is tonal not shadowed. Restraint here is not minimalism for its own sake; it is precision.",
+    "keyCharacteristics": [
+      "Money is the loudest element on every screen; everything else is calibrated below it.",
+      "One accent, one filled button, hairline borders, tonal (not shadow) depth.",
+      "Tabular numerals wherever an amount appears — the typographic signature.",
+      "Colour + word for status, never colour alone (sunlight and colour-blindness both exist).",
+      "Mobile-first, thumb-sized (44px minimum), server-rendered, theme-aware with no flash."
+    ],
+    "rules": [
+      { "name": "The Reserved Trio Rule", "body": "Green, amber, and red belong to payment status and nothing else. Any new accent, chart series, or decorative colour is forbidden from those three hues.", "section": "colors" },
+      { "name": "The One Accent Rule", "body": "There is a single accent. Charts extend it as a monochrome ramp toward the surface; they never introduce new hues.", "section": "colors" },
+      { "name": "The Tabular Money Rule", "body": "font-variant-numeric: tabular-nums is applied everywhere an amount appears, and only there.", "section": "typography" },
+      { "name": "The 500 Ceiling Rule", "body": "No weight above 500 anywhere. Emphasis comes from size, colour, and alignment.", "section": "typography" },
+      { "name": "The Hairline Rule", "body": "Structure is drawn with 0.5px borders, not shadows and not 1px boxes. Shadows only lift things that are truly floating.", "section": "elevation" },
+      { "name": "The Tonal Depth Rule", "body": "Layering is conveyed by the page/surface/sunken lightness ladder. If two surfaces need separating, step the tone.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep money the loudest element on every screen — 22px tabular total, semantic colour, pinned in view.",
+      "Do apply font-variant-numeric: tabular-nums to every amount, and only to amounts.",
+      "Do pair every status colour with its word (оплачено / частично / долг).",
+      "Do draw structure with 0.5px hairline borders and the page/surface/sunken tonal ladder.",
+      "Do keep exactly one filled (accent) button per screen; everything else is ghost, link, or text.",
+      "Do read every colour, space, and radius from tokens.css as a var(); the token file is the only place a literal value is allowed.",
+      "Do give inputs and selects a visible resting border in both light and dark themes.",
+      "Do hold weights at 500 and below."
+    ],
+    "donts": [
+      "Don't use green, amber, or red for anything but payment status.",
+      "Don't introduce a second accent or a rainbow chart palette; extend the one accent as a monochrome ramp.",
+      "Don't pair a 1px border with a soft wide drop shadow (the ghost-card pattern).",
+      "Don't over-round: cards top out at 12px, controls at 8px; the pill (20px) is for badges and chips only.",
+      "Don't use gradient text, glassmorphism, decorative motion, or any weight above 500.",
+      "Don't treat this like a landing page — no hero, no marketing surface, no big-number-with-gradient hero-metric.",
+      "Don't draw in, stagger, or count up anything on /pos/ — save choreography for the once-a-day dashboard.",
+      "Don't hardcode a hex or px value outside tokens.css."
+    ]
+  }
+}

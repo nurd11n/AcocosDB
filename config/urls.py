@@ -7,7 +7,7 @@ from django.urls import include, path
 from apps.core.auth_views import RedirectToSharedLoginMixin, UnifiedLoginView
 from apps.core.errors import healthz
 from apps.core.views import report_download, root_redirect, set_theme, stats_view
-from apps.reports.views import dashboard
+from apps.reports.views import dashboard, dashboard_export, storage_export, storage_view
 
 if settings.OTP_ENABLED:
     from django_otp.admin import OTPAdminSite
@@ -28,9 +28,13 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("theme/", set_theme, name="set-theme"),
     path("pos/", include("apps.pos.urls")),
+    path("notes/", include("apps.notes.urls")),
     path("wa/", include("apps.wa.urls")),
     path("i18n/", include("django.conf.urls.i18n")),
     path("dashboard/", dashboard, name="dashboard"),
+    path("dashboard/export/", dashboard_export, name="dashboard-export"),
+    path("storage/", storage_view, name="storage"),
+    path("storage/export/", storage_export, name="storage-export"),
     path("stats/", stats_view, name="stats"),
     path("stats/download/", report_download, name="report-download"),
     path(settings.ADMIN_URL, admin.site.urls),

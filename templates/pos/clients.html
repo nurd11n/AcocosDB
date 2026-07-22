@@ -2,23 +2,48 @@
 {% load i18n %}
 {% block title %}{% trans "Клиенты" %}{% endblock %}
 {% block content %}
+
 <div class="card">
- <h2>{% trans "Поиск клиента" %}</h2>
+ <h2><svg class="ic"><use href="#i-clients"/></svg>{% trans "Клиенты" %}</h2>
  <form method="get">
-  <input type="search" name="q" inputmode="tel" placeholder="{% trans "Телефон или имя" %}"
-    value="{{ q }}" autofocus>
+  <input type="search" name="q" inputmode="tel" placeholder="{% trans 'Телефон или имя' %}" value="{{ q }}">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="filter" value="{{ filter }}">
  </form>
+ <div class="filters">
+  <div class="filters__set">
+   <span class="filters__label">{% trans "Сортировка" %}</span>
+   <div class="filters__group" role="group" aria-label="{% trans 'Сортировка' %}">
+    <a class="fpill{% if sort == 'name' %} is-on{% endif %}" href="?q={{ q|urlencode }}&amp;filter={{ filter }}&amp;sort=name">{% trans "Имя" %}</a>
+    <a class="fpill{% if sort == 'debt' %} is-on{% endif %}" href="?q={{ q|urlencode }}&amp;filter={{ filter }}&amp;sort=debt">{% trans "Долг" %}</a>
+    <a class="fpill{% if sort == 'recent' %} is-on{% endif %}" href="?q={{ q|urlencode }}&amp;filter={{ filter }}&amp;sort=recent">{% trans "Новые" %}</a>
+   </div>
+  </div>
+  <div class="filters__set">
+   <span class="filters__label">{% trans "Показать" %}</span>
+   <div class="filters__group" role="group" aria-label="{% trans 'Фильтр' %}">
+    <a class="fpill{% if filter == 'all' %} is-on{% endif %}" href="?q={{ q|urlencode }}&amp;sort={{ sort }}&amp;filter=all">{% trans "Все" %}</a>
+    <a class="fpill{% if filter == 'debt' %} is-on{% endif %}" href="?q={{ q|urlencode }}&amp;sort={{ sort }}&amp;filter=debt">{% trans "С долгом" %}</a>
+    <a class="fpill{% if filter == 'consent' %} is-on{% endif %}" href="?q={{ q|urlencode }}&amp;sort={{ sort }}&amp;filter=consent">{% trans "Согласие" %}</a>
+   </div>
+  </div>
+ </div>
 </div>
 
-{% if q %}
-<div class="card">
+<p class="list-count">{{ total }} {% trans "клиент(ов)" %}</p>
+
+<div class="card client-list">
  {% for c in clients %}
- <a href="{% url 'pos:client_detail' c.pk %}" class="line-row" style="text-decoration:none;color:var(--text)">
-   <div class="line-row__label"><strong>{{ c.name }}</strong><br><span class="muted">{{ c.phone }}</span></div>
+ <a href="{% url 'pos:client_detail' c.pk %}" class="client-row">
+  <div class="client-row__main">
+   <div class="client-row__name">{{ c.name }}</div>
+   <div class="client-row__phone">{{ c.phone }}</div>
+  </div>
+  {% if c.debt_label %}<div class="client-row__debt">{{ c.debt_label }}</div>{% endif %}
  </a>
  {% empty %}
- <p class="muted">{% trans "Ничего не найдено" %}</p>
+ <div class="empty"><svg class="ic"><use href="#i-clients"/></svg><p>{% if q or filter != 'all' %}{% trans "Никого не найдено" %}{% else %}{% trans "Пока нет клиентов" %}{% endif %}</p></div>
  {% endfor %}
 </div>
-{% endif %}
+
 {% endblock %}

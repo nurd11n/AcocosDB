@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import re
 from datetime import date
 from decimal import Decimal
 
@@ -127,6 +128,68 @@ def test_adjustment_requires_reason_and_writes_diff(variant, django_user_model):
         adjust_to_count(variant, 7, user, reason="")
     adjust_to_count(variant, 7, user, reason="inventory count")
     assert variant.stock == 7
+
+
+def test_variant_stock_panel_receive_writeoff_and_recount(client, django_user_model, variant):
+    """The per-variant stock panel on the change page: +Принять, −Списать, and
+    =Пересчёт each write a ledger row through services and update the remainder,
+    reachable in one click, no bulk action, no raw movement form."""
+    from django.urls import reverse
+
+    owner = django_user_model.objects.create_superuser("stockowner", password="x" * 12)
+    client.force_login(owner)
+    move_url = reverse("admin:inventory_productvariant_stockmove", args=[variant.pk])
+
+    # Change page renders the panel with the live remainder + history.
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    page = client.get(reverse("admin:inventory_productvariant_change", args=[variant.pk]))
+    assert page.status_code == 200
+    assert "Остаток на складе" in page.content.decode()
+
+    # + Принять 10 -> 15
+    client.post(move_url, {"op": "receive", "qty": "10"})
+    assert variant.stock == 15
+    # − Списать 3 -> 12
+    client.post(move_url, {"op": "writeoff", "qty": "3"})
+    assert variant.stock == 12
+    # = Пересчёт to exactly 8 (with reason) -> 8, via an ADJUSTMENT row
+    client.post(move_url, {"op": "recount", "count": "8", "reason": "инвентаризация"})
+    assert variant.stock == 8
+
+    # Every change is a ledger row — the audit trail is intact, not overwritten.
+    kinds = list(variant.movements.values_list("movement_type", flat=True))
+    assert StockMovement.ADJUSTMENT in kinds and StockMovement.WRITEOFF_OUT in kinds
+
+
+def test_variant_stock_panel_rejects_overdraw_and_missing_reason(
+    client, django_user_model, variant
+):
+    from django.urls import reverse
+
+    client.force_login(django_user_model.objects.create_superuser("stockowner2", password="x" * 12))
+    move_url = reverse("admin:inventory_productvariant_stockmove", args=[variant.pk])
+    add_movement(variant, StockMovement.PRODUCTION_IN, 4)
+
+    client.post(move_url, {"op": "writeoff", "qty": "9"})  # more than in stock
+    assert variant.stock == 4  # unchanged
+    client.post(move_url, {"op": "recount", "count": "2", "reason": ""})  # no reason
+    assert variant.stock == 4  # unchanged
+
+
+def test_variant_stock_panel_blocked_for_viewer(client, django_user_model, variant):
+    from django.urls import reverse
+
+    from apps.core.permissions import VIEWER
+
+    call_command("setup_roles")
+    viewer = django_user_model.objects.create_user("viewer_s", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    move_url = reverse("admin:inventory_productvariant_stockmove", args=[variant.pk])
+    resp = client.post(move_url, {"op": "receive", "qty": "10"})
+    assert resp.status_code in (403, 302)  # no change permission
+    assert variant.stock == 5  # unchanged
 
 
 def test_editor_cannot_see_cost_price_field(variant, django_user_model):
@@ -483,6 +546,33 @@ def test_void_payment_creates_reversing_entry_not_a_delete(variant):
     assert Payment.objects.filter(pk=payment.pk).exists()  # never deleted
     order.refresh_from_db()
     assert order.paid_amount == Decimal("0")  # net effect: fully reversed
+
+
+def test_voided_payment_excluded_from_method_mix(variant):
+    # D1 regression: a voided payment must NOT colour the «Способы оплаты» donut.
+    # Dropping only the negative reversal row would leave the +amount original
+    # overstating its method; the fix drops the original it voided too.
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    c = Client.objects.create(first_name="Nargiza", phone="+996700000099")
+    order = SaleOrder.objects.create(client=c)
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    cash = Payment.objects.create(
+        client=c, order=order, amount=Decimal("3200"), method=Payment.CASH
+    )
+    Payment.objects.create(client=c, order=order, amount=Decimal("3200"), method=Payment.MBANK)
+
+    void_payment(cash)  # the cash payment was a mistake
+
+    from apps.reports.dashboard import dashboard_data
+
+    methods = dashboard_data("today")["methods"]
+    total = sum((m["value"] for m in methods), Decimal("0"))
+    # Only the surviving MBank payment remains; the voided cash is gone entirely
+    # (both the −3200 reversal and the +3200 original), so the mix is one method.
+    # The pre-fix bug would report two methods totalling 6400.
+    assert len(methods) == 1
+    assert total == Decimal("3200")
 
 
 def test_void_reviewed_payment_requires_superuser(variant, django_user_model):
@@ -1447,6 +1537,43 @@ def test_dashboard_is_owner_only(client, django_user_model):
     assert "Выручка" in resp.content.decode()
 
 
+def test_dashboard_numeric_svg_attrs_are_not_locale_formatted(client, django_user_model, variant):
+    # Regression: LANGUAGE_CODE="ru" makes Django render raw numbers with a
+    # comma decimal separator ("104.0" -> "104,0") wherever a template renders
+    # a float/int directly. That's invalid inside SVG coordinate attributes
+    # and breaks the bar's --pct CSS custom property (a comma inside scaleX()
+    # makes the whole `transform` declaration invalid, so the browser drops it
+    # and the bar never scales). The panel must render with locale formatting
+    # off regardless of what LANGUAGE_CODE the project ships.
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    c1 = Client.objects.create(first_name="Aigerim", phone="+996700000097")
+    order = SaleOrder.objects.create(client=c1, channel=SaleOrder.SHOP)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    # A second channel with a different amount so at least one bar's --pct
+    # fraction is non-round (e.g. 0.3333...), the case most likely to leak a
+    # locale comma through an untested happy path.
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order2 = SaleOrder.objects.create(client=c1, channel=SaleOrder.WHOLESALE)
+    SaleItem.objects.create(order=order2, variant=variant, quantity=1, unit_price=Decimal("1600"))
+    confirm_sale(order2)
+
+    client.force_login(django_user_model.objects.create_superuser("svgowner", password="x" * 12))
+    html = client.get("/dashboard/?period=month").content.decode()
+
+    # Scoped to the attributes that carry a RAW single float/int (x, y, cx, cy,
+    # r, data-cx, data-cy) — never `d`, whose path strings legitimately use
+    # "x,y" as a pair separator between two already-period-formatted numbers
+    # (e.g. "104.0,198.0"), which is correct SVG and not what this guards.
+    for name in ("x", "y", "cx", "cy", "r", "data-cx", "data-cy"):
+        for value in re.findall(rf'\b{name}="([^"]*)"', html):
+            assert "," not in value, f'{name}="{value}" would be invalid — a locale comma leaked in'
+    # The bar's --pct custom property is the other place a comma silently
+    # breaks scaleX().
+    for pct in re.findall(r"--pct: ([^\"]+)", html):
+        assert "," not in pct, f"--pct value {pct!r} would make scaleX() invalid CSS"
+
+
 def test_dashboard_link_shown_only_to_owner(client, django_user_model):
     call_command("setup_roles")
     editor = django_user_model.objects.create_user("linkeditor", password="x" * 12, is_staff=True)
@@ -1456,6 +1583,205 @@ def test_dashboard_link_shown_only_to_owner(client, django_user_model):
 
     client.force_login(django_user_model.objects.create_superuser("linkowner", password="x" * 12))
     assert 'href="/dashboard/"' in client.get("/pos/", follow=True).content.decode()
+
+
+# ---- Storage / inventory dashboard (Owner-only) ---------------------------
+
+
+def _editor(client, django_user_model, name):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user(name, password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+    return editor
+
+
+def test_storage_page_is_owner_only(client, django_user_model, variant):
+    # Anonymous -> login redirect, never rendered.
+    assert client.get("/storage/").status_code == 302
+    # Editor (staff, not superuser) -> hard 403.
+    _editor(client, django_user_model, "storeeditor")
+    assert client.get("/storage/").status_code == 403
+    # Owner -> 200 with the real spreadsheet content.
+    client.force_login(django_user_model.objects.create_superuser("storeowner", password="x" * 12))
+    resp = client.get("/storage/")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Склад" in body and "По категориям" in body and variant.sku in body
+
+
+def test_storage_export_is_owner_only(client, django_user_model, variant):
+    # Anonymous and Editor must never receive a file.
+    assert client.get("/storage/export/?format=xlsx").status_code == 302
+    _editor(client, django_user_model, "storeexpeditor")
+    assert client.get("/storage/export/?format=xlsx").status_code == 403
+    assert client.get("/storage/export/?format=csv&sheet=tovary").status_code == 403
+
+
+def test_storage_export_xlsx_and_csv_for_owner(client, django_user_model, variant):
+    client.force_login(django_user_model.objects.create_superuser("storeexp", password="x" * 12))
+    add_movement(variant, StockMovement.PRODUCTION_IN, 12)
+
+    xlsx = client.get("/storage/export/?format=xlsx")
+    assert xlsx.status_code == 200
+    assert "spreadsheetml.sheet" in xlsx["Content-Type"]
+    assert "attachment; filename=" in xlsx["Content-Disposition"]
+    assert xlsx.content[:2] == b"PK"  # a real .xlsx (zip) payload
+
+    csv_resp = client.get("/storage/export/?format=csv&sheet=tovary")
+    assert csv_resp.status_code == 200
+    assert csv_resp["Content-Type"].startswith("text/csv")
+    text = csv_resp.content.decode("utf-8")
+    assert "Артикул" in text and variant.sku in text
+
+    # An unknown csv sheet name is rejected, not silently served.
+    assert client.get("/storage/export/?format=csv&sheet=secret").status_code == 403
+
+
+def test_storage_link_shown_only_to_owner(client, django_user_model):
+    _editor(client, django_user_model, "storelinkeditor")
+    assert 'href="/storage/"' not in client.get("/pos/", follow=True).content.decode()
+    client.force_login(django_user_model.objects.create_superuser("storelinkowner", password="x" * 12))
+    assert 'href="/storage/"' in client.get("/pos/", follow=True).content.decode()
+
+
+def test_storage_aggregates_movements_by_type(variant):
+    from apps.reports.storage import storage_data
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 20)
+    add_movement(variant, StockMovement.WRITEOFF_OUT, -3)  # defective
+    add_movement(variant, StockMovement.RETURN_IN, 2)
+    # a confirmed sale of 4 -> a sale_out movement of -4
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=4, unit_price=Decimal("100"))
+    confirm_sale(order)
+
+    data = storage_data()
+    row = next(it for it in data["items"] if it["sku"] == variant.sku)
+    assert row["intake"] == 20
+    assert row["writeoff"] == 3  # shown as a positive count
+    assert row["returns"] == 2
+    assert row["sold"] == 4
+    assert row["stock"] == 20 - 3 + 2 - 4  # ledger sum
+    assert data["summary"]["sold"] == 4 and data["summary"]["writeoff"] == 3
+
+
+def test_dashboard_export_is_owner_only(client, django_user_model):
+    call_command("setup_roles")
+    # Anonymous -> login redirect; Editor -> hard 403; neither gets a file.
+    assert client.get("/dashboard/export/?format=xlsx").status_code == 302
+    _editor(client, django_user_model, "dashexpeditor")
+    assert client.get("/dashboard/export/?format=xlsx").status_code == 403
+    assert client.get("/dashboard/export/?format=csv&sheet=tovary").status_code == 403
+
+
+def test_dashboard_export_xlsx_and_csv_for_owner(client, django_user_model, variant):
+    client.force_login(django_user_model.objects.create_superuser("dashexp", password="x" * 12))
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("500"))
+    confirm_sale(order)
+
+    # xlsx: real workbook, filename carries the period.
+    xlsx = client.get("/dashboard/export/?period=year&format=xlsx")
+    assert xlsx.status_code == 200
+    assert "spreadsheetml.sheet" in xlsx["Content-Type"]
+    assert xlsx.content[:2] == b"PK"
+    assert "year" in xlsx["Content-Disposition"]
+
+    # csv of a single sheet.
+    csv_resp = client.get("/dashboard/export/?period=year&format=csv&sheet=tovary")
+    assert csv_resp.status_code == 200
+    assert csv_resp["Content-Type"].startswith("text/csv")
+    text = csv_resp.content.decode("utf-8")
+    assert "Товар" in text and "Прибыль" in text
+
+    # Unknown csv sheet -> rejected, never silently served.
+    assert client.get("/dashboard/export/?format=csv&sheet=secret").status_code == 403
+
+
+def test_dashboard_export_matches_the_page_numbers(variant):
+    # download == screen: the export flattens the SAME dashboard_data().
+    from apps.reports.dashboard import dashboard_data, dashboard_sheets
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=3, unit_price=Decimal("1000"))
+    confirm_sale(order)  # revenue 3000 сом today
+
+    data = dashboard_data("today")
+    sheets = dashboard_sheets(data)
+    svodka = dict(sheets["Сводка"][1:])  # {label: value}
+    assert svodka["Выручка, сом"] == float(data["metrics"]["revenue"]["value"])
+    assert svodka["Продано, шт"] == 3
+
+
+def test_dashboard_export_link_is_period_aware(client, django_user_model, variant):
+    client.force_login(django_user_model.objects.create_superuser("dashdl", password="x" * 12))
+    body = client.get("/dashboard/?period=3m").content.decode()
+    assert "/dashboard/export/?period=3m&amp;format=xlsx" in body
+
+
+def test_dashboard_currency_toggle_is_view_only(client, django_user_model, variant):
+    # ?cur=USD converts the SHOWN money at today's rate; units aren't money and
+    # stay unchanged; the download always stays in сом (the money-truth file).
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    from apps.core.models import ExchangeRate
+
+    cache.clear()  # the dated-rate cache bleeds across tests otherwise
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=5, unit_price=Decimal("1000"))
+    confirm_sale(order)  # 5000 сом today
+    ExchangeRate.objects.create(
+        currency="USD", date=timezone.localdate(), rate=Decimal("100"), source="nbkr"
+    )
+    client.force_login(django_user_model.objects.create_superuser("curown", password="x" * 12))
+
+    som = client.get("/dashboard/?period=today").content.decode()
+    assert "5\xa0000\xa0сом" in som
+
+    usd = client.get("/dashboard/?period=today&cur=USD").content.decode()
+    assert "50\xa0USD" in usd  # 5000 / 100, shown as a text abbreviation
+    assert "5 шт" in usd  # units are not money — never converted
+    assert "приблизительны" in usd  # the ≈ disclaimer
+
+    # The export ignores the view currency — always сом.
+    csv = client.get(
+        "/dashboard/export/?period=today&cur=USD&format=csv&sheet=vyruchka"
+    ).content.decode()
+    assert "сом" in csv and "USD" not in csv
+
+
+def test_dashboard_falls_back_to_som_without_a_rate(client, django_user_model, variant):
+    from django.core.cache import cache
+
+    cache.clear()  # ensure no rate leaked in from another test's dated-rate cache
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=5, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    client.force_login(django_user_model.objects.create_superuser("fbown", password="x" * 12))
+
+    # Unknown currency code -> сом silently.
+    unknown = client.get("/dashboard/?period=today&cur=ZZZ").content.decode()
+    assert "5\xa0000\xa0сом" in unknown
+
+    # A real currency with NO rate on record -> сом, but say so.
+    no_rate = client.get("/dashboard/?period=today&cur=USD").content.decode()
+    assert "5\xa0000\xa0сом" in no_rate
+    assert "Курс валюты недоступен" in no_rate
+
+
+def test_dashboard_omits_percentage_deltas(client, django_user_model):
+    call_command("setup_roles")
+    client.force_login(django_user_model.objects.create_superuser("nodelta", password="x" * 12))
+    body = client.get("/dashboard/?period=today").content.decode()
+    assert "metric__delta" not in body
+    assert "ко вчера" not in body
+    assert "нет данных за прошлый период" not in body
 
 
 def test_dashboard_htmx_swaps_only_the_panel(client, django_user_model):

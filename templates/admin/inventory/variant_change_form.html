@@ -1,0 +1,103 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{# Stock panel rendered after the main admin form so its action forms aren't nested inside it #}
+{% block content %}
+{{ block.super }}
+
+{% if stock_move_url %}
+<div class="card card-outline card-primary mt-3" id="stock-panel">
+  <div class="card-header d-flex align-items-center">
+    <h3 class="card-title mb-0"><i class="fas fa-boxes" style="margin-right:8px"></i>{% trans "Остаток на складе" %}</h3>
+    <span class="ml-auto badge badge-primary" style="font-size:15px;padding:6px 12px">
+      {% trans "Сейчас" %}: {{ stock_current }}
+    </span>
+  </div>
+  <div class="card-body">
+
+    {% if stock_can_change %}
+    <div class="row">
+      {# + Принять #}
+      <div class="col-md-4 mb-2">
+        <form method="post" action="{{ stock_move_url }}" class="form-inline">
+          {% csrf_token %}
+          <input type="hidden" name="op" value="receive">
+          <label class="mr-2 mb-0 text-success"><i class="fas fa-plus"></i> {% trans "Принять" %}</label>
+          <input type="number" name="qty" min="1" placeholder="0" inputmode="numeric"
+                 class="form-control form-control-sm mr-2" style="width:90px" required>
+          <button type="submit" class="btn btn-sm btn-success">{% trans "Добавить" %}</button>
+        </form>
+      </div>
+      {# − Списать #}
+      <div class="col-md-4 mb-2">
+        <form method="post" action="{{ stock_move_url }}" class="form-inline">
+          {% csrf_token %}
+          <input type="hidden" name="op" value="writeoff">
+          <label class="mr-2 mb-0 text-danger"><i class="fas fa-minus"></i> {% trans "Списать" %}</label>
+          <input type="number" name="qty" min="1" placeholder="0" inputmode="numeric"
+                 class="form-control form-control-sm mr-2" style="width:90px" required>
+          <button type="submit" class="btn btn-sm btn-danger">{% trans "Списать" %}</button>
+        </form>
+      </div>
+      {# = Пересчёт (set exact) #}
+      <div class="col-md-4 mb-2">
+        <form method="post" action="{{ stock_move_url }}" class="form-inline">
+          {% csrf_token %}
+          <input type="hidden" name="op" value="recount">
+          <label class="mr-2 mb-0"><i class="fas fa-equals"></i> {% trans "Пересчёт" %}</label>
+          <input type="number" name="count" min="0" value="{{ stock_current }}" inputmode="numeric"
+                 class="form-control form-control-sm mr-2" style="width:80px" required>
+          <input type="text" name="reason" placeholder="{% trans 'причина' %}"
+                 class="form-control form-control-sm mr-2" style="width:120px" required>
+          <button type="submit" class="btn btn-sm btn-outline-secondary">{% trans "Установить" %}</button>
+        </form>
+      </div>
+    </div>
+    <p class="text-muted mb-3" style="font-size:12px">
+      {% trans "«Принять» и «Списать» меняют остаток на число. «Пересчёт» задаёт точное количество (с указанием причины). Каждое действие записывается в историю ниже." %}
+    </p>
+    {% endif %}
+
+    {# --- Movement history: newest first, with a running remainder column --- #}
+    <h4 class="mt-2" style="font-size:15px">{% trans "История" %}</h4>
+    {% if stock_history %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover">
+        <thead>
+          <tr>
+            <th>{% trans "Дата" %}</th>
+            <th>{% trans "Операция" %}</th>
+            <th class="text-right">{% trans "Изменение" %}</th>
+            <th class="text-right">{% trans "Остаток" %}</th>
+            <th>{% trans "Причина" %}</th>
+            <th>{% trans "Кто" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in stock_history %}
+          <tr>
+            <td style="white-space:nowrap">{{ row.move.created_at|date:"d.m.Y H:i" }}</td>
+            <td>{{ row.move.get_movement_type_display }}</td>
+            <td class="text-right {% if row.move.quantity < 0 %}text-danger{% else %}text-success{% endif %}"
+                style="font-variant-numeric:tabular-nums">
+              {% if row.move.quantity > 0 %}+{% endif %}{{ row.move.quantity }}
+            </td>
+            <td class="text-right" style="font-variant-numeric:tabular-nums">{{ row.remainder }}</td>
+            <td>
+              {{ row.move.reason }}
+              {% if row.move.sale_order_id %}<span class="badge badge-light">#{{ row.move.sale_order_id }}</span>{% endif %}
+            </td>
+            <td>{{ row.move.created_by|default:"—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted">{% trans "Пока нет движений по этому товару." %}</p>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
+{% endblock %}

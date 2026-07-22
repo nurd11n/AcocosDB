@@ -28,6 +28,17 @@ def som(value):
 
 
 @register.filter
+def money(value, symbol="сом"):
+    """Whole amount + a currency symbol, NBSP-grouped: `1 284 000 $`. The symbol
+    is passed from the view so the dashboard can render its view-only USD/RUB
+    figures with the same formatting as сом."""
+    try:
+        return f"{_grouped(round(float(value)))}{NBSP}{symbol}"
+    except (TypeError, ValueError):
+        return value
+
+
+@register.filter
 def grp(value):
     """Grouped integer, no currency (units, capital counts)."""
     try:

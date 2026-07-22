@@ -46,6 +46,28 @@ docker compose -f docker-compose.prod.yml exec web \
 Verified end-to-end on a clean database: with no code the login is refused; with
 the static token it succeeds and lands on `/pos/`.
 
+## Scheduled jobs
+
+The `scheduler` container (`docker-compose.prod.yml`) already runs on its own,
+no host cron needed: it fetches NBKR rates at `RATES_HOUR` (default 08:00) and
+again at `REPORT_HOUR` (default 21:00), purges stale sale drafts, and sends the
+daily report — see `scheduler.py`.
+
+One job is deliberately **not** in that loop: deleting notes/tasks that have
+been marked done for 4+ weeks (28 days). It's a separate host crontab entry
+instead, so it can be added or removed independently of the report/rates jobs
+and doesn't need the `scheduler` container rebuilt to change its schedule:
+
+```bash
+# /etc/crontab or `crontab -e` on the host — runs daily at 03:00 server time.
+# Replace /path/to/acocosDB with the real deploy path.
+0 3 * * * cd /path/to/acocosDB && docker compose -f docker-compose.prod.yml exec -T web python manage.py purge_completed_notes >> /var/log/acocos-purge-notes.log 2>&1
+```
+
+`purge_completed_notes` is idempotent (safe to re-run; matches zero rows once
+caught up) and logs the number of notes deleted. Run it by hand any time with
+`docker compose -f docker-compose.prod.yml exec web python manage.py purge_completed_notes`.
+
 ## Backups
 
 The `backup` service dumps Postgres every 6 hours, checksums it, encrypts it with

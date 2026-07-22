@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: acocos-crm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-18 01:29+0600\n"
+"POT-Creation-Date: 2026-07-19 07:18+0600\n"
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -286,6 +286,36 @@ msgstr "сообщения бота"
 msgid "stock"
 msgstr "остаток"
 
+msgid "Enter a positive quantity."
+msgstr "Введите положительное количество."
+
+#, python-format
+msgid "Cannot write off %(n)s — only %(s)s in stock."
+msgstr "Нельзя списать %(n)s — на складе только %(s)s."
+
+msgid "Receive stock"
+msgstr "Приём на склад"
+
+msgid "Write off"
+msgstr "Списать"
+
+#, python-format
+msgid "Done — stock is now %(s)s."
+msgstr "Готово — остаток теперь %(s)s."
+
+msgid "Enter the counted quantity (0 or more)."
+msgstr "Введите пересчитанное количество (0 или больше)."
+
+msgid "A reason is required for a recount."
+msgstr "Для пересчёта необходимо указать причину."
+
+msgid "Count matched — nothing changed."
+msgstr "Количество совпало — без изменений."
+
+#, python-format
+msgid "Recounted — stock is now %(s)s."
+msgstr "Пересчитано — остаток теперь %(s)s."
+
 #, python-format
 msgid "Updated stock for %(n)s item(s)."
 msgstr "Обновлён остаток для %(n)s позиций."
@@ -296,9 +326,6 @@ msgstr "Количество не указано — изменений нет."
 msgid "Receive stock (Принять на склад)"
 msgstr "Принять на склад"
 
-msgid "Receive stock"
-msgstr "Приём на склад"
-
 msgid "Write off (Списать)"
 msgstr "Списать"
 
@@ -307,9 +334,6 @@ msgstr "Списание со склада"
 
 msgid "Recount (Пересчёт)"
 msgstr "Пересчёт"
-
-msgid "A reason is required for a recount."
-msgstr "Для пересчёта необходимо указать причину."
 
 #, python-format
 msgid "Recounted %(n)s item(s)."
@@ -684,6 +708,63 @@ msgstr "Применить"
 msgid "Cancel"
 msgstr "Отменить"
 
+msgid "Остаток на складе"
+msgstr "Остаток на складе"
+
+msgid "Сейчас"
+msgstr "Сейчас"
+
+msgid "Принять"
+msgstr "Принять"
+
+msgid "Добавить"
+msgstr "Добавить"
+
+msgid "Списать"
+msgstr "Списать"
+
+msgid "Пересчёт"
+msgstr "Пересчёт"
+
+msgid "причина"
+msgstr "причина"
+
+msgid "Установить"
+msgstr "Установить"
+
+msgid ""
+"«Принять» и «Списать» меняют остаток на число. «Пересчёт» задаёт точное "
+"количество (с указанием причины). Каждое действие записывается в историю "
+"ниже."
+msgstr ""
+"«Принять» и «Списать» меняют остаток на число. «Пересчёт» задаёт точное "
+"количество (с указанием причины). Каждое действие записывается в историю "
+"ниже."
+
+msgid "История"
+msgstr "История"
+
+msgid "Дата"
+msgstr "Дата"
+
+msgid "Операция"
+msgstr "Операция"
+
+msgid "Изменение"
+msgstr "Изменение"
+
+msgid "Остаток"
+msgstr "Остаток"
+
+msgid "Причина"
+msgstr "Причина"
+
+msgid "Кто"
+msgstr "Кто"
+
+msgid "Пока нет движений по этому товару."
+msgstr "Пока нет движений по этому товару."
+
 #, python-format
 msgid "You are approving %(counter)s sale. Stock will be written off."
 msgid_plural "You are approving %(counter)s sales. Stock will be written off."
@@ -858,6 +939,9 @@ msgstr "Продажа"
 msgid "Дашборд"
 msgstr "Дашборд"
 
+msgid "Склад"
+msgstr "Склад"
+
 msgid "Админпанель"
 msgstr "Админпанель"
 
@@ -981,9 +1065,6 @@ msgstr "Итого"
 msgid "Оплачено"
 msgstr "Оплачено"
 
-msgid "Остаток"
-msgstr "Остаток"
-
 msgid "Подтвердить продажу?"
 msgstr "Подтвердить продажу?"
 
@@ -995,9 +1076,6 @@ msgstr "Вариант"
 
 msgid "Количество"
 msgstr "Количество"
-
-msgid "Добавить"
-msgstr "Добавить"
 
 msgid "Продажа отменена"
 msgstr "Продажа отменена"
@@ -1099,6 +1177,12 @@ msgstr "Пароль"
 msgid "Authentication code"
 msgstr "Код аутентификации"
 
+msgid "Скачать за"
+msgstr "Скачать за"
+
+msgid "Топ товаров"
+msgstr "Топ товаров"
+
 msgid "Выручка"
 msgstr "Выручка"
 
@@ -1134,9 +1218,6 @@ msgstr "Способы оплаты"
 
 msgid "Нет оплат за этот период"
 msgstr "Нет оплат за этот период"
-
-msgid "Топ товаров"
-msgstr "Топ товаров"
 
 msgid "Товар"
 msgstr "Товар"
@@ -1185,3 +1266,77 @@ msgstr "К продажам"
 
 msgid "Период"
 msgstr "Период"
+
+msgid "Скачать:"
+msgstr "Скачать:"
+
+msgid "Категории"
+msgstr "Категории"
+
+msgid "Позиций (SKU)"
+msgstr "Позиций (SKU)"
+
+msgid "Единиц на складе"
+msgstr "Единиц на складе"
+
+msgid "продано за всё время"
+msgstr "продано за всё время"
+
+msgid "Стоимость остатка"
+msgstr "Стоимость остатка"
+
+msgid "по себестоимости"
+msgstr "по себестоимости"
+
+msgid "Мало на складе"
+msgstr "Мало на складе"
+
+msgid "брак/списание"
+msgstr "брак/списание"
+
+msgid "По категориям"
+msgstr "По категориям"
+
+msgid "Категория"
+msgstr "Категория"
+
+msgid "позиций"
+msgstr "позиций"
+
+msgid "поступление"
+msgstr "поступление"
+
+msgid "возвраты"
+msgstr "возвраты"
+
+msgid "брак"
+msgstr "брак"
+
+msgid "остаток"
+msgstr "остаток"
+
+msgid "≈ стоимость"
+msgstr "≈ стоимость"
+
+msgid "На складе пока нет товаров"
+msgstr "На складе пока нет товаров"
+
+msgid "Все товары"
+msgstr "Все товары"
+
+msgid ""
+"Каждая строка — вариант товара; движения по складскому журналу за всё время."
+msgstr ""
+"Каждая строка — вариант товара; движения по складскому журналу за всё время."
+
+msgid "Артикул"
+msgstr "Артикул"
+
+msgid "поступл."
+msgstr "поступл."
+
+msgid "коррект."
+msgstr "коррект."
+
+msgid "мало"
+msgstr "мало"

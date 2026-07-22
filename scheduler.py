@@ -1,8 +1,16 @@
 #!/usr/bin/env python
-"""Sleeps until REPORT_HOUR (HH:MM, TIME_ZONE) every day, then runs
-`manage.py send_daily_report`. Runs as the `scheduler` service in
-docker-compose.prod.yml — a full scheduler (Celery/cron) is overkill for one
-job a day; this reads env directly so it doesn't need django.setup().
+"""Tiny daily job runner for the `scheduler` service (docker-compose.prod.yml).
+
+Two fixed times a day, in TIME_ZONE:
+  RATES_HOUR  (default 08:00) — refresh NBKR FX rates at the start of the day, so
+              the dashboard's «≈ $ / ₽» view uses today's official rate.
+  REPORT_HOUR (default 21:00) — refresh rates again, purge stale draft sales, then
+              send the daily report.
+
+A full scheduler (Celery/cron) is overkill for two jobs a day; this reads env
+directly so it needs no django.setup(). Every command runs check=False — a
+hiccup in one never blocks the others, and fetch_rates keeps the last known rate
+on failure (a sale must never break for lack of a fresh rate).
 """
 
 import os
@@ -12,34 +20,45 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+RATES_HOUR = os.environ.get("RATES_HOUR", "08:00")
 REPORT_HOUR = os.environ.get("REPORT_HOUR", "21:00")
 TZ = ZoneInfo(os.environ.get("TIME_ZONE", "Asia/Bishkek"))
 
+# (HH:MM, [management commands to run, in order])
+JOBS = [
+    (RATES_HOUR, ["fetch_rates"]),
+    (REPORT_HOUR, ["fetch_rates", "cleanup_draft_sales", "send_daily_report"]),
+]
 
-def seconds_until_next_run() -> float:
-    hour, minute = (int(x) for x in REPORT_HOUR.split(":"))
-    now = datetime.now(TZ)
+
+def _next_occurrence(hhmm: str, now: datetime) -> datetime:
+    hour, minute = (int(x) for x in hhmm.split(":"))
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if target <= now:
         target += timedelta(days=1)
-    return (target - now).total_seconds()
+    return target
+
+
+def _run(commands):
+    for cmd in commands:
+        print(f"Running {cmd}...", flush=True)
+        subprocess.run([sys.executable, "manage.py", cmd], check=False)
 
 
 def main():
-    print(f"Scheduler started. Daily report runs at {REPORT_HOUR} ({TZ}).", flush=True)
+    times = ", ".join(hhmm for hhmm, _ in JOBS)
+    print(f"Scheduler started. Daily jobs at {times} ({TZ}).", flush=True)
     while True:
-        wait = seconds_until_next_run()
-        print(f"Sleeping {wait / 3600:.1f}h until next report.", flush=True)
+        now = datetime.now(TZ)
+        # The soonest job across all configured times.
+        when, commands = min(
+            ((_next_occurrence(hhmm, now), cmds) for hhmm, cmds in JOBS),
+            key=lambda pair: pair[0],
+        )
+        wait = (when - now).total_seconds()
+        print(f"Sleeping {wait / 3600:.1f}h until {when:%H:%M}.", flush=True)
         time.sleep(wait)
-        # Refresh FX rates before the report so its «≈ сом» totals use today's
-        # rates. Both are best-effort — fetch_rates keeps the last known rate on
-        # failure, and check=False means a hiccup in one never blocks the other.
-        print("Running fetch_rates...", flush=True)
-        subprocess.run([sys.executable, "manage.py", "fetch_rates"], check=False)
-        print("Running cleanup_draft_sales...", flush=True)
-        subprocess.run([sys.executable, "manage.py", "cleanup_draft_sales"], check=False)
-        print("Running send_daily_report...", flush=True)
-        subprocess.run([sys.executable, "manage.py", "send_daily_report"], check=False)
+        _run(commands)
 
 
 if __name__ == "__main__":

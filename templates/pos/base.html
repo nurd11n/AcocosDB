@@ -19,19 +19,21 @@
 <meta name="mobile-web-app-capable" content="yes">
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+{% include "_icons.svg" %}
 <header class="top">
  <span class="top__brand">ACOCOS</span>
  <div class="top__actions">
   {% if request.user.is_superuser %}
-   <a class="top__link" href="{% url 'dashboard' %}">{% trans "Дашборд" %}</a>
-   <a class="top__link" href="/{{ ADMIN_URL_PATH }}">{% trans "Админпанель" %}</a>
+   <a class="top__link" href="{% url 'dashboard' %}" aria-label="{% trans 'Дашборд' %}"><svg class="ic"><use href="#i-revenue"/></svg><span class="lbl">{% trans "Дашборд" %}</span></a>
+   <a class="top__link" href="{% url 'storage' %}" aria-label="{% trans 'Склад' %}"><svg class="ic"><use href="#i-storage"/></svg><span class="lbl">{% trans "Склад" %}</span></a>
+   <a class="top__link" href="/{{ ADMIN_URL_PATH }}" aria-label="{% trans 'Админпанель' %}"><svg class="ic"><use href="#i-admin"/></svg><span class="lbl">{% trans "Админпанель" %}</span></a>
   {% endif %}
   <form method="post" action="{% url 'set-theme' %}" id="theme-form">
    {% csrf_token %}
    <input type="hidden" name="next" value="{{ request.get_full_path }}">
    <input type="hidden" name="theme" id="theme-form-value" value="{% if THEME == 'dark' %}light{% else %}dark{% endif %}">
    <button type="submit" class="theme-toggle" aria-label="{% trans "Тема" %}">
-     <span class="theme-toggle__icon theme-toggle__icon--sun">☀</span><span class="theme-toggle__icon theme-toggle__icon--moon">☾</span>
+     <span class="theme-toggle__icon theme-toggle__icon--sun"><svg class="ic"><use href="#i-sun"/></svg></span><span class="theme-toggle__icon theme-toggle__icon--moon"><svg class="ic"><use href="#i-moon"/></svg></span>
    </button>
   </form>
  </div>
@@ -47,14 +49,19 @@
 <nav class="bottom-nav">
  {% if perms.sales.add_saleorder %}
  <a href="{% url 'pos:index' %}" {% if active == 'sale' %}aria-current="page"{% endif %}>
-   <span class="ic">🧾</span>{% trans "Продажа" %}</a>
+   <svg class="ic"><use href="#i-sale"/></svg>{% trans "Продажа" %}</a>
  {% endif %}
  <a href="{% url 'pos:today' %}" {% if active == 'today' %}aria-current="page"{% endif %}>
-   <span class="ic">📅</span>{% trans "Сегодня" %}</a>
+   <svg class="ic"><use href="#i-today"/></svg>{% trans "Сегодня" %}</a>
  <a href="{% url 'pos:clients' %}" {% if active == 'clients' %}aria-current="page"{% endif %}>
-   <span class="ic">👤</span>{% trans "Клиенты" %}</a>
- <a href="{% url 'logout' %}">
-   <span class="ic">⇥</span>{% trans "Выход" %}</a>
+   <svg class="ic"><use href="#i-clients"/></svg>{% trans "Клиенты" %}</a>
+ <a href="{% url 'notes:index' %}" {% if active == 'notes' %}aria-current="page"{% endif %}>
+   <svg class="ic"><use href="#i-notes"/></svg>{% trans "Заметки" %}</a>
+ <form method="post" action="{% url 'logout' %}" class="bottom-nav__logout-form">
+  {% csrf_token %}
+  <button type="submit" class="bottom-nav__logout">
+    <svg class="ic"><use href="#i-logout"/></svg>{% trans "Выход" %}</button>
+ </form>
 </nav>
 
 <script src="{% static 'pos/js/confirm.js' %}"></script>

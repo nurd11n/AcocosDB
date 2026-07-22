@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     "apps.reports",
     "apps.campaigns",
     "apps.pos",
+    "apps.notes",
     "apps.wa",
 ]
 
@@ -73,6 +74,12 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "csp.middleware.CSPMiddleware",  # Content-Security-Policy header
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    # Early in the list = late in the response chain (outbound order is
+    # reversed), so this is one of the LAST things to touch a response before
+    # it's sent — nothing downstream can silently strip the no-store header.
+    # WhiteNoise above it already short-circuits static/*, so this only ever
+    # runs for dynamic pages + /media/ (which it explicitly excludes below).
+    "apps.core.middleware.NoStoreMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -285,9 +292,9 @@ JAZZMIN_SETTINGS = {
         "sales",
         "sales.SaleOrder",
         "inventory",
+        "inventory.Category",
         "inventory.Product",
         "inventory.ProductVariant",
-        "inventory.Category",
         "clients",
         "clients.Client",
         "clients.Interaction",
@@ -321,6 +328,7 @@ JAZZMIN_SETTINGS = {
     "custom_links": {
         "reports": [
             {"name": "Дашборд", "url": "dashboard", "icon": "fas fa-chart-area"},
+            {"name": "Склад", "url": "storage", "icon": "fas fa-warehouse"},
         ],
         "core": [
             {"name": "Statistics", "url": "stats", "icon": "fas fa-chart-line"},
