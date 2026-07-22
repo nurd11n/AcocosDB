@@ -1,0 +1,14 @@
+{
+  "hashes": {
+    "/static/pos/app.css": "d3b7f40c4f1925e863779559cf5a55daecf9ac7cbf3e897b4fa07d7d744f70d6",
+    "/static/pos/fonts/InterVariable.woff2": "693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3",
+    "/static/pos/icons/icon-192.png": "ef858b3e52575143c5e85685c3ca2f8844fe7844a5edb7a48379ce2364e882d4",
+    "/static/pos/icons/icon-512-maskable.png": "1359b350717033bf246b6373b450424d289fcfc2bc67f1bdc988eaf9aea1874d",
+    "/static/pos/icons/icon-512.png": "fffdbb6fb035ac5151dae05fc2b000eae6f9477f5f80b92c1a6e3617ed3073ae",
+    "/static/pos/js/confirm.js": "fd204dd4e4878472599dc8897389f16e40b40681025d5fbbb5ef1a3289d7d201",
+    "/static/pos/js/pos.js": "ed1b1c128d274bfe70883d71cec1f38e3e8bb3289c3b07a4c53c4a1d264d1856",
+    "/static/pos/tokens.css": "82e7df88f01984d85146ec49b1874cd903876f5176ab37bc88b0ba1042972f62",
+    "/static/vendor/htmx/htmx.min.js": "449317ade7881e949510db614991e195c3a099c4c791c24dacec55f9f4a2a452"
+  },
+  "version": "9"
+}

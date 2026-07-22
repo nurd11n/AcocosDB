@@ -15,7 +15,8 @@
   flex-wrap: wrap;
   margin-bottom: var(--space-4);
 }
-.dash-header__title { font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+.dash-header__title { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+.dash-header__title .ic { width: 20px; height: 20px; color: var(--accent); }
 .dash-header__actions { display: flex; align-items: center; gap: var(--space-2); }
 
 /* --- period selector: a segmented control driven by ?period= --- */
@@ -39,10 +40,46 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.period__pill[aria-current="true"] {
+.period__pill[aria-pressed="true"] {
   background: var(--accent);
   color: var(--on-accent);
   font-weight: 500;
+}
+/* Currency pills carry a single glyph ($/₽) — keep a full tap target and centre it. */
+.curswitch .period__pill { min-width: var(--tap-min); text-align: center; }
+
+/* period (left) + view-currency (right) segmented controls on one row, wrapping
+   on narrow screens. Both reuse the pill styling above. */
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+/* «≈ approximate» disclaimer shown only while a converted (USD/RUB) view is active. */
+.approx-note {
+  font-size: 12px;
+  color: var(--text-2);
+  margin: 0 0 var(--space-4);
+}
+
+/* (.ic base lives in app.css, shared with /pos/) */
+
+/* Soft, hue-tinted lift so cards read as objects on the field, not flat cells.
+   0.5px hairline + a shallow (≤12px) shadow — deliberately not the ghost-card
+   pattern (1px border + wide 16px+ shadow). Theme-aware. */
+.metric, .panel {
+  box-shadow: 0 1px 2px rgba(20, 24, 28, 0.05), 0 4px 12px rgba(20, 24, 28, 0.05);
+}
+html[data-theme="dark"] .metric, html[data-theme="dark"] .panel {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 4px 12px rgba(0, 0, 0, 0.34);
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .metric, html:not([data-theme]) .panel {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 4px 12px rgba(0, 0, 0, 0.34);
+  }
 }
 
 /* --- metric cards --- */
@@ -50,15 +87,33 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-6); /* clear break before the chart zone */
 }
 .metric {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   background: var(--surface);
   border: 0.5px solid var(--border);
   border-radius: var(--radius-card);
   padding: var(--space-3);
-  min-height: 92px; /* reserved so nothing shifts as numbers count up */
+  min-height: 96px; /* reserved so nothing shifts as numbers count up */
 }
+/* a soft accent-tinted badge on the left — instant wayfinding, and it never
+   collides with a long value the way an absolute corner badge would. */
+.metric__icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.metric__icon .ic { width: 18px; height: 18px; }
+.metric__body { min-width: 0; flex: 1; }
 .metric__label { font-size: 11px; color: var(--text-2); }
 .metric__value {
   font-size: 19px;
@@ -67,12 +122,7 @@
   font-variant-numeric: tabular-nums;
   margin-top: 2px;
 }
-.metric__sub { font-size: 11px; color: var(--text-3); }
-.metric__delta { font-size: 11px; margin-top: 4px; font-variant-numeric: tabular-nums; }
-.metric__delta--paid { color: var(--paid); }
-.metric__delta--debt { color: var(--debt); }
-.metric__delta--text-2 { color: var(--text-2); }
-.metric__delta--text-3 { color: var(--text-3); }
+.metric__sub { font-size: 11px; color: var(--text-3); margin-top: 4px; }
 
 /* --- panels (charts + tables) --- */
 .panels { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-3); }
@@ -82,45 +132,79 @@
   border: 0.5px solid var(--border);
   border-radius: var(--radius-card);
   padding: var(--space-4);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 .panel--full { grid-column: 1 / -1; }
-.panel__title { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 var(--space-2); }
-.panel__caption { font-size: 11px; color: var(--text-3); margin: 0 0 var(--space-3); }
-.panel__more { font-size: 12px; color: var(--accent); text-decoration: none; }
-.empty { color: var(--text-3); font-size: 13px; text-align: center; padding: var(--space-6) 0; }
-
-/* --- SVG chart --- */
-.chart { width: 100%; height: auto; display: block; }
-.chart svg { width: 100%; height: auto; display: block; }
-.chart__grid { stroke: var(--border); stroke-width: 0.5; }
-.chart__gridlabel { fill: var(--text-3); font-size: 11px; }
-.chart__xlabel { fill: var(--text-3); font-size: 11px; }
-.chart__area { fill: url(#areaGrad); }
-.chart__line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.chart__dot { fill: var(--accent); }
-.chart__hit { fill: transparent; cursor: crosshair; }
-.chart__guide { stroke: var(--border-strong); stroke-width: 0.5; visibility: hidden; }
-.area-stop-top { stop-color: var(--accent); stop-opacity: 0.28; }
-.area-stop-bottom { stop-color: var(--accent); stop-opacity: 0; }
-html[data-theme="dark"] .area-stop-top { stop-opacity: 0.2; }
-@media (prefers-color-scheme: dark) { html:not([data-theme]) .area-stop-top { stop-opacity: 0.2; } }
-
-.chart-tooltip {
-  position: absolute;
-  pointer-events: none;
-  background: var(--surface);
-  border: 0.5px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
+.panel__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  box-shadow: var(--shadow);
-  visibility: hidden;
-  white-space: nowrap;
-  z-index: 5;
+  font-weight: 500;
+  color: var(--text-2);
+  margin: 0 0 var(--space-2);
 }
-.chart-wrap { position: relative; }
+.panel__title .ic { width: 15px; height: 15px; color: var(--text-3); }
+.panel__caption { font-size: 11px; color: var(--text-3); margin: 0 0 var(--space-3); }
+
+/* --- product thumbnail cell (top products / dead stock) --- */
+.pcell { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.pcell__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface-sunken);
+  flex: none;
+  display: block;
+}
+.thumb--empty { display: inline-flex; align-items: center; justify-content: center; color: var(--text-3); }
+.thumb--empty .ic { width: 18px; height: 18px; }
+
+/* (.empty composed state lives in app.css, shared with /pos/) */
+
+/* --- revenue calendar (heat-map of days; click a day for its detail) --- */
+.cal { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-6); }
+.cal__month { flex: 1 1 240px; max-width: 320px; min-width: 210px; }
+.cal__mtitle { font-size: 12px; font-weight: 500; color: var(--text-2); margin-bottom: var(--space-2); }
+.cal__wk { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 3px; }
+.cal__wk span { font-size: 10px; color: var(--text-3); text-align: center; }
+.cal__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal__day {
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 3px 4px;
+  cursor: pointer;
+  transition: transform var(--dur-pos, 120ms) var(--ease, ease-out);
+}
+button.cal__day:active { transform: scale(0.9); }
+.cal__day--pad { background: transparent; pointer-events: none; }
+.cal__day--out { opacity: 0.35; cursor: default; }
+.cal__day--today { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+.cal__day.is-active { outline: 2px solid var(--text); outline-offset: 1px; z-index: 1; }
+/* heat levels: accent mixed into the surface, 0 = no sales */
+.cal__day--l1 { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); color: var(--text-2); }
+.cal__day--l2 { background: color-mix(in srgb, var(--accent) 45%, var(--surface)); color: var(--text); }
+.cal__day--l3 { background: color-mix(in srgb, var(--accent) 95%, var(--surface)); color: var(--on-accent); }
+.cal__day--l4 { background: var(--accent); color: var(--on-accent); }
+
+.cal-detail { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 0.5px solid var(--border); }
+.cal-detail__hint { font-size: 13px; color: var(--text-3); }
+.cal-detail__date { font-size: 13px; font-weight: 500; color: var(--text-2); margin-bottom: var(--space-3); }
+.cal-detail__stats { display: flex; gap: var(--space-6); flex-wrap: wrap; }
+.cal-detail__stats > div { display: flex; flex-direction: column; }
+.cal-detail__v { font-size: 20px; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+.cal-detail__stats small { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 
 /* --- ranked bars (channels) --- */
 .bars { display: flex; flex-direction: column; gap: var(--space-3); }
@@ -141,6 +225,13 @@ html[data-theme="dark"] .area-stop-top { stop-opacity: 0.2; }
   transform-origin: left center;
   transform: scaleX(var(--pct, 0));
 }
+/* Channel bars share the payment-donut's monochrome accent ramp, so the two
+   side-by-side panels read as one system; rank 1 (largest) is darkest. Colour
+   only reinforces the bar length + printed value — never carries meaning alone. */
+.bars .bar__row:nth-child(1) .bar__fill { background: var(--cat-1); }
+.bars .bar__row:nth-child(2) .bar__fill { background: var(--cat-2); }
+.bars .bar__row:nth-child(3) .bar__fill { background: var(--cat-3); }
+.bars .bar__row:nth-child(4) .bar__fill { background: var(--cat-4); }
 
 /* --- donut --- */
 .donut-wrap { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
@@ -166,8 +257,25 @@ html[data-theme="dark"] .area-stop-top { stop-opacity: 0.2; }
 .dtable td.num, .dtable th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .dtable tbody tr:hover { background: var(--surface-sunken); }
 .chip { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 11px; }
+.chip--neutral { background: var(--surface-sunken); color: var(--text-2); }
 .chip--partial { background: var(--partial-bg); color: var(--partial); }
 .chip--debt { background: var(--debt-bg); color: var(--debt); }
+
+/* Semantic emphasis: a loss (negative profit) reads --debt, like metric deltas
+   already do — the minus sign is always present, so colour never stands alone.
+   A low-stock count reads --partial when there's something to act on. */
+.dtable td.num--loss { color: var(--debt); }
+.metric__value--attn { color: var(--partial); }
+.metric__sub--loss { color: var(--debt); }
+
+/* Wide storage tables scroll inside their own container — the page never scrolls
+   horizontally. */
+.dtable-wrap { overflow-x: auto; }
+.text-3 { color: var(--text-3); }
+
+/* --- download toolbar (storage) --- */
+.dl-bar { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.dl-bar__label { font-size: 12px; color: var(--text-2); }
 
 /* --- responsive: stack at narrow widths --- */
 @media (max-width: 900px) {
@@ -191,18 +299,27 @@ html[data-theme="dark"] .area-stop-top { stop-opacity: 0.2; }
 .animate .metric:nth-child(4) { animation-delay: 120ms; }
 .animate .panel { animation: dash-rise 300ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) both; animation-delay: 120ms; }
 
-.animate .chart__line {
-  stroke-dasharray: var(--len, 2000);
-  stroke-dashoffset: var(--len, 2000);
-  animation: chart-draw 600ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) forwards;
-}
-@keyframes chart-draw { to { stroke-dashoffset: 0; } }
-.animate .chart__area { animation: dash-fade 400ms 100ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) both; }
-@keyframes dash-fade { from { opacity: 0; } to { opacity: 1; } }
+/* The calendar rides its panel's rise-in (above); its many day cells don't each
+   animate — that would be heavy at year scale. */
 .animate .bar__fill { animation: bar-grow 400ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) both; }
 @keyframes bar-grow { from { transform: scaleX(0); } }
+/* Ranked bars cascade top-down, so the eye reads the ranking as it draws. */
+.animate .bars .bar__row:nth-child(1) .bar__fill { animation-delay: 150ms; }
+.animate .bars .bar__row:nth-child(2) .bar__fill { animation-delay: 200ms; }
+.animate .bars .bar__row:nth-child(3) .bar__fill { animation-delay: 250ms; }
+.animate .bars .bar__row:nth-child(4) .bar__fill { animation-delay: 300ms; }
 
-/* HTMX period swap cross-fade */
+/* The donut used to sit static while the rest of the panel animated in (its
+   stroke-dashoffset transition only fires on change, never on load). Give it a
+   radial materialize that matches the dash-rise vocabulary. */
+.animate .donut { animation: donut-in 420ms 150ms var(--ease, cubic-bezier(0.2, 0, 0, 1)) both; transform-origin: center; }
+@keyframes donut-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: none; } }
+
+/* Gap between the sticky header and the panel (which now leads with its own
+   period + currency controls) — mirrors the header→content spacing on storage. */
+#dash-panel { margin-top: var(--space-4); }
+
+/* HTMX pill swap cross-fade */
 #dash-panel.htmx-swapping { opacity: 0; transition: opacity 150ms var(--ease, cubic-bezier(0.2, 0, 0, 1)); }
 #dash-panel { transition: opacity 150ms var(--ease, cubic-bezier(0.2, 0, 0, 1)); }
 
@@ -210,6 +327,8 @@ html[data-theme="dark"] .area-stop-top { stop-opacity: 0.2; }
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important; /* delayed reveals appear at once, never a blank gap */
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
   }
 }

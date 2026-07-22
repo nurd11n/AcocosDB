@@ -37,12 +37,8 @@ class _GenericErrorsMixin:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["username"].widget.attrs.update(
-            {"autocomplete": "username", "autofocus": True}
-        )
-        self.fields["password"].widget.attrs.update(
-            {"autocomplete": "current-password"}
-        )
+        self.fields["username"].widget.attrs.update({"autocomplete": "username", "autofocus": True})
+        self.fields["password"].widget.attrs.update({"autocomplete": "current-password"})
         if "otp_token" in self.fields:
             # Lets the browser/phone offer the TOTP code and a numeric keypad.
             self.fields["otp_token"].widget.attrs.update(
@@ -92,7 +88,30 @@ class UnifiedLoginView(LoginView):
 class RedirectToSharedLoginMixin:
     """Mixed into admin.site's class so /panel/ never renders its own login
     form — everyone authenticates at the one shared /login/ page. Without
-    this, Django admin shows a second, separate login form at /panel/login/."""
+    this, Django admin shows a second, separate login form at /panel/login/.
+
+    Two overrides are needed, not one. AdminSite.admin_view() — the wrapper
+    every /panel/ view goes through — does NOT consult self.login() or
+    settings.LOGIN_URL when permission is denied; it hardcodes a redirect to
+    reverse("admin:login") (see django.contrib.admin.sites.AdminSite.admin_view).
+    Overriding only login() still works, but every unauthenticated/unauthorized
+    /panel/ hit then takes an extra, pointless redirect hop through
+    /panel/login/?next=... before landing on /login/?next=.... admin_view()
+    is overridden here to skip straight to the shared page in one hop; login()
+    stays as a fallback for anyone who lands on /panel/login/ directly (an old
+    bookmark, a stale link)."""
+
+    def admin_view(self, view, cacheable=False):
+        inner = super().admin_view(view, cacheable=cacheable)
+
+        def wrapped(request, *args, **kwargs):
+            if not self.has_permission(request):
+                from django.contrib.auth.views import redirect_to_login
+
+                return redirect_to_login(request.get_full_path(), "/login/")
+            return inner(request, *args, **kwargs)
+
+        return wrapped
 
     def login(self, request, extra_context=None):
         next_url = request.GET.get(REDIRECT_FIELD_NAME) or reverse(

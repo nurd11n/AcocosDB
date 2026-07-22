@@ -1,0 +1,45 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Заметки" %}{% endblock %}
+{% block content %}
+
+<div class="card">
+ <h2><svg class="ic"><use href="#i-notes"/></svg>{% trans "Новая заметка" %}</h2>
+ <form method="post" action="{% url 'notes:index' %}">
+  {% csrf_token %}
+  <input type="text" name="title" maxlength="200" placeholder="{% trans 'Заголовок' %}" autocomplete="off">
+  <textarea name="body" rows="3" placeholder="{% trans 'Задача, идея, что угодно про работу…' %}"></textarea>
+  <button type="submit" class="btn btn-primary">{% trans "Добавить" %}</button>
+ </form>
+</div>
+
+<p class="list-count">{% blocktrans count n=active_count %}{{ n }} активная{% plural %}{{ n }} активных{% endblocktrans %}</p>
+
+{% for n in notes %}
+<div class="note{% if n.done %} note--done{% endif %}{% if n.pinned %} note--pinned{% endif %}">
+ <form method="post" action="{% url 'notes:toggle' n.pk %}" class="note__toggle">
+  {% csrf_token %}
+  <button type="submit" class="note__check" aria-label="{% trans 'Готово' %}" aria-pressed="{{ n.done|yesno:'true,false' }}">
+   <svg class="ic"><use href="#i-check"/></svg>
+  </button>
+ </form>
+ <div class="note__body">
+  {% if n.title %}<div class="note__title">{{ n.title }}</div>{% endif %}
+  {% if n.body %}<div class="note__text">{{ n.body }}</div>{% endif %}
+  <div class="note__meta">{{ n.updated_at|date:"d.m.Y H:i" }}{% if n.created_by %} · {{ n.created_by }}{% endif %}</div>
+ </div>
+ <div class="note__actions">
+  <form method="post" action="{% url 'notes:pin' n.pk %}">
+   {% csrf_token %}
+   <button type="submit" class="note__act{% if n.pinned %} is-on{% endif %}" aria-label="{% trans 'Закрепить' %}" aria-pressed="{{ n.pinned|yesno:'true,false' }}">
+    <svg class="ic"><use href="#i-pin"/></svg>
+   </button>
+  </form>
+  <a class="note__act" href="{% url 'notes:edit' n.pk %}" aria-label="{% trans 'Изменить' %}"><svg class="ic"><use href="#i-edit"/></svg></a>
+ </div>
+</div>
+{% empty %}
+<div class="empty"><svg class="ic"><use href="#i-notes"/></svg><p>{% trans "Пока нет заметок. Добавьте первую выше." %}</p></div>
+{% endfor %}
+
+{% endblock %}

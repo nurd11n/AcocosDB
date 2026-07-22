@@ -9,35 +9,32 @@
 <link rel="stylesheet" href="{% static 'pos/dashboard.css' %}">
 <script src="{% static 'vendor/htmx/htmx.min.js' %}"></script>
 <link rel="icon" href="{% static 'pos/icons/icon-192.png' %}">
-<meta name="theme-color" content="#2C6FB5">
+<meta name="theme-color" content="#F5F6F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14181C" media="(prefers-color-scheme: dark)">
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+{% include "_icons.svg" %}
 <div class="dash animate">
  <header class="dash-header">
-  <div class="dash-header__title">ACOCOS — {% trans "Дашборд" %}</div>
+  <h1 class="dash-header__title"><svg class="ic"><use href="#i-sales"/></svg>ACOCOS — {% trans "Дашборд" %}</h1>
   <div class="dash-header__actions">
-   <a class="top__link" href="{% url 'pos:index' %}">{% trans "К продажам" %}</a>
+   <a class="top__link" href="{% url 'storage' %}" aria-label="{% trans 'Склад' %}"><svg class="ic"><use href="#i-storage"/></svg><span class="lbl">{% trans "Склад" %}</span></a>
+   <a class="top__link" href="{% url 'pos:index' %}" aria-label="{% trans 'К продажам' %}"><svg class="ic"><use href="#i-sales"/></svg><span class="lbl">{% trans "К продажам" %}</span></a>
    <form method="post" action="{% url 'set-theme' %}" id="theme-form">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ request.get_full_path }}">
     <input type="hidden" name="theme" id="theme-form-value" value="{% if THEME == 'dark' %}light{% else %}dark{% endif %}">
     <button type="submit" class="theme-toggle" aria-label="{% trans "Тема" %}">
-      <span class="theme-toggle__icon theme-toggle__icon--sun">☀</span><span class="theme-toggle__icon theme-toggle__icon--moon">☾</span>
+      <span class="theme-toggle__icon theme-toggle__icon--sun"><svg class="ic"><use href="#i-sun"/></svg></span><span class="theme-toggle__icon theme-toggle__icon--moon"><svg class="ic"><use href="#i-moon"/></svg></span>
     </button>
    </form>
   </div>
  </header>
 
- <div class="period" role="tablist" aria-label="{% trans "Период" %}">
-  {% for key, label in periods %}
-  <button type="button" class="period__pill" role="tab"
-    {% if key == period %}aria-current="true"{% endif %}
-    hx-get="{% url 'dashboard' %}?period={{ key }}"
-    hx-target="#dash-panel" hx-swap="innerHTML"
-    hx-push-url="{% url 'dashboard' %}?period={{ key }}">{{ label }}</button>
-  {% endfor %}
- </div>
-
+ {% comment %}Period + currency controls live INSIDE the panel so each swap
+ re-renders them with correct cross-links and active state. No aria-live on the
+ panel: it swaps wholesale; feedback comes from the pill's aria-pressed and the
+ chart's own readout.{% endcomment %}
  <div id="dash-panel">
   {% include "reports/_dashboard_panel.html" %}
  </div>

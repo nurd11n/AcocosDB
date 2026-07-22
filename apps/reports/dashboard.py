@@ -13,12 +13,14 @@ shop records what a garment cost — so profit stays snapshot-stable with no
 read-time FX. Foreign-currency-costed variants (rare here) are approximate.
 """
 
-import calendar
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
+
+from django.core.files.storage import default_storage
 
 from django.db.models import (
     Case,
+    Count,
     DecimalField,
     F,
     IntegerField,
@@ -33,9 +35,6 @@ from django.db.models import (
 from django.db.models.functions import (
     Coalesce,
     TruncDate,
-    TruncHour,
-    TruncMonth,
-    TruncWeek,
 )
 from django.utils import timezone
 
@@ -109,9 +108,7 @@ def _metrics(start, end, prev_start, prev_end):
     uc = SaleItem.objects.filter(
         order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__range=(prev_start, end)
     ).aggregate(
-        units_cur=Coalesce(
-            Sum(Case(When(_in(cur, "order__"), then=F("quantity")), default=0)), 0
-        ),
+        units_cur=Coalesce(Sum(Case(When(_in(cur, "order__"), then=F("quantity")), default=0)), 0),
         units_prev=Coalesce(
             Sum(Case(When(_in(prev, "order__"), then=F("quantity")), default=0)), 0
         ),
@@ -189,76 +186,32 @@ def _debt(prev_end):
     }
 
 
-def _series(start, end, gran):
-    """[{label, value}] of Σ total_kgs bucketed by granularity, gaps filled with
-    0 so the x-axis is complete (an empty chart reads as broken, not as empty)."""
-    trunc = {
-        "hour": TruncHour("confirmed_at"),
-        "day": TruncDate("confirmed_at"),
-        "week": TruncWeek("confirmed_at"),
-        "month": TruncMonth("confirmed_at"),
-    }[gran]
-    rows = (
+def _calendar_days(start, end):
+    """{date: {revenue(сом), orders, units}} for every day WITH sales in the
+    range — two grouped queries, no per-day N+1. The view gap-fills the calendar
+    grid from the date range and looks each day up here."""
+    by: dict = {}
+    rev = (
         SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__range=(start, end))
-        .annotate(bucket=trunc)
-        .values("bucket")
-        .annotate(v=Sum("total_kgs"))
+        .annotate(d=TruncDate("confirmed_at"))
+        .values("d")
+        .annotate(rev=Sum("total_kgs"), n=Count("id"))
     )
-    by_bucket = {}
-    for r in rows:
-        b = r["bucket"]
-        # TruncDate -> date; TruncWeek/Month -> aware datetime. Normalise to the
-        # local date so keys line up with the generated axis below.
-        key = timezone.localtime(b).date() if isinstance(b, datetime) else b
-        by_bucket[key] = (r["v"] or Decimal("0")) + by_bucket.get(key, Decimal("0"))
-
-    buckets = _bucket_axis(start, end, gran)
-    return [
-        {"label": lbl, "value": by_bucket.get(key, Decimal("0")), "key": key} for key, lbl in buckets
-    ]
-
-
-def _bucket_axis(start, end, gran):
-    """Ordered (key, label) buckets spanning [start, end] at the granularity."""
-    out = []
-    if gran == "hour":
-        for h in range(24):
-            out.append((h, f"{h:02d}"))
-        return out
-    if gran == "day":
-        d = start
-        while d <= end:
-            out.append((d, f"{d.day:02d}.{d.month:02d}"))
-            d += timedelta(days=1)
-        return out
-    if gran == "week":
-        d = start - timedelta(days=start.weekday())  # Monday of the start week
-        while d <= end:
-            out.append((d, f"{d.day:02d}.{d.month:02d}"))
-            d += timedelta(days=7)
-        return out
-    # month
-    y, m = start.year, start.month
-    while (y, m) <= (end.year, end.month):
-        out.append((date(y, m, 1), calendar.month_abbr[m]))
-        m += 1
-        if m > 12:
-            m, y = 1, y + 1
-    return out
-
-
-def _series_hour(end):
-    """Today's series is by hour; total_kgs summed per local hour."""
-    rows = (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date=end)
-        .annotate(bucket=TruncHour("confirmed_at"))
-        .values("bucket")
-        .annotate(v=Sum("total_kgs"))
+    for r in rev:
+        by[r["d"]] = {"revenue": r["rev"] or Decimal("0"), "orders": r["n"], "units": 0}
+    units = (
+        SaleItem.objects.filter(
+            order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__range=(start, end)
+        )
+        .annotate(d=TruncDate("order__confirmed_at"))
+        .values("d")
+        .annotate(u=Sum("quantity"))
     )
-    by_hour = {}
-    for r in rows:
-        by_hour[timezone.localtime(r["bucket"]).hour] = r["v"] or Decimal("0")
-    return [{"label": f"{h:02d}", "value": by_hour.get(h, Decimal("0")), "key": h} for h in range(24)]
+    for u in units:
+        by.setdefault(u["d"], {"revenue": Decimal("0"), "orders": 0, "units": 0})["units"] = (
+            u["u"] or 0
+        )
+    return by
 
 
 def _channels(start, end):
@@ -280,7 +233,13 @@ def _methods(start, end):
     labels = dict(Payment.METHOD_CHOICES)
     rows = (
         Payment.objects.filter(
-            created_at__date__range=(start, end), reversed_payment__isnull=True
+            created_at__date__range=(start, end),
+            # A voided payment must not colour the method mix: drop BOTH the
+            # negative reversal row (reversed_payment set) AND the original it
+            # voided (reversal__isnull=True = nothing reverses it). Excluding
+            # only the reversal would leave the original overstating the method.
+            reversed_payment__isnull=True,
+            reversal__isnull=True,
         )
         .annotate(kgs=_PAY_KGS)
         .values("method")
@@ -294,22 +253,38 @@ def _methods(start, end):
     ]
 
 
+def _thumb_url(name):
+    """Media URL for a product thumbnail/photo file name, or "" when absent —
+    the template falls back to a placeholder tile."""
+    return default_storage.url(name) if name else ""
+
+
 def _top_products(start, end, limit=8):
     rows = (
         SaleItem.objects.filter(
             order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__range=(start, end)
         )
-        .values("variant__product__id", "variant__product__name")
+        .values(
+            "variant__product__id",
+            "variant__product__name",
+            "variant__product__thumbnail",
+            "variant__product__photo",
+        )
         .annotate(
-            revenue=Coalesce(Sum(_LINE_KGS, output_field=_MONEY), Value(Decimal("0")), output_field=_MONEY),
+            revenue=Coalesce(
+                Sum(_LINE_KGS, output_field=_MONEY), Value(Decimal("0")), output_field=_MONEY
+            ),
             units=Coalesce(Sum("quantity"), 0),
-            cogs=Coalesce(Sum(_LINE_COGS, output_field=_MONEY), Value(Decimal("0")), output_field=_MONEY),
+            cogs=Coalesce(
+                Sum(_LINE_COGS, output_field=_MONEY), Value(Decimal("0")), output_field=_MONEY
+            ),
         )
         .order_by("-revenue")[:limit]
     )
     return [
         {
             "name": r["variant__product__name"],
+            "thumb": _thumb_url(r["variant__product__thumbnail"] or r["variant__product__photo"]),
             "revenue": r["revenue"],
             "units": r["units"],
             "profit": r["revenue"] - r["cogs"],
@@ -349,9 +324,11 @@ def _dead_stock(limit=8):
         else:
             days_idle = (today - timezone.localtime(v.product.created_at).date()).days
         if days_idle >= DEAD_STOCK_DAYS:
+            p = v.product
             dead.append(
                 {
                     "name": str(v),
+                    "thumb": _thumb_url((p.thumbnail.name or p.photo.name) or ""),
                     "units": v._stock,
                     "days_idle": days_idle,
                     "capital": (v.cost_price * v._stock),
@@ -372,16 +349,92 @@ def dashboard_data(period: str) -> dict:
 
     metrics = _metrics(start, end, prev_start, prev_end)
     metrics["debt"] = _debt(prev_end)
-    series = _series_hour(end) if gran == "hour" else _series(start, end, gran)
 
     return {
         "period": period,
         "period_label": label,
         "periods": [(k, v[0]) for k, v in PERIODS.items()],
         "metrics": metrics,
-        "series": series,
+        "day_data": _calendar_days(start, end),
+        "cal_start": start,
+        "cal_end": end,
         "channels": _channels(start, end),
         "methods": _methods(start, end),
         "top_products": _top_products(start, end),
         "dead_stock": _dead_stock(),
+    }
+
+
+# --- Export: the same dashboard_data(), flattened into spreadsheet rows --------
+# Russian headers, money as real numbers (not strings) so Excel can sum them.
+# Called with the SAME cached data the page rendered from — download == screen.
+
+# csv sheet key -> Russian sheet name (also the xlsx tab order)
+DASHBOARD_CSV_SHEETS = {
+    "svodka": "Сводка",
+    "vyruchka": "Выручка",
+    "kanaly": "Каналы",
+    "oplaty": "Оплаты",
+    "tovary": "Топ товаров",
+    "dolgi": "Долги",
+    "zalezh": "Залежавшийся",
+}
+
+
+def _num(value) -> float:
+    return float(Decimal(value).quantize(Decimal("0.01"))) if value is not None else 0.0
+
+
+def dashboard_sheets(data: dict) -> dict[str, list[list]]:
+    m = data["metrics"]
+    margin = m["profit"]["margin"]
+    svodka = [
+        ["Показатель", "Значение"],
+        ["Период", data["period_label"]],
+        ["Выручка, сом", _num(m["revenue"]["value"])],
+        ["Прибыль, сом", _num(m["profit"]["value"])],
+        ["Маржа, %", margin if margin is not None else ""],
+        ["Продано, шт", int(m["units"]["value"])],
+        ["Долг (текущий), сом", _num(m["debt"]["value"])],
+        ["Должников", int(m["debt"]["clients"])],
+    ]
+    vyruchka = [["Дата", "Выручка, сом", "Продаж", "Продано, шт"]]
+    vyruchka += [
+        [d.strftime("%d.%m.%Y"), _num(info["revenue"]), int(info["orders"]), int(info["units"])]
+        for d, info in sorted(data["day_data"].items())
+    ]
+
+    kanaly = [["Канал", "Выручка, сом"]]
+    kanaly += [[c["label"], _num(c["value"])] for c in data["channels"]]
+
+    oplaty = [["Способ оплаты", "Сумма, сом"]]
+    oplaty += [[x["label"], _num(x["value"])] for x in data["methods"]]
+
+    tovary = [["Товар", "Продано, шт", "Выручка, сом", "Прибыль, сом"]]
+    tovary += [
+        [t["name"], int(t["units"]), _num(t["revenue"]), _num(t["profit"])]
+        for t in data["top_products"]
+    ]
+
+    aging = m["debt"]["aging"]
+    dolgi = [
+        ["Срок", "Сумма, сом"],
+        ["0–30 дней", _num(aging["d0_30"])],
+        ["31–60 дней", _num(aging["d31_60"])],
+        ["60+ дней", _num(aging["d60_plus"])],
+    ]
+
+    zalezh = [["Товар", "На складе, шт", "Дней без продаж", "Заморожено, сом"]]
+    for d in data["dead_stock"]:
+        idle = "не продавалось" if d["never_sold"] else int(d["days_idle"])
+        zalezh.append([d["name"], int(d["units"]), idle, _num(d["capital"])])
+
+    return {
+        "Сводка": svodka,
+        "Выручка": vyruchka,
+        "Каналы": kanaly,
+        "Оплаты": oplaty,
+        "Топ товаров": tovary,
+        "Долги": dolgi,
+        "Залежавшийся": zalezh,
     }

@@ -20,7 +20,7 @@ from django.utils.translation import gettext as _
 
 from apps.clients.models import Client, Interaction
 from apps.clients.services import client_debt
-from apps.core.currency import CURRENCY_CODES, to_base
+from apps.core.currency import CURRENCY_CODES, CURRENCY_SYMBOLS, get_rate, to_base
 from apps.inventory.cache import catalog_version
 from apps.inventory.models import Product, ProductVariant, StockMovement
 from apps.sales.models import Payment, SaleItem, SaleOrder
@@ -124,6 +124,29 @@ def _sale_body_context(
     }
 
 
+def _today_rates():
+    """Today's «1 unit of X = N base currency» rates for the header strip —
+    display-only, same cached lookup the ≈-conversions already use. Skips a
+    currency silently when no rate has ever been recorded (fetch_rates hasn't
+    run yet, or an owner hasn't set one) rather than showing a blank/zero."""
+    today = timezone.localdate()
+    rates = []
+    for code in CURRENCY_CODES:
+        if code == settings.CURRENCY:
+            continue
+        rate = get_rate(code, today)
+        if rate is not None:
+            rates.append(
+                {
+                    "currency": code,
+                    "symbol": CURRENCY_SYMBOLS.get(code, code),
+                    "rate": rate,
+                    "base_symbol": CURRENCY_SYMBOLS.get(settings.CURRENCY, settings.CURRENCY),
+                }
+            )
+    return rates
+
+
 # ---- Sale draft lifecycle -------------------------------------------------
 
 
@@ -154,7 +177,8 @@ def sale_detail(request, pk):
     order = get_object_or_404(SaleOrder, pk=pk, created_by=request.user)
     if order.status != SaleOrder.DRAFT:
         return redirect("pos:sale_result", pk=order.pk)
-    return render(request, "pos/sale_detail.html", {**_sale_body_context(order), "active": "sale"})
+    context = {**_sale_body_context(order), "active": "sale", "rates": _today_rates()}
+    return render(request, "pos/sale_detail.html", context)
 
 
 # ---- Client section (HTMX partials) ---------------------------------------
@@ -592,15 +616,64 @@ def today(request):
     )
 
 
+_CLIENT_CUR = {"KGS": "сом", "USD": "USD", "RUB": "RUB"}
+
+
+def _debt_label(pos: dict) -> str:
+    """'7 400 сом · 50 USD' from {currency: amount} (positive debts only)."""
+    return " · ".join(
+        f"{int(round(amt)):,}".replace(",", " ") + " " + _CLIENT_CUR.get(cur, cur)
+        for cur, amt in pos.items()
+    )
+
+
 @pos_view
 def clients(request):
+    from decimal import Decimal
+
+    from apps.clients.services import client_debts_by_currency
+
     q = request.GET.get("q", "").strip()
-    results = Client.objects.none()
+    sort = request.GET.get("sort", "name")
+    flt = request.GET.get("filter", "all")
+
+    qs = Client.objects.filter(is_active=True)
     if q:
-        results = Client.objects.filter(
+        qs = qs.filter(
             Q(phone__icontains=q) | Q(first_name__icontains=q) | Q(last_name__icontains=q)
-        ).order_by("first_name")[:50]
-    return render(request, "pos/clients.html", {"clients": results, "q": q, "active": "clients"})
+        )
+    if flt == "consent":
+        qs = qs.filter(marketing_consent=True)
+
+    debts = client_debts_by_currency()
+    people = list(qs)
+    for c in people:
+        pos = {cur: amt for cur, amt in debts.get(c.pk, {}).items() if amt > 0}
+        c.debt_sum = sum(pos.values(), Decimal("0"))
+        c.debt_label = _debt_label(pos)
+    if flt == "debt":
+        people = [c for c in people if c.debt_sum > 0]
+
+    if sort == "debt":
+        people.sort(key=lambda c: c.debt_sum, reverse=True)
+    elif sort == "recent":
+        people.sort(key=lambda c: c.created_at, reverse=True)
+    else:
+        sort = "name"
+        people.sort(key=lambda c: (c.first_name.lower(), c.last_name.lower()))
+
+    return render(
+        request,
+        "pos/clients.html",
+        {
+            "clients": people,
+            "q": q,
+            "sort": sort,
+            "filter": flt,
+            "total": len(people),
+            "active": "clients",
+        },
+    )
 
 
 @pos_view

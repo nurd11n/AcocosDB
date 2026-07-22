@@ -1,8 +1,11 @@
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Sum
+from django.http import Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
+from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from import_export.admin import ExportActionModelAdmin, ImportMixin
 from simple_history.admin import SimpleHistoryAdmin
@@ -126,15 +129,137 @@ class ProductVariantAdmin(
             cols.insert(cols.index("sale_price"), "cost_price")
         return cols
 
+    change_form_template = "admin/inventory/variant_change_form.html"
+
     def get_fields(self, request, obj=None):
         fields = super().get_fields(request, obj)
         if not can_see_costs(request.user):
             fields = [f for f in fields if f != "cost_price"]
         return fields
 
-    # --- Stock buttons: the owner never opens the raw movement form. Each asks
-    # for a number (and a reason for recount) and writes the ledger row behind
-    # the scenes via apps.inventory.services. ---
+    # --- Per-variant stock panel on the change page: add / write off / set the
+    # exact count, and read the full movement history with a running remainder.
+    # Everything still writes append-only ledger rows through services — the
+    # panel is a friendly face on the ledger, never a hand-edited quantity. ---
+
+    def get_urls(self):
+        custom = [
+            path(
+                "<int:pk>/stock-move/",
+                self.admin_site.admin_view(self.stock_move_view),
+                name="inventory_productvariant_stockmove",
+            ),
+        ]
+        return custom + super().get_urls()
+
+    def _variant_change_url(self, pk):
+        return reverse("admin:inventory_productvariant_change", args=[pk])
+
+    def stock_move_view(self, request, pk):
+        """Handle a single-variant stock action posted from the change page.
+        One endpoint, three operations (receive / write off / recount) chosen by
+        the `op` field — each delegates to services, never touches the ledger by
+        hand, and bounces back to the change page with a Russian result message."""
+        variant = self.get_object(request, pk)
+        if variant is None:
+            raise Http404
+        if not self.has_change_permission(request, variant):
+            raise PermissionDenied
+        back = HttpResponseRedirect(self._variant_change_url(pk))
+        if request.method != "POST":
+            return back
+
+        op = request.POST.get("op")
+        try:
+            if op in ("receive", "writeoff"):
+                qty = _parse_qty(request.POST.get("qty", ""))
+                if not qty:
+                    self.message_user(
+                        request, _("Enter a positive quantity."), level=messages.ERROR
+                    )
+                elif op == "writeoff" and qty > variant.stock:
+                    self.message_user(
+                        request,
+                        _("Cannot write off %(n)s — only %(s)s in stock.")
+                        % {"n": qty, "s": variant.stock},
+                        level=messages.ERROR,
+                    )
+                else:
+                    mtype = (
+                        StockMovement.PRODUCTION_IN
+                        if op == "receive"
+                        else StockMovement.WRITEOFF_OUT
+                    )
+                    label = _("Receive stock") if op == "receive" else _("Write off")
+                    add_movement(variant, mtype, qty, user=request.user, reason=str(label))
+                    self.message_user(
+                        request,
+                        _("Done — stock is now %(s)s.") % {"s": variant.stock},
+                    )
+            elif op == "recount":
+                reason = request.POST.get("reason", "").strip()
+                raw = request.POST.get("count", "").strip()
+                try:
+                    counted = int(raw)
+                except (TypeError, ValueError):
+                    counted = None
+                if counted is None or counted < 0:
+                    self.message_user(
+                        request, _("Enter the counted quantity (0 or more)."), level=messages.ERROR
+                    )
+                elif not reason:
+                    self.message_user(
+                        request, _("A reason is required for a recount."), level=messages.ERROR
+                    )
+                else:
+                    moved = adjust_to_count(variant, counted, request.user, reason)
+                    if moved is None:
+                        self.message_user(request, _("Count matched — nothing changed."))
+                    else:
+                        self.message_user(
+                            request, _("Recounted — stock is now %(s)s.") % {"s": variant.stock}
+                        )
+        except (ValidationError, ValueError) as exc:
+            self.message_user(request, "; ".join(exc.messages) if hasattr(exc, "messages")
+                              else str(exc), level=messages.ERROR)
+        return back
+
+    def _stock_history(self, variant, limit=100):
+        """Movement rows newest-first, each annotated with the running remainder
+        AFTER that movement — so the column reads like a bank statement."""
+        moves = list(
+            variant.movements.select_related("created_by", "sale_order").order_by(
+                "created_at", "pk"
+            )
+        )
+        running = 0
+        rows = []
+        for m in moves:
+            running += m.quantity
+            rows.append({"move": m, "remainder": running})
+        rows.reverse()
+        return rows[:limit], running
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        variant = self.get_object(request, object_id)
+        if variant is not None:
+            history, current = self._stock_history(variant)
+            extra_context.update(
+                {
+                    "stock_current": current,
+                    "stock_history": history,
+                    "stock_move_url": reverse(
+                        "admin:inventory_productvariant_stockmove", args=[object_id]
+                    ),
+                    "stock_can_change": self.has_change_permission(request, variant),
+                }
+            )
+        return super().change_view(request, object_id, form_url, extra_context)
+
+    # --- Bulk stock buttons (multi-variant intake from the list): each asks for
+    # a number (and a reason for recount) and writes the ledger row behind the
+    # scenes via apps.inventory.services. ---
 
     def _intake_or_writeoff(self, request, queryset, movement_type, title, action_name):
         variants = list(queryset.select_related("product"))

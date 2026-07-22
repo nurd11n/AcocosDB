@@ -1,0 +1,155 @@
+{% load i18n static dash_extras %}<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'ru' }}"{% if THEME %} data-theme="{{ THEME }}"{% endif %}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ACOCOS — {% trans "Склад" %}</title>
+<link rel="stylesheet" href="{% static 'pos/tokens.css' %}">
+<link rel="stylesheet" href="{% static 'pos/app.css' %}">
+<link rel="stylesheet" href="{% static 'pos/dashboard.css' %}">
+<link rel="icon" href="{% static 'pos/icons/icon-192.png' %}">
+<meta name="theme-color" content="#F5F6F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14181C" media="(prefers-color-scheme: dark)">
+</head>
+<body>
+{% include "_icons.svg" %}
+<div class="dash animate">
+ <header class="dash-header">
+  <h1 class="dash-header__title"><svg class="ic"><use href="#i-storage"/></svg>ACOCOS — {% trans "Склад" %}</h1>
+  <div class="dash-header__actions">
+   <a class="top__link" href="{% url 'dashboard' %}" aria-label="{% trans 'Дашборд' %}"><svg class="ic"><use href="#i-revenue"/></svg><span class="lbl">{% trans "Дашборд" %}</span></a>
+   <a class="top__link" href="{% url 'pos:index' %}" aria-label="{% trans 'К продажам' %}"><svg class="ic"><use href="#i-sales"/></svg><span class="lbl">{% trans "К продажам" %}</span></a>
+   <form method="post" action="{% url 'set-theme' %}" id="theme-form">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <input type="hidden" name="theme" id="theme-form-value" value="{% if THEME == 'dark' %}light{% else %}dark{% endif %}">
+    <button type="submit" class="theme-toggle" aria-label="{% trans "Тема" %}">
+      <span class="theme-toggle__icon theme-toggle__icon--sun"><svg class="ic"><use href="#i-sun"/></svg></span><span class="theme-toggle__icon theme-toggle__icon--moon"><svg class="ic"><use href="#i-moon"/></svg></span>
+    </button>
+   </form>
+  </div>
+ </header>
+
+ {# --- download toolbar (Owner-only surface, so cost/value inside is fine) --- #}
+ <div class="dl-bar">
+  <span class="dl-bar__label">{% trans "Скачать:" %}</span>
+  <a class="top__link" href="{% url 'storage-export' %}?format=xlsx"><svg class="ic"><use href="#i-download"/></svg>Excel (.xlsx)</a>
+  <a class="top__link" href="{% url 'storage-export' %}?format=csv&sheet=tovary"><svg class="ic"><use href="#i-download"/></svg>{% trans "Товары" %} (.csv)</a>
+  <a class="top__link" href="{% url 'storage-export' %}?format=csv&sheet=kategorii"><svg class="ic"><use href="#i-download"/></svg>{% trans "Категории" %} (.csv)</a>
+ </div>
+
+ {# --- summary cards --- #}
+ <div class="metrics">
+  <div class="metric">
+   <span class="metric__icon"><svg class="ic"><use href="#i-units"/></svg></span>
+   <div class="metric__body">
+    <div class="metric__label">{% trans "Позиций (SKU)" %}</div>
+    <div class="metric__value">{{ summary.variants|grp }}</div>
+    <div class="metric__sub">{{ summary.in_stock|grp }} {% trans "в наличии" %}</div>
+   </div>
+  </div>
+  <div class="metric">
+   <span class="metric__icon"><svg class="ic"><use href="#i-storage"/></svg></span>
+   <div class="metric__body">
+    <div class="metric__label">{% trans "Единиц на складе" %}</div>
+    <div class="metric__value">{{ summary.units|grp }} {% trans "шт" %}</div>
+    <div class="metric__sub">{% trans "продано за всё время" %}: {{ summary.sold|grp }}</div>
+   </div>
+  </div>
+  <div class="metric">
+   <span class="metric__icon"><svg class="ic"><use href="#i-revenue"/></svg></span>
+   <div class="metric__body">
+    <div class="metric__label">{% trans "Стоимость остатка" %}</div>
+    <div class="metric__value">{{ summary.value_base|som }}</div>
+    <div class="metric__sub">{% trans "по себестоимости" %}</div>
+   </div>
+  </div>
+  <div class="metric">
+   <span class="metric__icon"><svg class="ic"><use href="#i-debt"/></svg></span>
+   <div class="metric__body">
+    <div class="metric__label">{% trans "Мало на складе" %}</div>
+    <div class="metric__value{% if summary.low %} metric__value--attn{% endif %}">{{ summary.low|grp }}</div>
+    <div class="metric__sub">{% trans "брак/списание" %}: {% if summary.writeoff %}<span class="metric__sub--loss">{{ summary.writeoff|grp }}</span>{% else %}{{ summary.writeoff|grp }}{% endif %}</div>
+   </div>
+  </div>
+ </div>
+
+ {# --- by category --- #}
+ <div class="panel panel--full">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-storage"/></svg>{% trans "По категориям" %}</h2>
+  {% if categories %}
+  <div class="dtable-wrap">
+   <table class="dtable">
+    <thead><tr>
+     <th>{% trans "Категория" %}</th>
+     <th class="num">{% trans "позиций" %}</th>
+     <th class="num">{% trans "поступление" %}</th>
+     <th class="num">{% trans "продано" %}</th>
+     <th class="num">{% trans "возвраты" %}</th>
+     <th class="num">{% trans "брак" %}</th>
+     <th class="num">{% trans "остаток" %}</th>
+     <th class="num">{% trans "≈ стоимость" %}</th>
+    </tr></thead>
+    <tbody>
+     {% for c in categories %}
+     <tr>
+      <td>{{ c.name }}</td>
+      <td class="num">{{ c.variants|grp }}</td>
+      <td class="num">{{ c.intake|grp }}</td>
+      <td class="num">{{ c.sold|grp }}</td>
+      <td class="num">{{ c.returns|grp }}</td>
+      <td class="num">{{ c.writeoff|grp }}</td>
+      <td class="num">{{ c.units|grp }}</td>
+      <td class="num">{{ c.value_base|som }}</td>
+     </tr>
+     {% endfor %}
+    </tbody>
+   </table>
+  </div>
+  {% else %}<div class="empty"><svg class="ic"><use href="#i-storage"/></svg><p>{% trans "На складе пока нет товаров" %}</p></div>{% endif %}
+ </div>
+
+ {# --- all items --- #}
+ <div class="panel panel--full">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-units"/></svg>{% trans "Все товары" %}</h2>
+  <p class="panel__caption">{% trans "Каждая строка — вариант товара; движения по складскому журналу за всё время." %}</p>
+  {% if items %}
+  <div class="dtable-wrap">
+   <table class="dtable">
+    <thead><tr>
+     <th>{% trans "Категория" %}</th>
+     <th>{% trans "Артикул" %}</th>
+     <th>{% trans "Товар" %}</th>
+     <th class="num">{% trans "поступл." %}</th>
+     <th class="num">{% trans "продано" %}</th>
+     <th class="num">{% trans "возвраты" %}</th>
+     <th class="num">{% trans "брак" %}</th>
+     <th class="num">{% trans "коррект." %}</th>
+     <th class="num">{% trans "остаток" %}</th>
+     <th class="num">{% trans "≈ стоимость" %}</th>
+    </tr></thead>
+    <tbody>
+     {% for it in items %}
+     <tr>
+      <td>{{ it.category }}</td>
+      <td>{{ it.sku }}</td>
+      <td>{{ it.product }}{% if it.size or it.color %} <span class="text-3">/ {{ it.size }} {{ it.color }}</span>{% endif %}</td>
+      <td class="num">{{ it.intake|grp }}</td>
+      <td class="num">{{ it.sold|grp }}</td>
+      <td class="num">{{ it.returns|grp }}</td>
+      <td class="num">{{ it.writeoff|grp }}</td>
+      <td class="num">{{ it.adjust|grp }}</td>
+      <td class="num">
+       {{ it.stock|grp }}{% if it.low %} <span class="chip chip--partial">{% trans "мало" %}</span>{% endif %}
+      </td>
+      <td class="num">{% if it.value_base is not None %}{{ it.value_base|som }}{% else %}—{% endif %}</td>
+     </tr>
+     {% endfor %}
+    </tbody>
+   </table>
+  </div>
+  {% else %}<div class="empty"><svg class="ic"><use href="#i-units"/></svg><p>{% trans "На складе пока нет товаров" %}</p></div>{% endif %}
+ </div>
+</div>
+</body>
+</html>

@@ -25,6 +25,10 @@ CURRENCY_CHOICES = [
 ]
 CURRENCY_CODES = [code for code, _label in CURRENCY_CHOICES]
 
+# Display-only symbols for the rate strip / money labels. Stored amounts and
+# ISO codes are unaffected — this only decides what glyph shows next to them.
+CURRENCY_SYMBOLS = {KGS: "сом", USD: "$", RUB: "₽"}
+
 CENTS = Decimal("0.01")
 
 
