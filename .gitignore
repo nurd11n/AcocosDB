@@ -11,6 +11,4 @@ secrets/
 .pytest_cache/
 .ruff_cache/
 *.mo
-CLAUDE.md 
-INSTRUCTIONS.md
-POS-DESIGN.md
+*.md
