@@ -6,6 +6,7 @@ single handler's runtime behaviour (that's covered per-feature as each Part
 of Phase 4 lands). See bot/staff_bot.py and bot/client_bot.py docstrings.
 """
 
+import pytest
 from aiogram.filters import Command, CommandStart
 
 from bot import client_bot, staff_bot
@@ -14,10 +15,12 @@ from bot import client_bot, staff_bot
 # no database access.
 
 # Names that must never appear anywhere in bot/client_bot.py's namespace: the
-# staff query layer (apps.wa.replies) and the aggregate services it wraps.
-# If a future handler needs a client's OWN debt/orders, it must call a
-# per-client lookup, never one of these — and this test must then be
-# re-scoped deliberately, not silently pass.
+# staff query layer (apps.wa.replies) — which accepts an ARBITRARY phone/query
+# from the caller — and the aggregate services it wraps (today's revenue
+# across all clients, every debtor, etc.). client_debt is deliberately NOT
+# here: CLIENT_BOTS.md §3.5 ("Мои заказы") makes a client's OWN debt, looked
+# up only via client_by_chat_id (never an arbitrary identifier), a real
+# feature — see menu_orders. BotUser stays banned; it's the staff allowlist.
 _STAFF_ONLY_NAMES = {
     "stock_reply",
     "today_reply",
@@ -28,7 +31,6 @@ _STAFF_ONLY_NAMES = {
     "today_summary",
     "debtors_report_rows",
     "low_stock_variants",
-    "client_debt",
     "BotUser",
 }
 
@@ -69,18 +71,16 @@ def test_staff_and_client_bots_use_different_dispatcher_instances():
     assert staff_bot.dp is not client_bot.dp
 
 
-def test_client_bot_start_handler_sends_no_business_data():
-    # The client bot's only handlers today (Part 0) send fixed Russian copy —
-    # no DB aggregate, so no revenue/debt figure can appear. This guards
-    # against a future edit accidentally interpolating a dynamic value in.
-    # Scoped to the actual handler bodies, not the module docstring (which
-    # legitimately discusses "debt" as a future, out-of-scope concern).
+def test_client_bot_handlers_never_touch_aggregate_business_data():
+    # CLIENT_BOTS.md §3.5 ("Мои заказы") legitimately shows a client their OWN
+    # debt (client_debt, scoped to client_by_chat_id — never an arbitrary
+    # identifier), so "debt" alone is no longer a banned substring — see
+    # _STAFF_ONLY_NAMES above. What must NEVER appear is anything that would
+    # mean a cross-client aggregate or cost/profit figure leaked in.
     import inspect
 
-    handlers_source = "".join(
-        inspect.getsource(h.callback) for h in client_bot.dp.message.handlers
-    )
-    for leaked in ("total_kgs", "revenue", "profit", "cost_price", "debt"):
+    handlers_source = "".join(inspect.getsource(h.callback) for h in client_bot.dp.message.handlers)
+    for leaked in ("total_kgs", "revenue", "profit", "cost_price"):
         assert leaked not in handlers_source, f"a client_bot handler mentions '{leaked}'"
 
 
@@ -88,8 +88,7 @@ def test_staff_bot_allowlist_is_an_outer_middleware():
     """The gate must be structural — registered on the message observer itself,
     ahead of every filter and handler — not a convention each handler repeats."""
     assert any(
-        isinstance(m, staff_bot.AllowlistMiddleware)
-        for m in staff_bot.dp.message.outer_middleware
+        isinstance(m, staff_bot.AllowlistMiddleware) for m in staff_bot.dp.message.outer_middleware
     )
 
 
@@ -129,3 +128,28 @@ def test_staff_bot_unknown_id_gets_silence_not_help(monkeypatch):
         assert handled == [sentinel]
 
     asyncio.run(_run())
+
+
+def test_bot_main_idles_without_polling_when_bots_disabled(monkeypatch):
+    """BOTS_ENABLED=False (the shipped prod default) must never reach
+    start_polling — bots are not production-ready yet. Breaks the idle loop
+    via a StopIteration-raising fake sleep so the test terminates."""
+    import asyncio
+
+    from bot import main as bot_main
+
+    monkeypatch.setattr(bot_main.settings, "BOTS_ENABLED", False)
+
+    async def fake_sleep(_seconds):
+        raise RuntimeError("idle loop tick — proves no polling ever started")
+
+    monkeypatch.setattr(bot_main.asyncio, "sleep", fake_sleep)
+
+    def boom(*a, **k):
+        raise AssertionError("start_polling must not be called while BOTS_ENABLED=False")
+
+    monkeypatch.setattr(bot_main.staff_bot.dp, "start_polling", boom)
+    monkeypatch.setattr(bot_main.client_bot.dp, "start_polling", boom)
+
+    with pytest.raises(RuntimeError, match="idle loop tick"):
+        asyncio.run(bot_main.main())

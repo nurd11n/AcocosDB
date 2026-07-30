@@ -2,8 +2,14 @@
 admin. Owner-only: superuser gates every action, and the app is absent from
 Editor/Viewer sidebars (no permissions granted in setup_roles). Sending runs the
 same send_campaign logic in-process; the audience count shown is the exact set
-that will be messaged (shared campaign_audience helper)."""
+that will be messaged (shared campaign_audience helper).
 
+CAMPAIGNS_ENABLED=False (the shipped prod default — bots aren't
+production-ready yet) hides this module from the sidebar for EVERYONE,
+including the superuser, and every has_*_permission check below denies —
+not just hidden, actually unreachable even by direct URL."""
+
+from django.conf import settings
 from django.contrib import admin, messages
 from django.core.management import call_command
 from django.utils.translation import gettext_lazy as _
@@ -36,10 +42,16 @@ class CampaignAdmin(admin.ModelAdmin):
         (
             _("Audience"),
             {
-                "fields": ["only_bought_before", "only_with_debt", "lapsed_days"],
+                "fields": [
+                    "only_bought_before",
+                    "only_with_debt",
+                    "lapsed_days",
+                    "only_favourited_product",
+                ],
                 "description": _(
-                    "Consent and a linked Telegram chat are always required on top "
-                    "of these filters. Save, then use “Send” to preview the count."
+                    "Consent and a reachable channel (Telegram chat / WhatsApp opt-in) "
+                    "are always required on top of these filters, and the 2-per-week "
+                    "frequency cap always applies. Save, then use “Send” to preview the count."
                 ),
             },
         ),
@@ -51,19 +63,19 @@ class CampaignAdmin(admin.ModelAdmin):
         return campaign_preview_count(obj)
 
     def has_module_permission(self, request):
-        return request.user.is_superuser
+        return settings.CAMPAIGNS_ENABLED and request.user.is_superuser
 
     def has_view_permission(self, request, obj=None):
-        return request.user.is_superuser
+        return settings.CAMPAIGNS_ENABLED and request.user.is_superuser
 
     def has_add_permission(self, request):
-        return request.user.is_superuser
+        return settings.CAMPAIGNS_ENABLED and request.user.is_superuser
 
     def has_change_permission(self, request, obj=None):
-        return request.user.is_superuser
+        return settings.CAMPAIGNS_ENABLED and request.user.is_superuser
 
     def has_delete_permission(self, request, obj=None):
-        return request.user.is_superuser
+        return settings.CAMPAIGNS_ENABLED and request.user.is_superuser
 
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
@@ -72,6 +84,9 @@ class CampaignAdmin(admin.ModelAdmin):
 
     @admin.action(description=_("Send now (Telegram)"))
     def send_now(self, request, queryset):
+        if not settings.CAMPAIGNS_ENABLED:
+            self.message_user(request, _("Campaigns are disabled."), messages.ERROR)
+            return
         if not request.user.is_superuser:
             self.message_user(request, _("Only the owner can send campaigns."), messages.ERROR)
             return

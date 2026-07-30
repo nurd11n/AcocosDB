@@ -15,7 +15,12 @@ from django.test import RequestFactory
 from django.utils import timezone
 
 from apps.clients.models import Client, Interaction
-from apps.clients.services import client_debt, debtors_report_rows, log_whatsapp_interaction
+from apps.clients.services import (
+    client_credits,
+    client_debt,
+    debtors_report_rows,
+    log_whatsapp_interaction,
+)
 from apps.core.currency import from_base, get_rate, to_base
 from apps.core.management.commands.send_daily_report import (
     _debts_rows,
@@ -23,14 +28,16 @@ from apps.core.management.commands.send_daily_report import (
     _stock_rows,
     _unreviewed_rows,
 )
-from apps.core.models import ExchangeRate
+from apps.core.models import ExchangeRate, RateChangeLog
 from apps.core.permissions import EDITOR, VIEWER
 from apps.inventory.models import Category, Product, ProductVariant, StockMovement
 from apps.inventory.services import add_movement, adjust_to_count
 from apps.reports.models import DailyReview
 from apps.sales.models import Payment, SaleItem, SaleOrder
 from apps.sales.services import (
+    balance_kgs_before_payment,
     cancel_sale,
+    compute_change_preview,
     confirm_sale,
     mark_fully_paid,
     record_payment,
@@ -292,7 +299,7 @@ def test_daily_report_rows_are_russian_and_reflect_current_data(variant):
 
     debts = _debts_rows()
     assert debts[0][0] == "Имя"
-    assert any(row[0] == "Aiperi" and row[2] == "5400" and row[3] == "KGS" for row in debts[1:])
+    assert any(row[0] == "Aiperi" and row[2] == "5400.00" and row[3] == "KGS" for row in debts[1:])
 
 
 def test_unreviewed_rows_lists_todays_unreviewed_payments(variant):
@@ -343,16 +350,22 @@ def test_pending_order_has_no_balance(variant):
     assert order.payment_status == SaleOrder.UNPAID
 
 
-def test_mismatched_currency_payment_does_not_count_toward_order_balance(variant):
+def test_foreign_currency_payment_converts_and_counts_toward_balance(variant):
+    """A USD payment on a сом order is converted at the NBKR rate frozen onto
+    the payment and reduces the сом balance + the client's сом debt. (The owner
+    opted into conversion; the POS shows a 'verify the rate' note.)"""
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87"))
     c = Client.objects.create(first_name="Aliya", phone="+996700000012")
     order = SaleOrder.objects.create(client=c, currency="KGS")
-    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
-    confirm_sale(order)
-    # A USD payment against a KGS order doesn't pay it down.
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("8700"))
+    confirm_sale(order)  # total 8700 сом
+    # 40 USD × 87 = 3480 сом toward the 8700 сом order.
     Payment.objects.create(client=c, order=order, amount=Decimal("40"), currency="USD")
-    assert order.paid_amount == Decimal("0")
-    assert order.payment_status == SaleOrder.UNPAID
+    assert order.paid_amount == Decimal("3480.00")
+    assert order.balance == Decimal("5220.00")
+    assert order.payment_status == SaleOrder.PARTIAL
+    assert client_debt(c) == {"KGS": Decimal("5220.00")}
 
 
 def test_stats_and_download_require_superuser(client, django_user_model):
@@ -376,28 +389,25 @@ def test_stats_and_download_require_superuser(client, django_user_model):
     assert resp.content[:3] == b"\xef\xbb\xbf"
 
 
-def test_currency_conversion_uses_dated_rate(settings):
+def test_currency_conversion_uses_current_rate(settings):
     settings.CURRENCY = "KGS"
-    ExchangeRate.objects.create(currency="USD", date=date(2026, 7, 10), rate=Decimal("89"))
+    # One row per currency — the current rate. The date arg to the helpers is
+    # accepted for compatibility but ignored (rates are current-only now).
     ExchangeRate.objects.create(currency="USD", date=date(2026, 7, 12), rate=Decimal("90"))
+    any_day = date(2026, 7, 13)
 
     # Base currency is always 1:1, no rate needed, in either direction.
-    assert to_base(Decimal("9000"), "KGS", date(2026, 7, 13)) == Decimal("9000.00")
-    assert from_base(Decimal("9000"), "KGS", date(2026, 7, 13)) == Decimal("9000.00")
+    assert to_base(Decimal("9000"), "KGS", any_day) == Decimal("9000.00")
+    assert from_base(Decimal("9000"), "KGS", any_day) == Decimal("9000.00")
 
-    # Uses the most recent rate on or before the date (Jul 12 rate on Jul 13).
-    assert get_rate("USD", date(2026, 7, 13)) == Decimal("90")
-    # from_base: KGS -> USD divides by the rate.
-    assert from_base(Decimal("9000"), "USD", date(2026, 7, 13)) == Decimal("100.00")
-    # to_base: USD -> KGS multiplies by the rate.
-    assert to_base(Decimal("100"), "USD", date(2026, 7, 13)) == Decimal("9000.00")
+    assert get_rate("USD") == Decimal("90")
+    # from_base: KGS -> USD divides by the rate; to_base multiplies.
+    assert from_base(Decimal("9000"), "USD", any_day) == Decimal("100.00")
+    assert to_base(Decimal("100"), "USD", any_day) == Decimal("9000.00")
 
-    # An earlier date picks the earlier rate.
-    assert from_base(Decimal("8900"), "USD", date(2026, 7, 11)) == Decimal("100.00")
-
-    # No rate on/before the date -> None (caller falls back to base).
-    assert from_base(Decimal("9000"), "USD", date(2026, 7, 1)) is None
-    assert to_base(Decimal("100"), "USD", date(2026, 7, 1)) is None
+    # A currency with no rate on record -> None (caller falls back to base).
+    assert from_base(Decimal("9000"), "RUB", any_day) is None
+    assert to_base(Decimal("100"), "RUB", any_day) is None
 
 
 _NBKR_SAMPLE = (
@@ -430,18 +440,20 @@ def test_fetch_rates_parses_nbkr_and_skips_unconfigured(monkeypatch, settings):
     assert not ExchangeRate.objects.filter(currency="EUR").exists()
 
 
-def test_fetch_rates_never_overwrites_a_manual_override(monkeypatch, settings):
+def test_fetch_rates_overwrites_existing_row_in_place(monkeypatch, settings):
     settings.CURRENCY = "KGS"
-    today = timezone.localdate()
+    # An old rate for USD; a fetch overwrites it in place (one row per currency,
+    # no dated pile-up).
     ExchangeRate.objects.create(
-        currency="USD", date=today, rate=Decimal("99.99"), source=ExchangeRate.MANUAL
+        currency="USD", date=date(2026, 7, 10), rate=Decimal("99.99"), source=ExchangeRate.MANUAL
     )
     monkeypatch.setattr(
         "apps.core.management.commands.fetch_rates.requests.get", lambda *a, **k: _FakeResp()
     )
     call_command("fetch_rates")
-    kept = ExchangeRate.objects.get(currency="USD", date=today)
-    assert kept.rate == Decimal("99.99") and kept.source == ExchangeRate.MANUAL
+    assert ExchangeRate.objects.filter(currency="USD").count() == 1
+    row = ExchangeRate.objects.get(currency="USD")
+    assert row.rate == Decimal("87.45") and row.source == ExchangeRate.NBKR
 
 
 def test_fetch_rates_survives_network_failure(monkeypatch, settings):
@@ -453,6 +465,82 @@ def test_fetch_rates_survives_network_failure(monkeypatch, settings):
     monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", boom)
     call_command("fetch_rates")  # must not raise
     assert not ExchangeRate.objects.exists()  # nothing written, last known kept
+
+
+def test_convert_crosses_currencies_via_base():
+    from apps.core.currency import convert
+
+    d = date(2026, 7, 12)
+    ExchangeRate.objects.create(currency="USD", date=d, rate=Decimal("90"))
+    ExchangeRate.objects.create(currency="RUB", date=d, rate=Decimal("1.2"))
+    # Same currency is a no-op (quantized).
+    assert convert(Decimal("100"), "KGS", "KGS", d) == Decimal("100.00")
+    # 40 USD -> KGS (× 90).
+    assert convert(Decimal("40"), "USD", "KGS", d) == Decimal("3600.00")
+    # 3600 KGS -> USD (÷ 90).
+    assert convert(Decimal("3600"), "KGS", "USD", d) == Decimal("40.00")
+    # USD -> RUB crosses via KGS: 40 × 90 ÷ 1.2 = 3000 RUB.
+    assert convert(Decimal("40"), "USD", "RUB", d) == Decimal("3000.00")
+    # No rate on record for a leg -> None (caller keeps it in its own ccy).
+    ExchangeRate.objects.filter(currency="RUB").delete()
+    assert convert(Decimal("40"), "USD", "RUB", d) is None
+
+
+def test_foreign_payment_preview_converts_balance_and_shows_note(
+    client, django_user_model, variant
+):
+    """The sale-screen preview converts a foreign payment into the order's
+    currency, deducts it, and shows the 'verify the rate' note."""
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87"))
+    editor = django_user_model.objects.create_user("editor_fx", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    order_id = int(client.get("/pos/").url.rstrip("/").rsplit("/", 1)[-1])
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+    # variant sells for 3200 сом; pay 10 USD (= 870 сом) -> remaining 2330 сом.
+    resp = client.post(
+        f"/pos/sale/{order_id}/recalc/", {"amount": "10", "currency": "USD", "method": "cash"}
+    )
+    body = resp.content.decode()
+    assert "2330" in body  # converted balance, not the untouched 3200
+    assert "НБКР" in body  # the verify-manually note is shown
+
+
+def test_refresh_rates_button_pulls_fresh_and_rerenders(
+    client, django_user_model, variant, monkeypatch, settings
+):
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("editor_rt", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    monkeypatch.setattr(
+        "apps.core.management.commands.fetch_rates.requests.get", lambda *a, **k: _FakeResp()
+    )
+    assert not ExchangeRate.objects.exists()
+    resp = client.post("/pos/rates/refresh/")
+    assert resp.status_code == 200
+    # Pulled today's USD/RUB and rendered them into the strip.
+    assert ExchangeRate.objects.filter(currency="USD", date=timezone.localdate()).exists()
+    assert "87,45" in resp.content.decode()  # RU locale renders the decimal with a comma
+
+
+def test_refresh_rates_survives_nbkr_failure(client, django_user_model, monkeypatch):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("editor_rf", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    def boom(*a, **k):
+        raise requests.RequestException("nbkr down")
+
+    monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", boom)
+    resp = client.post("/pos/rates/refresh/")  # must not 500
+    assert resp.status_code == 200
 
 
 def test_restock_reply_lists_only_low_variants(variant):
@@ -718,8 +806,13 @@ def test_pos_draft_survives_reload(client, django_user_model, variant):
 
 
 def test_pos_oversell_shows_error_and_keeps_basket(client, django_user_model, variant):
+    """Part 1c: client-side/cart-time caps are UX, not the defence — stock can
+    still change between the cart being built and confirm (a concurrent sale,
+    a write-off). Add 5 while 5 are in stock (the cart-time cap at add-time
+    allows it), THEN reduce stock to 2 before confirming — confirm must still
+    fail cleanly and keep the basket, never a silent oversell."""
     call_command("setup_roles")
-    add_movement(variant, StockMovement.PRODUCTION_IN, 2)
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
     editor = django_user_model.objects.create_user("editor13", password="x" * 12, is_staff=True)
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
@@ -727,6 +820,8 @@ def test_pos_oversell_shows_error_and_keeps_basket(client, django_user_model, va
     resp = client.get("/pos/")
     order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 5})
+    add_movement(variant, StockMovement.WRITEOFF_OUT, 3)  # stock 5 -> 2, AFTER adding to cart
+
     resp = client.post(
         f"/pos/sale/{order_id}/confirm/", {"amount": "0", "currency": "KGS", "method": "cash"}
     )
@@ -741,8 +836,9 @@ def test_pos_oversell_shows_error_and_keeps_basket(client, django_user_model, va
     order = SaleOrder.objects.get(pk=order_id)
     assert order.status == SaleOrder.DRAFT
     assert order.items.count() == 1  # basket kept intact
+    assert order.items.first().quantity == 5
     variant.refresh_from_db()
-    assert variant.stock == 2  # nothing written off
+    assert variant.stock == 2  # nothing written off by the failed confirm itself
 
 
 def test_pos_cancel_view_returns_stock(client, django_user_model, variant):
@@ -920,14 +1016,25 @@ def test_campaign_audience_filters_bought_before(variant):
 
 
 def test_subscribe_and_unsubscribe_telegram():
-    from apps.clients.services import subscribe_telegram, unsubscribe_telegram
+    from apps.clients.services import (
+        set_marketing_consent,
+        subscribe_telegram,
+        unsubscribe_telegram,
+    )
 
     c = Client.objects.create(first_name="Sub", phone="+996 700 55-66-77")
     # Phone match is digit-based, tolerant of spaces/dashes/+.
     linked = subscribe_telegram("996700556677", 909)
     assert linked == c
     c.refresh_from_db()
-    assert c.telegram_chat_id == 909 and c.marketing_consent is True
+    # CLIENT_BOTS.md §3.1: sharing a phone makes the chat reachable but must
+    # NOT itself set consent — that's a separate explicit Да/Нет step.
+    assert c.telegram_chat_id == 909
+    assert c.marketing_consent is False
+
+    set_marketing_consent(c, True)
+    c.refresh_from_db()
+    assert c.marketing_consent is True
 
     unsubscribe_telegram(909)
     c.refresh_from_db()
@@ -958,14 +1065,14 @@ def test_send_campaign_marks_recipients_and_never_double_sends(monkeypatch, sett
     )
     campaign = Campaign.objects.create(name="Promo", text_ru="hello")
 
-    call_command("send_campaign", campaign.pk)
+    call_command("send_campaign", campaign.pk, ignore_quiet_hours=True)
     r = CampaignRecipient.objects.get(campaign=campaign, client=c)
     assert r.status == CampaignRecipient.SENT and r.sent_at is not None
     assert c.interactions.filter(kind=Interaction.MESSAGE).count() == 1
     assert calls == [301]
 
     # Re-running must not message the same client again.
-    call_command("send_campaign", campaign.pk)
+    call_command("send_campaign", campaign.pk, ignore_quiet_hours=True)
     assert calls == [301]  # unchanged
     assert CampaignRecipient.objects.filter(campaign=campaign).count() == 1
 
@@ -1286,6 +1393,18 @@ def test_healthz_503_when_cache_roundtrip_fails(client, monkeypatch):
     assert b"cache" in resp.content
 
 
+def test_healthz_503_when_db_is_down(client, monkeypatch):
+    from django.db import connection
+
+    def broken_cursor(*a, **k):
+        raise OSError("could not connect to server")
+
+    monkeypatch.setattr(connection, "cursor", broken_cursor)
+    resp = client.get("/healthz/")
+    assert resp.status_code == 503
+    assert b"db" in resp.content
+
+
 def _wa_sig(secret, body):
     return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
@@ -1353,6 +1472,32 @@ def test_wa_webhook_rejects_when_secret_unset(client, settings):
         HTTP_X_HUB_SIGNATURE_256=_wa_sig("anything", body),
     )
     assert resp.status_code == 403
+
+
+def test_wa_webhook_404s_when_whatsapp_disabled(client, settings):
+    """Bots are not production-ready — WHATSAPP_ENABLED=False (the shipped
+    prod default) must make the whole route unreachable, GET and POST alike,
+    regardless of credentials being otherwise valid."""
+    settings.WHATSAPP_ENABLED = False
+    settings.WHATSAPP_APP_SECRET = "topsecret"
+    settings.WHATSAPP_VERIFY_TOKEN = "verify-me"
+
+    assert (
+        client.get(
+            "/wa/webhook/", {"hub.verify_token": "verify-me", "hub.challenge": "x"}
+        ).status_code
+        == 404
+    )
+
+    body = _wa_text_payload("996700123456", "stock")
+    resp = client.post(
+        "/wa/webhook/",
+        data=body,
+        content_type="application/json",
+        HTTP_X_HUB_SIGNATURE_256=_wa_sig("topsecret", body),
+    )
+    assert resp.status_code == 404
+    assert not Client.objects.filter(phone="996700123456").exists()
 
 
 def test_wa_webhook_oversize_payload_rejected(client, settings):
@@ -1473,7 +1618,11 @@ def test_pos_segodnya_view_shows_boundary_sale_in_local_day(
         _freeze_now(monkeypatch, 2026, 7, 17, 4, 0)  # 10:00 Bishkek 17th
         resp = client.get("/pos/today/")
     assert resp.status_code == 200
-    assert "3200" in resp.content.decode()  # the boundary sale is on TODAY's screen
+    from apps.pos.templatetags.pos_extras import money_filter
+
+    assert (
+        money_filter(3200, "KGS") in resp.content.decode()
+    )  # the boundary sale is on TODAY's screen
 
 
 def test_bot_today_reply_counts_boundary_sale_in_local_day(variant, monkeypatch):
@@ -1641,7 +1790,9 @@ def test_storage_export_xlsx_and_csv_for_owner(client, django_user_model, varian
 def test_storage_link_shown_only_to_owner(client, django_user_model):
     _editor(client, django_user_model, "storelinkeditor")
     assert 'href="/storage/"' not in client.get("/pos/", follow=True).content.decode()
-    client.force_login(django_user_model.objects.create_superuser("storelinkowner", password="x" * 12))
+    client.force_login(
+        django_user_model.objects.create_superuser("storelinkowner", password="x" * 12)
+    )
     assert 'href="/storage/"' in client.get("/pos/", follow=True).content.decode()
 
 
@@ -1841,7 +1992,12 @@ def _seed_dashboard_sales(n, variants, clients, day_offset=0):
     items, pays = [], []
     for idx, o in enumerate(created):
         items.append(
-            SaleItem(order_id=o.pk, variant=variants[idx % len(variants)], quantity=1, unit_price=Decimal("1000"))
+            SaleItem(
+                order_id=o.pk,
+                variant=variants[idx % len(variants)],
+                quantity=1,
+                unit_price=Decimal("1000"),
+            )
         )
         if idx % 10 < 7:  # leave ~30% as debt so the Долги panel is exercised
             pays.append(
@@ -1875,8 +2031,12 @@ def test_dashboard_query_budget_is_flat_and_bounded(django_user_model):
     _seed_dashboard_sales(4950, variants, clients, day_offset=7)  # 5000 total
     big = {p: count(p) for p in PERIODS}
 
+    # Budget raised 12 -> 14 -> 16: the «Заказы» panels (Part 3g) added two
+    # flat queries, and the CLIENT_BOTS.md panels (telegram_reach: 2 counts;
+    # top_favourited: 1 aggregate + 1 variant lookup) add two more — all
+    # still independent of sales volume, just a slightly higher fixed floor.
     for p in PERIODS:
-        assert big[p] <= 12, f"{p}: {big[p]} queries at 5000 sales (budget 12)"
+        assert big[p] <= 16, f"{p}: {big[p]} queries at 5000 sales (budget 16)"
         assert big[p] == small[p], f"{p} query count scaled with rows: {small[p]} -> {big[p]}"
 
 
@@ -1936,6 +2096,1517 @@ def test_dashboard_cache_invalidated_on_payment(variant):
     confirm_sale(order)  # unpaid -> a debt
     debt_before = _cached_data("today")["metrics"]["debt"]["value"]
 
-    record_payment(order, amount=Decimal("1200"), currency="KGS", method="cash")  # Payment signal bumps
+    record_payment(
+        order, amount=Decimal("1200"), currency="KGS", method="cash"
+    )  # Payment signal bumps
     debt_after = _cached_data("today")["metrics"]["debt"]["value"]
     assert debt_after == debt_before - Decimal("1200")
+
+
+# ---------------------------------------------------------------------------
+# Multi-currency payment hardening
+# ---------------------------------------------------------------------------
+
+
+def test_manager_can_refresh_rates_but_hand_entering_one_is_403(
+    client, django_user_model, variant, monkeypatch
+):
+    """RATE PERMISSIONS: refreshing from NBKR is allowed for Editor/Manager;
+    hand-entering/overriding a rate is Owner-only, enforced server-side even
+    if a Manager bypasses the UI and POSTs it directly."""
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    manager = django_user_model.objects.create_user("mgr_perm", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    monkeypatch.setattr(
+        "apps.core.management.commands.fetch_rates.requests.get", lambda *a, **k: _FakeResp()
+    )
+    assert client.post("/pos/rates/refresh/").status_code == 200  # allowed
+
+    order = SaleOrder.objects.create(created_by=manager, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+
+    resp = client.post(
+        f"/pos/sale/{order.pk}/recalc/",
+        {"amount": "10", "currency": "USD", "rate_override": "80"},
+    )
+    assert resp.status_code == 403
+
+    resp = client.post(
+        f"/pos/sale/{order.pk}/confirm/",
+        {"amount": "10", "currency": "USD", "method": "cash", "rate_override": "80"},
+    )
+    assert resp.status_code == 403
+    order.refresh_from_db()
+    assert order.status == SaleOrder.DRAFT  # rejected before touching stock
+
+
+def test_owner_rate_override_is_stored_with_official_rate_for_spread(
+    client, django_user_model, variant, settings
+):
+    """OWNER RATE OVERRIDE: the Owner can hand-enter the actual (booth) rate —
+    stored as rate_source=manual with rate_official (the NBKR rate at that
+    moment) captured so the spread is reconstructable later."""
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    owner = django_user_model.objects.create_superuser("owner_ov", "o@e.com", "x" * 12)
+    client.force_login(owner)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="Own", phone="+996700000811")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/",
+        {
+            "amount": "10",
+            "currency": "USD",
+            "method": "cash",
+            "rate_override": "89.50",
+            "risk_ack": "1",  # a manual rate is itself a risk reason — needs ack
+        },
+    )
+    assert resp.status_code == 302
+    assert resp.url == f"/pos/sale/{order_id}/result/"
+
+    order = SaleOrder.objects.get(pk=order_id)
+    payment = order.payments.get()
+    assert payment.rate_source == Payment.RATE_MANUAL
+    assert payment.rate_to_kgs == Decimal("89.50")
+    assert payment.rate_official == Decimal("87.000000")
+    assert order.balance == Decimal("2305.00")  # 3200 - (10 × 89.50)
+
+
+def test_manual_rate_deviating_from_official_warns_but_never_blocks(
+    client, django_user_model, variant, settings
+):
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    owner = django_user_model.objects.create_superuser("owner_dev", "o@e.com", "x" * 12)
+    client.force_login(owner)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="Dev", phone="+996700000812")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+
+    # 95 vs 87 official = ~9.2% deviation — above the 5% warn threshold.
+    resp = client.post(
+        f"/pos/sale/{order_id}/recalc/",
+        {"amount": "10", "currency": "USD", "rate_override": "95"},
+    )
+    assert "отличается от официального" in resp.content.decode()
+
+    # The deviation itself never blocks — only the (separate) manual-rate risk
+    # reason requires an ack, and ack'ing it lets the sale complete.
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/",
+        {
+            "amount": "10",
+            "currency": "USD",
+            "method": "cash",
+            "rate_override": "95",
+            "risk_ack": "1",
+        },
+    )
+    assert resp.status_code == 302
+    payment = SaleOrder.objects.get(pk=order_id).payments.get()
+    assert payment.rate_to_kgs == Decimal("95")
+
+
+def test_void_foreign_payment_restores_debt_to_exact_pre_payment_value(variant, settings):
+    """REVERSALS MUST USE THE FROZEN RATE: voiding a foreign payment restores
+    the client's debt to EXACTLY its pre-payment value even after today's
+    rate has moved significantly in between."""
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    cust = Client.objects.create(first_name="Rev", phone="+996700000826")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("8700"))
+    confirm_sale(order)
+    debt_before = client_debt(cust)
+    assert debt_before == {"KGS": Decimal("8700.00")}
+
+    payment = Payment.objects.create(client=cust, order=order, amount=Decimal("10"), currency="USD")
+    assert client_debt(cust) == {"KGS": Decimal("7830.00")}  # 8700 - (10 × 87)
+
+    # The rate moves significantly AFTER the payment.
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("150.00"))
+
+    void_payment(payment)
+    assert client_debt(cust) == debt_before  # exactly restored, unaffected by the new rate
+
+
+def test_rates_card_shows_date_and_stale_badge_past_four_days(client, django_user_model, settings):
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    manager = django_user_model.objects.create_user("mgr_age", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    stale_date = timezone.localdate() - timezone.timedelta(days=5)
+    ExchangeRate.objects.create(currency="USD", date=stale_date, rate=Decimal("87.00"))
+    order = SaleOrder.objects.create(created_by=manager)
+
+    resp = client.get(f"/pos/sale/{order.pk}/")
+    body = resp.content.decode()
+    assert stale_date.strftime("%d.%m.%Y") in body
+    assert "Курс устарел" in body
+    assert "badge--debt" in body
+
+
+def test_scheduler_runs_fetch_rates_daily_and_before_the_report():
+    """Restores the automatic daily pull (kept alongside the manual button) —
+    automatic for reliability, manual for control."""
+    import scheduler as scheduler_module
+
+    job_commands = [cmds for _, cmds in scheduler_module.JOBS]
+    assert ["fetch_rates"] in job_commands
+    report_job = next(cmds for _, cmds in scheduler_module.JOBS if "send_daily_report" in cmds)
+    assert "fetch_rates" in report_job
+    assert "cleanup_draft_sales" in report_job
+
+
+def test_refresh_rates_writes_audit_log_and_skips_noop_refresh(
+    client, django_user_model, monkeypatch, settings
+):
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    manager = django_user_model.objects.create_user("mgr_audit", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    monkeypatch.setattr(
+        "apps.core.management.commands.fetch_rates.requests.get", lambda *a, **k: _FakeResp()
+    )
+    client.post("/pos/rates/refresh/")
+    log = RateChangeLog.objects.get(currency="USD")
+    assert log.old_rate is None
+    assert log.new_rate == Decimal("87.45")
+    assert log.source == ExchangeRate.NBKR
+    assert log.changed_by == manager
+
+    # Pulling back the SAME rate is not a "change" — no second log row.
+    client.post("/pos/rates/refresh/")
+    assert RateChangeLog.objects.filter(currency="USD").count() == 1
+
+
+def test_exchange_rate_admin_is_owner_only(django_user_model):
+    call_command("setup_roles")
+    manager = django_user_model.objects.create_user("mgr_era", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    request = RequestFactory().get("/")
+    request.user = manager
+    model_admin = site._registry[ExchangeRate]
+    assert model_admin.has_module_permission(request) is False
+    assert model_admin.has_add_permission(request) is False
+    assert model_admin.has_change_permission(request) is False
+
+    owner = django_user_model.objects.create_superuser("owner_era", "o@e.com", "x" * 12)
+    request.user = owner
+    assert model_admin.has_module_permission(request) is True
+    assert model_admin.has_add_permission(request) is True
+    assert model_admin.has_change_permission(request) is True
+
+
+def test_rate_change_log_admin_is_read_only_and_owner_only(django_user_model):
+    owner = django_user_model.objects.create_superuser("owner_rcl", "o@e.com", "x" * 12)
+    request = RequestFactory().get("/")
+    request.user = owner
+    model_admin = site._registry[RateChangeLog]
+    assert model_admin.has_view_permission(request) is True
+    assert model_admin.has_add_permission(request) is False
+    assert model_admin.has_change_permission(request) is False
+    assert model_admin.has_delete_permission(request) is False
+
+    staff = django_user_model.objects.create_user("staff_rcl", password="x" * 12, is_staff=True)
+    request.user = staff
+    assert model_admin.has_module_permission(request) is False
+
+
+def test_exchange_rate_admin_save_model_upserts_and_logs(django_user_model):
+    owner = django_user_model.objects.create_superuser("owner_save", "o@e.com", "x" * 12)
+    request = RequestFactory().post("/")
+    request.user = owner
+    model_admin = site._registry[ExchangeRate]
+
+    obj = ExchangeRate(currency="USD", rate=Decimal("89.00"))
+    model_admin.save_model(request, obj, form=None, change=False)
+    assert ExchangeRate.objects.filter(currency="USD").count() == 1
+    row = ExchangeRate.objects.get(currency="USD")
+    assert row.rate == Decimal("89.00")
+    assert row.source == ExchangeRate.MANUAL
+    log = RateChangeLog.objects.get(currency="USD")
+    assert log.old_rate is None and log.new_rate == Decimal("89.00")
+    assert log.source == ExchangeRate.MANUAL and log.changed_by == owner
+
+    # Editing again upserts in place (still one row) and logs the change.
+    obj2 = ExchangeRate(currency="USD", rate=Decimal("91.00"))
+    model_admin.save_model(request, obj2, form=None, change=False)
+    assert ExchangeRate.objects.filter(currency="USD").count() == 1
+    assert RateChangeLog.objects.filter(currency="USD").count() == 2
+    latest = RateChangeLog.objects.filter(currency="USD").order_by("-changed_at").first()
+    assert latest.old_rate == Decimal("89.00") and latest.new_rate == Decimal("91.00")
+
+
+def test_fresh_small_foreign_payment_confirms_without_risk_ack(
+    client, django_user_model, variant, settings
+):
+    settings.CURRENCY = "KGS"
+    settings.LARGE_PAYMENT_THRESHOLD_KGS = 10000
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    manager = django_user_model.objects.create_user("mgr_fresh", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="Fresh", phone="+996700000820")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/", {"amount": "10", "currency": "USD", "method": "cash"}
+    )
+    assert resp.status_code == 302
+    assert resp.url == f"/pos/sale/{order_id}/result/"
+    assert SaleOrder.objects.get(pk=order_id).payments.exists()
+
+
+def test_stale_rate_payment_requires_explicit_risk_ack(
+    client, django_user_model, variant, settings
+):
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    stale_date = timezone.localdate() - timezone.timedelta(days=5)
+    ExchangeRate.objects.create(currency="USD", date=stale_date, rate=Decimal("87.00"))
+    manager = django_user_model.objects.create_user("mgr_stale", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="Stale", phone="+996700000821")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+
+    # Without risk_ack: rejected — the sale isn't even confirmed, nothing saved.
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/", {"amount": "10", "currency": "USD", "method": "cash"}
+    )
+    assert resp.status_code == 302
+    assert resp.url == f"/pos/sale/{order_id}/"
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.status == SaleOrder.DRAFT
+    assert not order.payments.exists()
+
+    # With risk_ack=1: goes through.
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/",
+        {"amount": "10", "currency": "USD", "method": "cash", "risk_ack": "1"},
+    )
+    assert resp.status_code == 302
+    assert resp.url == f"/pos/sale/{order_id}/result/"
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CONFIRMED
+    assert order.payments.exists()
+
+
+def test_large_converted_payment_requires_explicit_risk_ack(
+    client, django_user_model, variant, settings
+):
+    settings.CURRENCY = "KGS"
+    settings.LARGE_PAYMENT_THRESHOLD_KGS = 1000  # low threshold to trigger easily
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    manager = django_user_model.objects.create_user("mgr_big", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="Big", phone="+996700000822")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+
+    # 20 USD × 87 = 1740 сом, above the 1000 сом threshold but below the 3200
+    # сом order total — large, but NOT an overpayment (kept separate from the
+    # сдача/overpayment-fork flow, which has its own dedicated tests).
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/", {"amount": "20", "currency": "USD", "method": "cash"}
+    )
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.status == SaleOrder.DRAFT
+    assert not order.payments.exists()
+
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/",
+        {"amount": "20", "currency": "USD", "method": "cash", "risk_ack": "1"},
+    )
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CONFIRMED
+
+
+def test_missing_rate_at_confirm_shows_russian_error_and_saves_nothing(
+    client, django_user_model, variant
+):
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    manager = django_user_model.objects.create_user("mgr_norate", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+    assert not ExchangeRate.objects.filter(currency="USD").exists()
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="NoRate", phone="+996700000823")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/", {"amount": "10", "currency": "USD", "method": "cash"}
+    )
+    assert resp.status_code == 302
+    assert resp.url == f"/pos/sale/{order_id}/"
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.status == SaleOrder.DRAFT  # never confirmed either
+    assert not order.payments.exists()
+    page = client.get(resp.url)
+    assert "Нет курса" in page.content.decode()
+
+
+def test_record_payment_raises_for_missing_rate_and_saves_nothing(variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Svc", phone="+996700000824")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    assert not ExchangeRate.objects.filter(currency="USD").exists()
+    with pytest.raises(ValidationError):
+        record_payment(order, Decimal("10"), currency="USD")
+    assert not order.payments.exists()
+
+
+def test_same_currency_as_order_payment_uses_rate_one_and_skips_conversion_ui(
+    client, django_user_model, variant, settings
+):
+    """order currency == payment currency (both USD, non-KGS) needs no rate
+    lookup at all and shows no conversion math — even with zero ExchangeRate
+    rows on record."""
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    variant.currency = "USD"
+    variant.sale_price = Decimal("40")
+    variant.save(update_fields=["currency", "sale_price"])
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    manager = django_user_model.objects.create_user("mgr_same", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+    assert not ExchangeRate.objects.filter(currency="USD").exists()
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+    assert SaleOrder.objects.get(pk=order_id).currency == "USD"
+
+    resp = client.post(
+        f"/pos/sale/{order_id}/recalc/", {"amount": "40", "currency": "USD", "method": "cash"}
+    )
+    body = resp.content.decode()
+    assert "USD ×" not in body  # no conversion math for a same-currency payment
+    assert "Нет курса" not in body  # and no missing-rate warning either
+
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/", {"amount": "40", "currency": "USD", "method": "cash"}
+    )
+    assert resp.status_code == 302
+
+
+def test_changing_rate_afterward_never_alters_past_payment_values(variant, settings):
+    settings.CURRENCY = "KGS"
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    cust = Client.objects.create(first_name="Frz", phone="+996700000825")
+    payment = Payment.objects.create(client=cust, amount=Decimal("10"), currency="USD")
+    assert payment.rate_to_kgs == Decimal("87.000000")
+    assert payment.amount_kgs == Decimal("870.00")
+
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("95.00"))
+    payment.refresh_from_db()
+    assert payment.rate_to_kgs == Decimal("87.000000")  # unchanged
+    assert payment.amount_kgs == Decimal("870.00")  # unchanged
+
+
+def test_rounding_residue_marks_sale_paid_and_excluded_from_debts(variant, settings):
+    settings.CURRENCY = "KGS"
+    settings.PAYMENT_ROUNDING_TOLERANCE = Decimal("1.00")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Round", phone="+996700000827")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("100.00"))
+    confirm_sale(order)
+    # Leaves a 0.04 сом residue — sub-сом currency-conversion rounding.
+    record_payment(order, Decimal("99.96"), currency="KGS")
+    assert order.balance == Decimal("0")
+    assert order.payment_status == SaleOrder.PAID
+    assert client_debt(cust) == {}
+
+
+def test_payment_conversion_filter_shows_frozen_rate_math():
+    from apps.pos.templatetags.pos_extras import payment_conversion_filter
+
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.45"))
+    cust = Client.objects.create(first_name="Fmt", phone="+996700000829")
+    payment = Payment.objects.create(client=cust, amount=Decimal("10"), currency="USD")
+    text = payment_conversion_filter(payment)
+    assert "10 USD" in text
+    assert "87.45" in text
+    assert "874.50 KGS" in text
+    assert "НБКР" in text
+
+    same_currency_payment = Payment.objects.create(
+        client=cust, amount=Decimal("100"), currency="KGS"
+    )
+    assert payment_conversion_filter(same_currency_payment) == ""
+
+
+def test_daily_report_sales_sheet_includes_currency_rate_source_columns(variant, settings):
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    cust = Client.objects.create(first_name="Rep", phone="+996700000828")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    record_payment(order, Decimal("10"), currency="USD")  # 10 × 87 = 870
+
+    rows = _sales_rows()
+    header = rows[0]
+    assert header[-5:] == [
+        "Валюта оплаты",
+        "Курс",
+        "Источник курса",
+        "Сдача",
+        "Округление",
+    ]
+    data_row = rows[1]
+    assert data_row[-5] == "USD"
+    assert data_row[-4] == "87.0000"
+    assert data_row[-3] == "НБКР"
+    assert data_row[-2] == "—"  # no change given on this payment
+    assert data_row[-1] == "—"  # no rounding residue either
+    # Оплачено/Остаток use the CONVERTED paid amount, not a raw
+    # same-currency-only sum (the bug this hardening pass fixed).
+    assert data_row[9] == "870.00"  # Оплачено
+    assert data_row[10] == "2330.00"  # Остаток
+
+
+def test_client_admin_unpaid_orders_counts_converted_foreign_payment(variant, settings):
+    """Regression: unpaid_orders() used to sum only same-currency payments,
+    wrongly listing an order as unpaid even after a foreign payment fully
+    settled it — the same bug class fixed in send_daily_report.py."""
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    cust = Client.objects.create(first_name="AdmFx", phone="+996700000830")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("870"))
+    confirm_sale(order)
+    record_payment(order, Decimal("10"), currency="USD")  # 10 × 87 = 870 — fully settles it
+
+    model_admin = site._registry[Client]
+    assert str(model_admin.unpaid_orders(cust)) == "Нет — всё оплачено."
+
+
+def test_rate_info_reflects_only_the_most_recently_fetched_value(settings):
+    """DETERMINISM: one row per currency means exactly one current answer —
+    a second fetch overwrites in place, never leaving two rates to disagree."""
+    from apps.core.currency import rate_info
+
+    settings.CURRENCY = "KGS"
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    assert rate_info("USD")["rate"] == Decimal("87.00")
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("91.00"))
+    assert rate_info("USD")["rate"] == Decimal("91.00")
+    assert ExchangeRate.objects.filter(currency="USD").count() == 1
+
+
+def test_no_float_in_money_and_conversion_code_paths():
+    import ast
+    import pathlib
+
+    money_modules = [
+        "apps/core/currency.py",
+        "apps/sales/models.py",
+        "apps/sales/services.py",
+        "apps/clients/services.py",
+        "apps/pos/views.py",
+    ]
+    base = pathlib.Path(__file__).resolve().parent.parent
+    for rel in money_modules:
+        source = (base / rel).read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=rel)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "float"
+            ):
+                pytest.fail(f"{rel}:{node.lineno} calls float() in a money/conversion path")
+
+
+# ---------------------------------------------------------------------------
+# Change (сдача) system
+# ---------------------------------------------------------------------------
+
+
+def test_same_currency_change_computes_and_rounds_correctly(variant, settings):
+    settings.CURRENCY = "KGS"
+    settings.CHANGE_ROUNDING_STEP = Decimal("1.00")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Chg", phone="+996700001001")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("874.50"))
+    confirm_sale(order)
+
+    payment = record_payment(
+        order,
+        Decimal("1000"),
+        currency="KGS",
+        excess_disposition=Payment.DISPOSITION_CHANGE,
+    )
+    # Ideal change = 1000 - 874.50 = 125.50 -> floor to 125, residue 0.50.
+    assert payment.change_amount == Decimal("125.00")
+    assert payment.change_currency == "KGS"
+    assert payment.change_amount_kgs == Decimal("125.00")
+    assert payment.change_rounding_kgs == Decimal("0.50")
+    # net = 1000 - 125 change = 875.00 (the 0.50 rounding residue stays with
+    # the shop, since change was rounded DOWN — never given away silently).
+    assert payment.net_applied_kgs == Decimal("875.00")
+    order.refresh_from_db()
+    assert order.balance == Decimal("0")
+    assert order.payment_status == SaleOrder.PAID
+
+
+def test_cross_currency_change_uses_the_same_frozen_rate_as_the_payment(variant, settings):
+    settings.CURRENCY = "KGS"
+    settings.CHANGE_ROUNDING_STEP = Decimal("1.00")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("80.00"))
+    cust = Client.objects.create(first_name="ChgFx", phone="+996700001002")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    # 20 USD x 80 = 1600 KGS toward a 1000 KGS sale -> 600 KGS ideal change,
+    # already an exact step, no rounding residue.
+    payment = record_payment(
+        order,
+        Decimal("20"),
+        currency="USD",
+        excess_disposition=Payment.DISPOSITION_CHANGE,
+        change_currency="KGS",
+    )
+    assert payment.rate_to_kgs == Decimal("80.000000")
+    assert payment.change_amount_kgs == Decimal("600.00")
+    assert payment.change_amount == Decimal("600.00")  # change_currency == KGS, no conversion
+    assert payment.net_applied_kgs == Decimal("1000.00")
+
+    # The SAME payment, but change requested back in USD (the currency
+    # received) — change_amount_kgs must be IDENTICAL (one rate, one
+    # transaction); only its OWN-currency representation differs.
+    order2 = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order2, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order2)
+    payment2 = record_payment(
+        order2,
+        Decimal("20"),
+        currency="USD",
+        excess_disposition=Payment.DISPOSITION_CHANGE,
+        change_currency="USD",
+    )
+    assert payment2.change_amount_kgs == Decimal("600.00")
+    assert payment2.change_currency == "USD"
+    assert payment2.change_amount == Decimal("7.50")  # 600 / 80
+
+
+def test_change_while_balance_remains_is_rejected(variant, settings):
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="NoChg", phone="+996700001003")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    # A 500 payment against a 1000 total creates NO excess — forcing a change
+    # override anyway (a crafted/buggy caller) must be rejected, not silently
+    # accepted, since it would leave the sale not fully paid.
+    with pytest.raises(ValidationError):
+        record_payment(
+            order,
+            Decimal("500"),
+            currency="KGS",
+            excess_disposition=Payment.DISPOSITION_CHANGE,
+            change_amount_override=Decimal("100"),
+            change_adjust_reason="test override",
+        )
+    assert not order.payments.exists()
+
+
+def test_negative_change_impossible_even_via_bulk_create(variant):
+    from django.db import IntegrityError, transaction
+
+    cust = Client.objects.create(first_name="Neg", phone="+996700001004")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Payment.objects.bulk_create(
+            [
+                Payment(
+                    client=cust,
+                    amount=Decimal("10"),
+                    rate_to_kgs=Decimal("1"),
+                    change_amount=Decimal("-5"),
+                )
+            ]
+        )
+
+
+def test_change_kgs_cannot_exceed_amount_kgs_even_via_bulk_create(variant):
+    from django.db import IntegrityError, transaction
+
+    cust = Client.objects.create(first_name="TooMuch", phone="+996700001005")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Payment.objects.bulk_create(
+            [
+                Payment(
+                    client=cust,
+                    amount=Decimal("10"),
+                    rate_to_kgs=Decimal("1"),
+                    change_amount=Decimal("5"),
+                    change_amount_kgs=Decimal("20"),  # more than the 10 received
+                )
+            ]
+        )
+
+
+def test_net_applied_kgs_drives_debt_and_balance_everywhere(variant, settings):
+    """CORE RULE: what reduces balance/debt is the NET, not the gross amount —
+    checked at every layer: the order property, the client debt aggregate,
+    and the admin's own annotated queryset."""
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Net", phone="+996700001006")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    record_payment(
+        order, Decimal("1500"), currency="KGS", excess_disposition=Payment.DISPOSITION_CHANGE
+    )
+    # net_applied_kgs = 1500 - 500 change = 1000 -> fully paid, no debt.
+    order.refresh_from_db()
+    assert order.paid_amount == Decimal("1000.00")
+    assert order.balance == Decimal("0")
+    assert client_debt(cust) == {}
+
+    from django.contrib.admin.sites import site
+
+    admin_order = site._registry[SaleOrder].get_queryset(RequestFactory().get("/")).get(pk=order.pk)
+    assert admin_order._paid == Decimal("1000.00")
+
+
+def test_debt_disposition_reduces_clients_other_outstanding_sales(variant, settings):
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Pool", phone="+996700001007")
+    order_a = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order_a, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order_a)
+    order_b = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order_b, variant=variant, quantity=1, unit_price=Decimal("500"))
+    confirm_sale(order_b)
+    assert client_debt(cust) == {"KGS": Decimal("1500.00")}
+
+    # Pay 1500 on order A alone, marking the excess "в счёт долга" — the full
+    # amount counts (no change), and the excess pools onto order B's debt too.
+    record_payment(
+        order_a, Decimal("1500"), currency="KGS", excess_disposition=Payment.DISPOSITION_DEBT
+    )
+    assert client_debt(cust) == {}
+
+
+def test_credit_disposition_yields_negative_debt_shown_as_avans(variant, settings):
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Avans", phone="+996700001008")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    record_payment(
+        order, Decimal("1200"), currency="KGS", excess_disposition=Payment.DISPOSITION_CREDIT
+    )
+    assert client_debt(cust) == {}  # never shown as a negative debt
+    assert client_credits(cust) == {"KGS": Decimal("200.00")}
+
+
+def test_debt_and_credit_disposition_require_a_client(variant, settings):
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Req", phone="+996700001009")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    # record_payment itself only guards client_id at the ORDER level (already
+    # required elsewhere); this proves debt/credit compute cleanly with one.
+    payment = record_payment(
+        order, Decimal("1200"), currency="KGS", excess_disposition=Payment.DISPOSITION_DEBT
+    )
+    assert payment.excess_disposition == Payment.DISPOSITION_DEBT
+    assert payment.change_amount == Decimal("0")
+
+
+def test_void_payment_with_change_restores_exact_debt_after_rate_move(variant, settings):
+    """DONE WHEN: a client hands 20 $ against an 874,50 сом sale — voiding
+    that payment later restores the client's debt EXACTLY, even after the
+    rate has since moved."""
+    settings.CURRENCY = "KGS"
+    settings.CHANGE_ROUNDING_STEP = Decimal("1.00")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.45"))
+    cust = Client.objects.create(first_name="VoidChg", phone="+996700001010")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("874.50"))
+    confirm_sale(order)
+    debt_before = client_debt(cust)
+    assert debt_before == {"KGS": Decimal("874.50")}
+
+    payment = record_payment(
+        order,
+        Decimal("20"),
+        currency="USD",
+        excess_disposition=Payment.DISPOSITION_CHANGE,
+    )
+    assert payment.change_amount == Decimal("874.00")
+    assert payment.change_rounding_kgs == Decimal("0.50")
+    assert client_debt(cust) == {}  # fully paid, change given
+
+    # The rate moves significantly AFTER the payment.
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("150.00"))
+
+    void_payment(payment)
+    assert client_debt(cust) == debt_before  # exactly restored
+
+
+def test_manager_out_of_band_change_amount_gets_403(client, django_user_model, variant, settings):
+    settings.CURRENCY = "KGS"
+    settings.CHANGE_ROUNDING_STEP = Decimal("1.00")
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    manager = django_user_model.objects.create_user("mgr_chg403", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="Band", phone="+996700001011")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+    # variant sells for 3200 KGS; pay 4000 -> ideal change 800.
+
+    resp = client.post(
+        f"/pos/sale/{order_id}/recalc/",
+        {
+            "amount": "4000",
+            "currency": "KGS",
+            "excess_disposition": "change",
+            "change_amount_override": "500",  # wildly outside the ±2 step band
+        },
+    )
+    assert resp.status_code == 403
+
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/",
+        {
+            "amount": "4000",
+            "currency": "KGS",
+            "method": "cash",
+            "excess_disposition": "change",
+            "change_amount_override": "500",
+            "change_adjust_reason": "test",
+        },
+    )
+    assert resp.status_code == 403
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.status == SaleOrder.DRAFT
+    assert not order.payments.exists()
+
+
+def test_owner_can_adjust_change_beyond_the_band(client, django_user_model, variant, settings):
+    settings.CURRENCY = "KGS"
+    settings.CHANGE_ROUNDING_STEP = Decimal("1.00")
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    owner = django_user_model.objects.create_superuser("owner_chg", "o@e.com", "x" * 12)
+    client.force_login(owner)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="OwnerBand", phone="+996700001012")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/",
+        {
+            "amount": "4000",
+            "currency": "KGS",
+            "method": "cash",
+            "excess_disposition": "change",
+            "change_amount_override": "500",
+            "change_adjust_reason": "owner discretion",
+        },
+    )
+    assert resp.status_code == 302
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.status == SaleOrder.CONFIRMED
+    payment = order.payments.get()
+    assert payment.change_amount == Decimal("500")
+    assert "owner discretion" in payment.note
+
+
+def test_overpayment_requires_explicit_disposition_never_auto_picked(
+    client, django_user_model, variant, settings
+):
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    manager = django_user_model.objects.create_user("mgr_fork", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="Fork", phone="+996700001013")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+
+    # 4000 against a 3200 order, no disposition chosen -> rejected.
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/", {"amount": "4000", "currency": "KGS", "method": "cash"}
+    )
+    assert resp.status_code == 302
+    assert resp.url == f"/pos/sale/{order_id}/"
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.status == SaleOrder.DRAFT
+    assert not order.payments.exists()
+
+    # The double-check panel shows the math once "Сдача" is picked.
+    resp = client.post(
+        f"/pos/sale/{order_id}/recalc/",
+        {"amount": "4000", "currency": "KGS", "excess_disposition": "change"},
+    )
+    body = resp.content.decode()
+    assert "800" in body  # computed change (4000 - 3200)
+    assert "Подтвердить и выдать сдачу" in body
+
+    # Confirming with the disposition now succeeds and hands back the change.
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/",
+        {
+            "amount": "4000",
+            "currency": "KGS",
+            "method": "cash",
+            "excess_disposition": "change",
+        },
+    )
+    assert resp.status_code == 302
+    assert resp.url == f"/pos/sale/{order_id}/result/"
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CONFIRMED
+    payment = order.payments.get()
+    assert payment.change_amount == Decimal("800.00")
+    assert payment.excess_disposition == Payment.DISPOSITION_CHANGE
+    assert order.payment_status == SaleOrder.PAID
+
+
+def test_debt_credit_fork_buttons_disabled_for_walkin(client, django_user_model, variant, settings):
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    manager = django_user_model.objects.create_user("mgr_walkin", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+
+    resp = client.post(f"/pos/sale/{order_id}/recalc/", {"amount": "4000", "currency": "KGS"})
+    body = resp.content.decode()
+    assert "В счёт долга" in body and "Аванс" in body
+    # Both fork buttons carrying "debt"/"credit" are disabled for a walk-in.
+    assert body.count("disabled") >= 2
+
+
+def test_client_credits_display_as_avans_on_client_page(
+    client, django_user_model, variant, settings
+):
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    call_command("setup_roles")
+    manager = django_user_model.objects.create_user("mgr_page", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+
+    cust = Client.objects.create(first_name="PageAvans", phone="+996700001014")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    record_payment(
+        order, Decimal("1200"), currency="KGS", excess_disposition=Payment.DISPOSITION_CREDIT
+    )
+
+    resp = client.get(f"/pos/clients/{cust.pk}/")
+    body = resp.content.decode()
+    assert "Аванс" in body
+    assert "200" in body
+
+
+def test_daily_report_change_and_rounding_columns_and_till_drift_total(variant, settings):
+    settings.CURRENCY = "KGS"
+    settings.CHANGE_ROUNDING_STEP = Decimal("1.00")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="ReportChg", phone="+996700001015")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("874.50"))
+    confirm_sale(order)
+    record_payment(
+        order, Decimal("1000"), currency="KGS", excess_disposition=Payment.DISPOSITION_CHANGE
+    )
+
+    rows = _sales_rows()
+    header = rows[0]
+    assert header[-2:] == ["Сдача", "Округление"]
+    data_row = rows[1]
+    assert data_row[-2] == "125.00"
+    assert data_row[-1] == "0.50"
+    summary_row = rows[-1]
+    assert "Округление за день" in summary_row[-1]
+    assert "0.50" in summary_row[-1]
+
+
+def test_balance_kgs_before_payment_matches_order_balance_after_confirm(variant, settings):
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Bal", phone="+996700001016")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    assert balance_kgs_before_payment(order) == Decimal("1000.00")
+    record_payment(order, Decimal("400"), currency="KGS")
+    assert balance_kgs_before_payment(order) == Decimal("600.00")
+
+
+def test_compute_change_preview_has_excess_flag_respects_tolerance(variant, settings):
+    settings.CURRENCY = "KGS"
+    settings.PAYMENT_ROUNDING_TOLERANCE = Decimal("1.00")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Tol", phone="+996700001017")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    # 1000.50 over a 1000 balance is within tolerance -> no excess/fork needed.
+    preview = compute_change_preview(
+        order, Decimal("1000.50"), "KGS", Decimal("1"), balance_kgs_before_payment(order)
+    )
+    assert preview["has_excess"] is False
+
+
+# ---------------------------------------------------------------------------
+# Part 1 — stock cannot go negative (cart-time cap + reservation)
+# ---------------------------------------------------------------------------
+
+
+def test_cart_cap_applies_across_all_lines_of_the_same_variant(client, django_user_model, variant):
+    """Adding the same variant twice (two separate POSTs) must not bypass the
+    cap — it's checked against the TOTAL already in the cart, not per add."""
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    editor = django_user_model.objects.create_user("cap1", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 7})
+    resp = client.post(
+        f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 7}
+    )
+    body = resp.content.decode()
+    assert "Доступно только" in body
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.items.count() == 1
+    assert order.items.first().quantity == 10  # capped at the 10 available, not 14
+
+
+def test_zero_available_tile_cannot_be_added_even_via_crafted_post(
+    client, django_user_model, variant
+):
+    call_command("setup_roles")
+    # No stock movement at all — 0 available.
+    editor = django_user_model.objects.create_user("cap2", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    resp = client.post(
+        f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1}
+    )
+    assert (
+        "уже полностью в корзине" in resp.content.decode()
+        or "Доступно только" in resp.content.decode()
+    )
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.items.count() == 0
+
+
+def test_crafted_post_above_stock_is_clamped_not_saved_beyond_available(
+    client, django_user_model, variant
+):
+    """A crafted POST with qty far above stock is rejected — clamped to what's
+    truly available, never silently saved at face value. Client-side caps are
+    UX only; this is the server-side defence."""
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 15)
+    editor = django_user_model.objects.create_user("cap3", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    resp = client.post(
+        f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 999999}
+    )
+    assert resp.status_code == 200
+    assert "Доступно только 15" in resp.content.decode()
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.items.first().quantity == 15  # never the crafted 999999
+
+
+def test_reserved_stock_is_excluded_from_available_and_blocks_a_walkin_sale(variant, settings):
+    """Part 1b/3c: stock promised to an open production order must not be
+    sellable to a walk-in, even bypassing the cart-time cap entirely."""
+    from apps.inventory.services import available_for
+    from apps.orders.services import create_order
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="Reserver", phone="+996700002101")
+    create_order(cust, [{"variant": variant, "quantity": 8, "unit_price": variant.sale_price}])
+    assert available_for(variant) == 2  # 10 on hand - 8 reserved
+
+    # A sale attempting to take more than what's left over the reservation
+    # must fail at confirm time, even if the cart itself somehow held it.
+    walkin = SaleOrder.objects.create()
+    SaleItem.objects.create(
+        order=walkin, variant=variant, quantity=3, unit_price=variant.sale_price
+    )
+    with pytest.raises(ValidationError):
+        confirm_sale(walkin)
+    variant.refresh_from_db()
+    assert variant.stock == 10  # nothing written off
+
+
+def test_product_grid_tile_shows_reserved_badge(client, django_user_model, variant, settings):
+    from apps.orders.services import create_order
+
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="Badge", phone="+996700002102")
+    create_order(cust, [{"variant": variant, "quantity": 3, "unit_price": variant.sale_price}])
+    editor = django_user_model.objects.create_user("cap4", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    resp = client.get(f"/pos/sale/{order_id}/products/")
+    body = resp.content.decode()
+    assert "7" in body  # 10 - 3 reserved = 7 available
+    assert "в заказах" in body
+
+
+# ---------------------------------------------------------------------------
+# Part 2 — money formatting + cart rail
+# ---------------------------------------------------------------------------
+
+
+def test_money_filter_groups_thousands_with_nbsp_and_drops_trailing_zero_cents():
+    from apps.pos.templatetags.pos_extras import money_filter
+
+    assert money_filter(Decimal("3800"), "KGS") == "3\xa0800\xa0сом"
+    assert money_filter(Decimal("3800.00"), "KGS") == "3\xa0800\xa0сом"
+    assert money_filter(Decimal("874.50"), "KGS") == "874,50\xa0сом"
+    assert money_filter(Decimal("-500"), "KGS") == "-500\xa0сом"
+
+
+def test_money_filter_uses_currency_symbol_not_code():
+    from apps.pos.templatetags.pos_extras import money_filter
+
+    assert money_filter(Decimal("100"), "USD") == "100\xa0$"
+    assert money_filter(Decimal("100"), "RUB") == "100\xa0₽"
+    assert "USD" not in money_filter(Decimal("100"), "USD")
+    assert "KGS" not in money_filter(Decimal("100"), "KGS")
+
+
+def test_sale_screen_renders_formatted_money_not_raw_currency_code(
+    client, django_user_model, variant
+):
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    editor = django_user_model.objects.create_user("fmt1", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    resp = client.post(
+        f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1}
+    )
+    body = resp.content.decode()
+    assert "3800,00 KGS" not in body
+    assert "3\xa0200\xa0сом" in body  # variant sells for 3200 KGS
+
+
+def test_cart_rail_keeps_confirm_button_and_money_bar_at_25_items(
+    client, django_user_model, settings
+):
+    """Server-side proxy for the layout requirement: with 25 lines in the
+    cart, the money bar and confirm button must still be present in the
+    response — CSS (tested manually/visually) keeps them pinned/visible
+    regardless of item count; this proves the markup itself never drops
+    them when the list grows long."""
+    settings.CURRENCY = "KGS"
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("rail1", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    cat = Category.objects.create(name="Rail")
+    order_resp = client.get("/pos/")
+    order_id = int(order_resp.url.rstrip("/").rsplit("/", 1)[-1])
+    for i in range(25):
+        p = Product.objects.create(category=cat, name=f"RailProduct{i}")
+        v = ProductVariant.objects.create(
+            product=p, sku=f"RAIL{i:03d}", cost_price=Decimal("1"), sale_price=Decimal("100")
+        )
+        add_movement(v, StockMovement.PRODUCTION_IN, 5)
+        resp = client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": v.pk, "quantity": 1})
+    body = resp.content.decode()
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.items.count() == 25
+    assert "Позиции · 25" in body
+    assert 'class="money-bar' in body
+    assert "Подтвердить продажу" in body
+    assert "items-scroll" in body
+
+
+# ---------------------------------------------------------------------------
+# Part 3 — Заказы (production orders)
+# ---------------------------------------------------------------------------
+
+
+def test_production_queue_need_is_ordered_minus_stock_never_negative_displayed(variant, settings):
+    from apps.orders.services import create_order, production_queue
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 3)
+    cust = Client.objects.create(first_name="Queue1", phone="+996700002201")
+    create_order(cust, [{"variant": variant, "quantity": 10, "unit_price": variant.sale_price}])
+
+    rows = production_queue()
+    row = next(r for r in rows if r["variant"].pk == variant.pk)
+    assert row["ordered"] == 10
+    assert row["in_stock"] == 3
+    assert row["to_produce"] == 7
+    assert row["covered"] is False
+
+    # Now stock covers demand — need clamps to 0, flagged covered, not hidden.
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    rows = production_queue()
+    row = next(r for r in rows if r["variant"].pk == variant.pk)
+    assert row["to_produce"] == 0
+    assert row["covered"] is True
+
+
+def test_queue_aggregates_the_same_variant_across_two_orders(variant, settings):
+    from apps.orders.services import create_order, production_queue
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 2)
+    c1 = Client.objects.create(first_name="QA", phone="+996700002202")
+    c2 = Client.objects.create(first_name="QB", phone="+996700002203")
+    create_order(c1, [{"variant": variant, "quantity": 4, "unit_price": variant.sale_price}])
+    create_order(c2, [{"variant": variant, "quantity": 6, "unit_price": variant.sale_price}])
+
+    rows = production_queue()
+    matching = [r for r in rows if r["variant"].pk == variant.pk]
+    assert len(matching) == 1  # aggregated into ONE row, not two
+    row = matching[0]
+    assert row["ordered"] == 10  # 4 + 6
+    assert row["to_produce"] == 8  # 10 - 2 in stock
+    assert row["orders_count"] == 2
+
+
+def test_mark_produced_creates_movement_and_raises_available(variant, django_user_model, settings):
+    from apps.inventory.services import available_for
+    from apps.orders.models import Order
+    from apps.orders.services import create_order, mark_produced
+
+    settings.CURRENCY = "KGS"
+    cust = Client.objects.create(first_name="Prod1", phone="+996700002204")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 5, "unit_price": variant.sale_price}]
+    )
+    item = order.items.get()
+    assert available_for(variant) == -5  # nothing on hand yet, 5 fully reserved
+
+    mark_produced(item, 2)
+    item.refresh_from_db()
+    assert item.produced_qty == 2
+    # Producing raises on_hand, but the reservation stays the FULL 5 (not
+    # reduced by produced_qty) — the produced units are still earmarked for
+    # this order, not sellable to a walk-in: available is unchanged.
+    assert available_for(variant) == -3  # 2 on hand - 5 reserved
+    assert variant.stock == 2  # PRODUCTION_IN movement written
+    order.refresh_from_db()
+    assert order.status == Order.IN_PRODUCTION
+
+    mark_produced(item, 3)
+    item.refresh_from_db()
+    order.refresh_from_db()
+    assert item.produced_qty == 5
+    assert order.status == Order.READY  # fully produced -> auto-advance
+    assert order.fully_produced is True
+
+
+def test_mark_produced_rejects_more_than_remaining(variant):
+    from apps.orders.services import create_order, mark_produced
+
+    cust = Client.objects.create(first_name="Prod2", phone="+996700002205")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 3, "unit_price": variant.sale_price}]
+    )
+    item = order.items.get()
+    with pytest.raises(ValidationError):
+        mark_produced(item, 4)
+    item.refresh_from_db()
+    assert item.produced_qty == 0
+
+
+def test_handover_deducts_stock_once_applies_deposit_and_links_order_and_sale(variant, settings):
+    from apps.orders.models import Order
+    from apps.orders.services import create_order, hand_over, mark_produced, record_deposit
+
+    settings.CURRENCY = "KGS"
+    cust = Client.objects.create(first_name="Handover1", phone="+996700002206")
+    order = create_order(cust, [{"variant": variant, "quantity": 4, "unit_price": Decimal("1000")}])
+    item = order.items.get()
+    mark_produced(item, 4)
+    variant.refresh_from_db()
+    assert variant.stock == 4
+
+    deposit = record_deposit(order, Decimal("1500"), currency="KGS")
+    assert deposit.production_order_id == order.pk
+    assert deposit.order_id is None  # not linked to a sale yet
+
+    sale_out_before = StockMovement.objects.filter(
+        movement_type=StockMovement.SALE_OUT, variant=variant
+    ).count()
+
+    sale = hand_over(order)
+
+    sale_out_after = StockMovement.objects.filter(
+        movement_type=StockMovement.SALE_OUT, variant=variant
+    ).count()
+    assert sale_out_after == sale_out_before + 1  # stock deducted EXACTLY once
+    variant.refresh_from_db()
+    assert variant.stock == 0
+
+    order.refresh_from_db()
+    assert order.status == Order.DELIVERED
+    assert order.sale_order_id == sale.pk
+    assert sale.production_order.pk == order.pk  # linked both ways
+
+    deposit.refresh_from_db()
+    assert deposit.order_id == sale.pk  # deposit carried over
+    assert sale.paid_amount == Decimal("1500.00")
+    assert sale.balance == Decimal("2500.00")  # 4000 total - 1500 deposit
+
+
+def test_handover_rejects_an_order_with_no_items(variant):
+    from apps.orders.services import hand_over
+    from apps.orders.models import Order
+
+    cust = Client.objects.create(first_name="Empty", phone="+996700002207")
+    order = Order.objects.create(client=cust)
+    with pytest.raises(ValidationError):
+        hand_over(order)
+
+
+def test_cancel_order_releases_its_reservation(variant, settings):
+    from apps.inventory.services import available_for
+    from apps.orders.services import cancel_order, create_order
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Cancel1", phone="+996700002208")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 5, "unit_price": variant.sale_price}]
+    )
+    assert available_for(variant) == 0
+
+    cancel_order(order)
+    assert available_for(variant) == 5  # reservation released
+    order.refresh_from_db()
+    from apps.orders.models import Order
+
+    assert order.status == Order.CANCELLED
+
+
+def test_overdue_detection_respects_bishkek_local_date_not_utc(monkeypatch):
+    from datetime import date
+
+    from apps.orders.models import Order
+
+    cust = Client.objects.create(first_name="OverdueTZ", phone="+996700002209")
+    order = Order.objects.create(client=cust, due_date=date(2026, 7, 17))
+    with timezone.override("Asia/Bishkek"):
+        # 00:30 Bishkek on the 17th == 18:30 UTC on the 16th — the LOCAL date
+        # is already the due date, not yet overdue.
+        _freeze_now(monkeypatch, 2026, 7, 16, 18, 30)
+        assert order.is_overdue is False
+        # 00:30 Bishkek on the 18th == 18:30 UTC on the 17th — a UTC-based
+        # check would still read the 17th (not overdue); the correct local
+        # date is the 18th, one day past due.
+        _freeze_now(monkeypatch, 2026, 7, 17, 18, 30)
+        assert order.is_overdue is True
+
+
+def test_deposit_reuses_the_frozen_rate_mechanism_no_second_conversion_path(variant, settings):
+    settings.CURRENCY = "KGS"
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    from apps.orders.services import create_order, record_deposit
+
+    cust = Client.objects.create(first_name="DepositFx", phone="+996700002210")
+    order = create_order(cust, [{"variant": variant, "quantity": 1, "unit_price": Decimal("1000")}])
+    deposit = record_deposit(order, Decimal("10"), currency="USD")
+    assert deposit.rate_to_kgs == Decimal("87.000000")
+    assert deposit.amount_kgs == Decimal("870.00")
+
+    # Changing the rate afterward never alters the stored deposit — same
+    # invariant as every other frozen-rate payment in the system.
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("150.00"))
+    deposit.refresh_from_db()
+    assert deposit.rate_to_kgs == Decimal("87.000000")
+
+
+def test_owner_only_can_cancel_order_via_admin(django_user_model):
+    from django.contrib.admin.sites import site
+
+    from apps.orders.models import Order
+
+    cust = Client.objects.create(first_name="AdminCancel", phone="+996700002211")
+    order = Order.objects.create(client=cust)
+    model_admin = site._registry[Order]
+    request = RequestFactory().post("/")
+    manager = django_user_model.objects.create_user("mgr_cancel", password="x" * 12, is_staff=True)
+    request.user = manager
+
+    from django.contrib.messages.storage.fallback import FallbackStorage
+
+    setattr(request, "session", {})
+    messages_storage = FallbackStorage(request)
+    setattr(request, "_messages", messages_storage)
+
+    model_admin.cancel_selected(request, Order.objects.filter(pk=order.pk))
+    order.refresh_from_db()
+    assert order.status == Order.NEW  # unchanged — Editor can't cancel
+
+    owner = django_user_model.objects.create_superuser("owner_cancel", "o@e.com", "x" * 12)
+    request.user = owner
+    model_admin.cancel_selected(request, Order.objects.filter(pk=order.pk))
+    order.refresh_from_db()
+    assert order.status == Order.CANCELLED
+
+
+def test_done_when_scenario_order_deposit_queue_produce_handover(
+    client, django_user_model, variant, settings
+):
+    """DONE WHEN: create an order for unproduced goods, take a deposit in any
+    currency, see it in the queue, mark produced, hand over as a normal sale
+    that deducts stock exactly once."""
+    settings.CURRENCY = "KGS"
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    call_command("setup_roles")
+    manager = django_user_model.objects.create_user("done_mgr", password="x" * 12, is_staff=True)
+    manager.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(manager)
+    assert variant.stock == 0  # nothing produced yet — the whole point
+
+    cust = Client.objects.create(first_name="DoneWhen", phone="+996700002212")
+    # Order creation is POST-only (a cross-site GET must not be able to spin up
+    # orders) — the client-picker row is a CSRF-protected form.
+    resp = client.post("/orders/new/", {"client": cust.pk})
+    assert resp.status_code == 302
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+
+    # No cap on ordering unproduced goods.
+    resp = client.post(f"/orders/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 5})
+    assert resp.status_code == 302
+
+    # Deposit in a foreign currency.
+    client.post(
+        f"/orders/{order_id}/deposit/", {"amount": "20", "currency": "USD", "method": "cash"}
+    )
+
+    from apps.orders.models import Order
+
+    order = Order.objects.get(pk=order_id)
+    assert order.deposits.count() == 1
+
+    # Shows up in the aggregated queue.
+    resp = client.get("/orders/queue/")
+    body = resp.content.decode()
+    assert "к производству" in body
+
+    # Mark produced.
+    item = order.items.get()
+    client.post(f"/orders/{order_id}/items/{item.pk}/produce/", {"quantity": 5})
+    variant.refresh_from_db()
+    assert variant.stock == 5
+
+    # Hand over -> a normal confirmed sale, stock deducted exactly once.
+    resp = client.post(f"/orders/{order_id}/deliver/")
+    assert resp.status_code == 302
+    variant.refresh_from_db()
+    assert variant.stock == 0
+    order.refresh_from_db()
+    assert order.status == Order.DELIVERED
+    assert order.sale_order is not None
+    assert order.sale_order.status == SaleOrder.CONFIRMED

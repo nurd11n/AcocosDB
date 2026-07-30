@@ -19,7 +19,7 @@
    <p class="login-sub">{% trans "Sign in to continue" %}</p>
    {% if form.non_field_errors or form.errors %}
     {# One message for every failure — never reveal which factor was wrong. #}
-    <div class="login-error" role="alert">{% trans "Неверный логин, пароль или код." %}</div>
+    <div class="login-error" role="alert">{% trans "Неверный логин или пароль." %}</div>
    {% endif %}
    <form method="post" novalidate>
     {% csrf_token %}
@@ -31,14 +31,6 @@
      <label for="{{ form.password.id_for_label }}">{% trans "Password" %}</label>
      {{ form.password }}
     </div>
-    {% if form.otp_token %}
-    <div class="login-field login-otp">
-     <label for="{{ form.otp_token.id_for_label }}">{% trans "Authentication code" %}</label>
-     {{ form.otp_token }}
-     {{ form.otp_device }}
-     {{ form.otp_challenge }}
-    </div>
-    {% endif %}
     {# `next` is already validated by LoginView.get_redirect_url (open-redirect guard). #}
     <input type="hidden" name="next" value="{{ next }}">
     <button type="submit" class="btn btn-primary" style="margin-top:var(--space-4)">{% trans "Log in" %}</button>

@@ -1,9 +1,12 @@
-from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
 
 
 @override_settings(AXES_ENABLED=False)
 class LoginPageTests(TestCase):
+    """Plain username + password login (2FA was removed). A correct login
+    completes in one POST and lands on /pos/."""
+
     def test_get_renders_split_layout(self):
         r = self.client.get("/login/")
         self.assertEqual(r.status_code, 200)
@@ -11,44 +14,43 @@ class LoginPageTests(TestCase):
         self.assertIn("login-photo", html)
         self.assertIn("login-wordmark", html)
         self.assertIn('name="next"', html)
+        # No second-factor field on the page.
+        self.assertNotIn('name="code"', html)
+        self.assertNotIn('name="otp_token"', html)
 
     def test_unknown_user_generic_message(self):
         r = self.client.post("/login/", {"username": "nobody", "password": "x", "next": ""})
         html = r.content.decode()
-        self.assertIn("Неверный логин, пароль или код.", html)
+        self.assertIn("Неверный логин или пароль.", html)
         self.assertNotIn("Please enter a correct", html)
 
-    def test_wrong_password_same_message(self):
+    def test_wrong_password_same_generic_message(self):
         get_user_model().objects.create_user("alice", password="rightpass123")
         r = self.client.post("/login/", {"username": "alice", "password": "WRONG", "next": ""})
-        html = r.content.decode()
-        self.assertIn("Неверный логин, пароль или код.", html)
+        self.assertIn("Неверный логин или пароль.", r.content.decode())
+
+    def test_correct_credentials_log_in_and_reach_pos(self):
+        get_user_model().objects.create_user("carol", password="rightpass123")
+        r = self.client.post(
+            "/login/", {"username": "carol", "password": "rightpass123", "next": ""}
+        )
+        self.assertRedirects(r, "/pos/", fetch_redirect_response=False)
+        # Session is fully authenticated on a subsequent request — no code step.
+        self.assertEqual(self.client.get("/pos/today/").status_code, 200)
 
     def test_open_redirect_blocked(self):
         get_user_model().objects.create_user("bob", password="rightpass123")
-        r = self.client.post("/login/", {"username": "bob", "password": "rightpass123", "next": "//evil.com/x"})
+        r = self.client.post(
+            "/login/", {"username": "bob", "password": "rightpass123", "next": "//evil.com/x"}
+        )
         self.assertEqual(r.status_code, 302)
         self.assertNotIn("evil.com", r["Location"])
         self.assertEqual(r["Location"], "/pos/")
 
-
-@override_settings(AXES_ENABLED=False, OTP_ENABLED=True)
-class LoginOTPTests(TestCase):
-    def test_correct_password_wrong_code_same_generic_message(self):
-        from django_otp.plugins.otp_totp.models import TOTPDevice
-
-        user = get_user_model().objects.create_user("carol", password="rightpass123")
-        TOTPDevice.objects.create(user=user, name="phone", confirmed=True)
-        r = self.client.post(
-            "/login/",
-            {"username": "carol", "password": "rightpass123", "otp_token": "000000", "next": ""},
-        )
-        html = r.content.decode()
-        # Must NOT reveal that the password was correct / that only the code failed:
-        # the same single message as an unknown-user attempt, no token-specific error.
-        self.assertIn("Неверный логин, пароль или код.", html)
-        for leak in ("invalid token", "неверный код", "код неверен", "enter a token"):
-            self.assertNotIn(leak, html.lower())
+    def test_anonymous_hit_on_pos_redirects_to_login(self):
+        r = self.client.get("/pos/")
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("/login/", r["Location"])
 
 
 @override_settings(AXES_ENABLED=False)
@@ -59,9 +61,3 @@ class LoginResilienceTests(TestCase):
         with self.assertNumQueries(0):
             r = self.client.get("/login/")
         self.assertEqual(r.status_code, 200)
-
-    def test_totp_field_has_one_time_code_attrs(self):
-        with override_settings(OTP_ENABLED=True):
-            html = self.client.get("/login/").content.decode()
-        self.assertIn('autocomplete="one-time-code"', html)
-        self.assertIn('inputmode="numeric"', html)

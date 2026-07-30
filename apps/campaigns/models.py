@@ -43,6 +43,16 @@ class Campaign(models.Model):
         blank=True,
         help_text=_("Leave empty to ignore. E.g. 60 = haven't purchased in 60 days."),
     )
+    # The highest-converting segment by far (CLIENT_BOTS.md §5.1): clients who
+    # favourited a variant of THIS product on a client bot.
+    only_favourited_product = models.ForeignKey(
+        "inventory.Product",
+        verbose_name=_("only clients who favourited this product"),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

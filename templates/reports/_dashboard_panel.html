@@ -82,6 +82,57 @@ Revenue, profit and units are for the selected period; debt is a running balance
  </div>
 </div>
 
+{% comment %}Заказы panels (CLAUDE.md Part 3g) — always сом, not the view-currency toggle.{% endcomment %}
+<div class="panels">
+ <div class="panel">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-orders"/></svg>{% trans "Заказы в работе" %}</h2>
+  <p class="panel__caption">{{ orders_open.count }} {% trans "заказ(ов)" %} · {{ orders_open.value|money:"сом" }}</p>
+  <a class="top__link" href="{% url 'orders:index' %}"><svg class="ic"><use href="#i-orders"/></svg>{% trans "Открыть заказы" %}</a>
+ </div>
+ <div class="panel">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-orders"/></svg>{% trans "К производству" %}</h2>
+  {% if queue_top %}
+  <div class="bars">
+   {% for row in queue_top %}
+   <div class="bar__row">
+    <span class="bar__label">{{ row.variant }}</span>
+    <span class="bar__amt">{{ row.to_produce }} {% trans "шт" %}</span>
+   </div>
+   {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">{% trans "Всё произведено." %}</p>
+  {% endif %}
+  <a class="top__link" href="{% url 'orders:queue' %}"><svg class="ic"><use href="#i-orders"/></svg>{% trans "Вся очередь" %}</a>
+ </div>
+</div>
+
+{% comment %}CLIENT_BOTS.md §1 — "the one metric that governs everything": every broadcast is worthless below a real audience. Bots aren't production-ready yet — hidden entirely while both channels are off, same as the Входящие nav item these panels link to.{% endcomment %}
+{% if BOTS_ENABLED or WHATSAPP_ENABLED %}
+<div class="panels">
+ <div class="panel">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-inbox"/></svg>{% trans "Охват в Telegram" %}</h2>
+  <p class="panel__caption">{% trans "Доступно в Telegram" %}: {{ telegram_reach.reachable }} {% trans "из" %} {{ telegram_reach.total }} {% trans "клиентов" %}</p>
+  <a class="top__link" href="{% url 'inbox:index' %}"><svg class="ic"><use href="#i-inbox"/></svg>{% trans "Входящие" %}</a>
+ </div>
+ <div class="panel">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-inbox"/></svg>{% trans "Чаще всего в избранном" %}</h2>
+  {% if top_favourited %}
+  <div class="bars">
+   {% for row in top_favourited %}
+   <div class="bar__row">
+    <span class="bar__label">{{ row.variant }}</span>
+    <span class="bar__amt">{{ row.count }}</span>
+   </div>
+   {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">{% trans "Пока пусто." %}</p>
+  {% endif %}
+ </div>
+</div>
+{% endif %}
+
 {% comment %}Revenue calendar: heat-map day cells; click a day for its detail.{% endcomment %}
 <div class="panel panel--full">
  <h2 class="panel__title"><svg class="ic"><use href="#i-calendar"/></svg>{% trans "Выручка по дням" %}</h2>

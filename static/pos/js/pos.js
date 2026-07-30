@@ -22,6 +22,14 @@
 
   // --- Delegated click handlers (replace former inline onclick=) ---
   document.addEventListener("click", function (event) {
+    // Click the variant-picker backdrop (the overlay itself, not the dialog
+    // card inside it) to dismiss — standard modal behaviour.
+    var picker = document.getElementById("variant-picker");
+    if (picker && event.target === picker) {
+      picker.innerHTML = "";
+      return;
+    }
+
     var el = event.target.closest("[data-print],[data-clear-target],[data-pay-amount]");
     if (!el) return;
 
@@ -41,6 +49,37 @@
         if (window.htmx) window.htmx.trigger(input, "change");
       }
     }
+  });
+
+  // --- Variant picker: quantity clamps to the selected variant's available
+  // stock (Part 1a). Client-side only for instant feedback — the server
+  // clamps and re-explains regardless, since this is UX, not the defence. ---
+  function clampPickerQty() {
+    var variantSelect = document.getElementById("variant-select");
+    var qtyInput = document.getElementById("picker-qty");
+    var qtyNote = document.getElementById("picker-qty-note");
+    if (!variantSelect || !qtyInput) return;
+    var opt = variantSelect.options[variantSelect.selectedIndex];
+    var max = opt ? parseInt(opt.getAttribute("data-max"), 10) || 0 : 0;
+    qtyInput.max = String(max);
+    var value = parseInt(qtyInput.value, 10) || 0;
+    if (value > max) {
+      qtyInput.value = String(max);
+      if (qtyNote) {
+        qtyNote.textContent = "Доступно только " + max + " шт.";
+        qtyNote.hidden = false;
+      }
+    } else if (qtyNote) {
+      qtyNote.hidden = true;
+    }
+  }
+  document.addEventListener("change", function (event) {
+    if (event.target.id === "variant-select" || event.target.id === "picker-qty") {
+      clampPickerQty();
+    }
+  });
+  document.addEventListener("input", function (event) {
+    if (event.target.id === "picker-qty") clampPickerQty();
   });
 
   // --- Desktop keyboard ---

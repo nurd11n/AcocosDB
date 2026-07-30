@@ -1,5 +1,5 @@
 {% extends "pos/base.html" %}
-{% load i18n %}
+{% load i18n pos_extras %}
 {% block title %}{{ client.name }}{% endblock %}
 {% block content %}
 <div class="card">
@@ -9,10 +9,15 @@
   <span class="hint">{% trans "Долг" %}</span><br>
   {% if debts %}
     {% for cur, amt in debts.items %}
-      <span class="{% if amt > 0 %}badge badge--debt{% else %}badge badge--paid{% endif %}">{{ amt }} {{ cur }}</span>
+      <span class="badge badge--debt">{{ amt|money:cur }}</span>
     {% endfor %}
-  {% else %}
+  {% elif not credits %}
     <span class="badge badge--paid">0</span>
+  {% endif %}
+  {% if credits %}
+    {% for cur, amt in credits.items %}
+      <span class="badge badge--paid">{% trans "Аванс" %} {{ amt|money:cur }}</span>
+    {% endfor %}
   {% endif %}
  </p>
  {% if client.note %}<p class="muted">{{ client.note }}</p>{% endif %}
@@ -27,12 +32,29 @@
  {% for o in orders %}
  <div class="line-row">
    <div class="line-row__label"><a href="{% url 'pos:sale_result' o.pk %}">{{ o.confirmed_at|date:"d.m.Y H:i" }}</a></div>
-   <div class="line-row__total num">{{ o.total }} {{ o.currency }}</div>
+   <div class="line-row__total num">{{ o.total|money:o.currency }}</div>
  </div>
  {% empty %}
  <p class="muted">{% trans "Покупок пока нет" %}</p>
  {% endfor %}
 </div>
+
+{% if payments %}
+<div class="card">
+ <h2>{% trans "Платежи" %}</h2>
+ {% for p in payments %}
+ <div class="line-row">
+   <div class="line-row__label">
+     {% if p.order_id %}<a href="{% url 'pos:sale_result' p.order_id %}">{{ p.created_at|date:"d.m.Y H:i" }}</a>{% else %}{{ p.created_at|date:"d.m.Y H:i" }}{% endif %}
+     {% if p.amount < 0 %} <span class="muted">({% trans "возврат" %})</span>{% endif %}
+     {% with conv=p|payment_conversion %}{% if conv %}<br><span class="muted num">{{ conv }}</span>{% endif %}{% endwith %}
+     {% with chg=p|payment_change_display %}{% if chg %}<br><span class="muted num">{{ chg }}</span>{% endif %}{% endwith %}
+   </div>
+   <div class="line-row__total num">{{ p.amount|money:p.currency }}</div>
+ </div>
+ {% endfor %}
+</div>
+{% endif %}
 
 <div class="card">
  <h2>{% trans "Взаимодействия" %}</h2>

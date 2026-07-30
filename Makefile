@@ -1,4 +1,4 @@
-.PHONY: dev prod migrate makemigrations test lint bot backup restore superuser roles report rates campaign logs
+.PHONY: dev prod migrate makemigrations test lint bot backup restore superuser roles report rates campaign logs composecheck import
 
 dev:  ## web + db with hot reload
 	docker compose up --build
@@ -21,6 +21,12 @@ roles:
 test:
 	pytest -x
 	$(MAKE) checkdeploy
+	$(MAKE) composecheck
+
+composecheck:  ## both compose files must independently be valid before a deploy
+	docker compose -f docker-compose.yml config >/dev/null
+	docker compose -f docker-compose.prod.yml config >/dev/null
+	@echo "docker compose config: both files OK"
 
 checkdeploy:  ## run Django's deployment security checklist against prod settings
 	DJANGO_SETTINGS_MODULE=config.settings.prod \
@@ -44,6 +50,10 @@ rates:  ## fetch today's FX rates from NBKR
 
 campaign:  ## send a campaign — make campaign ID=3 (add DRY=1 to preview only)
 	docker compose run --rm web python manage.py send_campaign $(ID) $(if $(DRY),--dry-run,)
+
+import:  ## import the catalog — make import FILE=catalog.xlsx (add DRY=1 to preview only)
+	test -n "$(FILE)"
+	docker compose run --rm web python manage.py import_catalog $(FILE) $(if $(DRY),--dry-run,)
 
 backup:  ## manual pg_dump into ./backups
 	docker compose exec db sh -c 'pg_dump -Fc -U $$POSTGRES_USER $$POSTGRES_DB' \

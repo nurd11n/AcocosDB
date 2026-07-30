@@ -1,5 +1,5 @@
 {% extends "pos/base.html" %}
-{% load i18n %}
+{% load i18n pos_extras %}
 {% block title %}{% trans "Возврат" %} №{{ order.pk }}{% endblock %}
 {% block content %}
 <div class="card">
@@ -11,7 +11,7 @@
   <div class="line-row">
     <div class="line-row__label">
       {{ item.variant }}<br>
-      <span class="muted">{% trans "продано" %}: {{ item.quantity }} {% trans "шт" %} × {{ item.unit_price }} {{ order.currency }}</span>
+      <span class="muted">{% trans "продано" %}: {{ item.quantity }} {% trans "шт" %} × {{ item.unit_price|money:order.currency }}</span>
     </div>
     <input type="number" name="return_{{ item.pk }}" value="0" min="0" max="{{ item.quantity }}"
       inputmode="numeric" style="max-width:80px" aria-label="{% trans "К возврату" %}">

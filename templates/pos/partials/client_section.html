@@ -12,7 +12,7 @@
        <span class="hint">{% trans "Долг" %}</span><br>
        {% if debts %}
          {% for cur, amt in debts.items %}
-           <span class="{% if amt > 0 %}badge badge--debt{% else %}muted{% endif %}">{{ amt }} {{ cur }}</span>{% if not forloop.last %}<br>{% endif %}
+           <span class="{% if amt > 0 %}badge badge--debt{% else %}muted{% endif %}">{{ amt|money:cur }}</span>{% if not forloop.last %}<br>{% endif %}
          {% endfor %}
        {% else %}
          <span class="badge badge--paid">0</span>

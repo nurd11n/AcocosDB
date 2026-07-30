@@ -1,0 +1,15 @@
+{% load i18n %}
+{% for c in clients %}
+<form method="post" action="{% url 'orders:create' %}">
+  {% csrf_token %}
+  <input type="hidden" name="client" value="{{ c.pk }}">
+  <button type="submit" class="client-row client-row--btn">
+    <span class="client-row__main">
+      <span class="client-row__name">{{ c.name }}</span>
+      <span class="client-row__phone">{{ c.phone }}</span>
+    </span>
+  </button>
+</form>
+{% empty %}
+<p class="muted">{% trans "Ничего не найдено" %}</p>
+{% endfor %}

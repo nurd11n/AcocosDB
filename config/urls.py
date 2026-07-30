@@ -9,15 +9,11 @@ from apps.core.errors import healthz
 from apps.core.views import report_download, root_redirect, set_theme, stats_view
 from apps.reports.views import dashboard, dashboard_export, storage_export, storage_view
 
-if settings.OTP_ENABLED:
-    from django_otp.admin import OTPAdminSite
 
-    class _AdminSite(RedirectToSharedLoginMixin, OTPAdminSite):
-        pass
-else:
-
-    class _AdminSite(RedirectToSharedLoginMixin, admin.AdminSite):
-        pass
+# /panel/ shares the one /login/ page — the mixin redirects unauthenticated or
+# unauthorized admin hits there instead of Django's separate admin login form.
+class _AdminSite(RedirectToSharedLoginMixin, admin.AdminSite):
+    pass
 
 
 admin.site.__class__ = _AdminSite
@@ -28,6 +24,8 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("theme/", set_theme, name="set-theme"),
     path("pos/", include("apps.pos.urls")),
+    path("orders/", include("apps.orders.urls")),
+    path("inbox/", include("apps.inbox.urls")),
     path("notes/", include("apps.notes.urls")),
     path("wa/", include("apps.wa.urls")),
     path("i18n/", include("django.conf.urls.i18n")),

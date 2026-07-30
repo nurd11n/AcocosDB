@@ -1,8 +1,4 @@
-from decimal import Decimal
-
 from django.contrib import admin
-from django.db.models import DecimalField, F, Q, Sum, Value
-from django.db.models.functions import Coalesce
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
@@ -49,18 +45,14 @@ class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
             return "—"
         from apps.sales.models import SaleOrder
 
-        orders = (
-            SaleOrder.objects.filter(client=obj, status=SaleOrder.CONFIRMED)
-            .annotate(
-                paid=Coalesce(
-                    Sum("payments__amount", filter=Q(payments__currency=F("currency"))),
-                    Value(Decimal("0")),
-                    output_field=DecimalField(max_digits=14, decimal_places=2),
-                )
-            )
-            .order_by("-confirmed_at")
+        orders = SaleOrder.objects.filter(client=obj, status=SaleOrder.CONFIRMED).order_by(
+            "-confirmed_at"
         )
-        rows = [(o, o.total - o.paid) for o in orders if o.total - o.paid > 0]
+        # o.balance already converts every payment into the order's own
+        # currency at its frozen rate (see SaleOrder.paid_amount) and applies
+        # the rounding tolerance — a same-currency-only sum would wrongly
+        # list an order as unpaid when it was settled by a foreign payment.
+        rows = [(o, o.balance) for o in orders if o.balance > 0]
         if not rows:
             return _("None — all settled.")
         body = format_html_join(

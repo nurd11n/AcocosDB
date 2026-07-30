@@ -41,7 +41,12 @@ def set_theme(request):
     response = redirect(next_url)
     if value in ("light", "dark"):
         response.set_cookie(
-            "theme", value, max_age=THEME_COOKIE_MAX_AGE, samesite="Lax", httponly=True
+            "theme",
+            value,
+            max_age=THEME_COOKIE_MAX_AGE,
+            samesite="Lax",
+            httponly=True,
+            secure=request.is_secure(),  # HTTPS-only in prod, still works over dev HTTP
         )
     else:
         response.delete_cookie("theme")

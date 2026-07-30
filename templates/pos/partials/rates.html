@@ -1,0 +1,14 @@
+{% load i18n %}
+<div id="rates-strip" class="rates-strip">
+ {% for r in rates %}
+ <span class="rates-strip__item num">
+   1 {{ r.symbol }} = {{ r.rate|floatformat:2 }} {{ r.base_symbol }}
+   <span class="badge badge--{{ r.age_class }} rates-strip__age">
+     {% if r.source == "manual" %}{% trans "вручную" %}{% else %}{% trans "НБКР" %}{% endif %}
+     {{ r.date|date:"d.m.Y" }}{% if r.stale %} · {% trans "Курс устарел" %}{% endif %}
+   </span>
+ </span>
+ {% empty %}
+ <span class="hint">{% trans "Курс не загружен — нажмите «Обновить»." %}</span>
+ {% endfor %}
+</div>

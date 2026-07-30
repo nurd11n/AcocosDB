@@ -2,16 +2,16 @@
 {% load i18n %}
 {% block title %}{% trans "Новая продажа" %}{% endblock %}
 {% block content %}
-{% if rates %}
 <div class="card">
  <h2><svg class="ic"><use href="#i-payments"/></svg>{% trans "Курс" %}</h2>
- <div class="rates-strip">
-  {% for r in rates %}
-  <span class="rates-strip__item num">1 {{ r.symbol }} = {{ r.rate|floatformat:2 }} {{ r.base_symbol }}</span>
-  {% endfor %}
+ <div class="rates-row">
+  {% include "pos/partials/rates.html" %}
+  <button type="button" class="rates-refresh" hx-post="{% url 'pos:refresh_rates' %}"
+    hx-target="#rates-strip" hx-swap="outerHTML"
+    aria-label="{% trans 'Обновить курс НБКР' %}" title="{% trans 'Обновить курс НБКР' %}">
+    <svg class="ic"><use href="#i-refresh"/></svg></button>
  </div>
 </div>
-{% endif %}
 <div id="client-section">
   {% include "pos/partials/client_section.html" %}
 </div>

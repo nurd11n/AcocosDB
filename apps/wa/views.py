@@ -3,13 +3,20 @@
 GET  /wa/webhook/  -> verification handshake (hub.challenge)
 POST /wa/webhook/  -> receive messages, log them, auto-link/create the Client by
     phone (CRM-linking rule — this is what makes the bot a CRM channel, not just a
-    stock lookup tool), and answer with the shared bilingual reply layer. Replies
-    are sent only if WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID are configured.
+    stock lookup tool), and answer with the CLIENT-SAFE reply layer
+    (client_replies.build_client_reply — never apps.wa.replies.build_reply, which
+    wraps staff-only aggregates and is used ONLY by the internal, allowlisted
+    Telegram staff bot). Replies are skipped while the client is in human handoff
+    (see apps.clients.services.is_handed_off) and sent only if WHATSAPP_TOKEN and
+    WHATSAPP_PHONE_NUMBER_ID are configured.
 
 Unlike the Telegram bot (internal, staff-only, allowlisted), WhatsApp is the
 customer-facing channel: any inbound number gets a reply and becomes a Client.
 The signature check below verifies the request really came from Meta — it isn't
 an allowlist of who may message the business.
+
+WHATSAPP_ENABLED=False (the shipped prod default) makes this whole route 404,
+checked before anything else — GET verification included.
 """
 
 import hashlib
@@ -17,16 +24,21 @@ import hmac
 import json
 import logging
 
-import requests
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
+from django.http import HttpResponse, HttpResponseForbidden, HttpResponseNotFound, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from apps.clients.services import log_whatsapp_interaction
+from apps.clients.services import (
+    is_handed_off,
+    log_whatsapp_interaction,
+    recent_message_burst,
+    start_handoff,
+)
 from apps.core.models import BotMessage
 
-from .replies import build_reply
+from .client_replies import build_client_reply
+from .services import send_whatsapp_text
 
 logger = logging.getLogger(__name__)
 
@@ -64,25 +76,6 @@ def _rate_limited(ip: str) -> bool:
     return False
 
 
-def _send_text(to: str, body: str) -> None:
-    if not (settings.WHATSAPP_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID):
-        logger.info("WhatsApp reply skipped (credentials not configured): %s", body)
-        return
-    url = f"https://graph.facebook.com/v20.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
-    try:
-        requests.post(
-            url,
-            headers={"Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"},
-            json={"messaging_product": "whatsapp", "to": to, "text": {"body": body}},
-            timeout=10,
-        )
-        BotMessage.objects.create(
-            channel=BotMessage.WHATSAPP, external_id=to, direction=BotMessage.OUT, text=body
-        )
-    except requests.RequestException:
-        logger.exception("Failed to send WhatsApp message")
-
-
 def _valid_signature(request) -> bool:
     """Verify Meta's X-Hub-Signature-256 HMAC. Fail closed when the secret is unset."""
     if not settings.WHATSAPP_APP_SECRET:
@@ -97,6 +90,12 @@ def _valid_signature(request) -> bool:
 
 @csrf_exempt
 def webhook(request):
+    # WhatsApp is not production-ready yet (see .env.example's Feature flags
+    # section) — a flat 404 regardless of method/credentials means there's no
+    # reachable code path here at all while off, not just a disabled reply.
+    if not settings.WHATSAPP_ENABLED:
+        return HttpResponseNotFound()
+
     if request.method == "GET":
         if (
             settings.WHATSAPP_VERIFY_TOKEN
@@ -126,11 +125,25 @@ def webhook(request):
     if message and message.get("type") == "text":
         wa_id = message["from"]
         text = message["text"]["body"].strip()
+        client = log_whatsapp_interaction(wa_id, text)
         BotMessage.objects.create(
-            channel=BotMessage.WHATSAPP, external_id=wa_id, direction=BotMessage.IN, text=text
+            channel=BotMessage.WHATSAPP,
+            external_id=wa_id,
+            direction=BotMessage.IN,
+            text=text,
+            client=client,
         )
-        log_whatsapp_interaction(wa_id, text)
-        _send_text(wa_id, build_reply(text))
+
+        # A burst of messages reads as "I need a human", same as the
+        # «менеджер» keyword — check BEFORE deciding whether to auto-reply
+        # this turn (CLIENT_BOTS.md §4: Phase 4 handoff rules apply here).
+        if recent_message_burst(client):
+            start_handoff(client)
+
+        if not is_handed_off(client):
+            reply_text = build_client_reply(client, text)
+            if reply_text:
+                send_whatsapp_text(wa_id, reply_text, client=client)
 
     # Always 200 — Meta retries aggressively on anything else.
     return JsonResponse({"status": "ok"})

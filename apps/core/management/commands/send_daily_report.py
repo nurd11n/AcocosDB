@@ -38,6 +38,10 @@ _PAYMENT_STATUS_RU = {
     SaleOrder.PARTIAL: "частично",
     SaleOrder.PAID: "оплачено",
 }
+_RATE_SOURCE_RU = {
+    Payment.RATE_NBKR: "НБКР",
+    Payment.RATE_MANUAL: "вручную",
+}
 
 
 def _sales_rows() -> list[list]:
@@ -55,6 +59,11 @@ def _sales_rows() -> list[list]:
             "Оплачено",
             "Остаток",
             "Статус оплаты",
+            "Валюта оплаты",
+            "Курс",
+            "Источник курса",
+            "Сдача",
+            "Округление",
         ]
     ]
     today = timezone.localdate()
@@ -62,15 +71,46 @@ def _sales_rows() -> list[list]:
     orders_count = len(orders)
     revenue_base = Decimal("0")
     collected_base = Decimal("0")
+    rounding_total = Decimal("0")
     for order in orders:
         items = list(order.items.all())
-        paid = sum(
-            (p.amount for p in order.payments.all() if p.currency == order.currency), Decimal("0")
-        )
-        balance = max(order.total - paid, Decimal("0"))
+        # paid_amount already converts every payment into the order's OWN
+        # currency at the rate frozen on it (see SaleOrder.paid_amount) — a
+        # foreign payment must count here exactly as it does in the POS and
+        # the client's debt, never a same-currency-only sum.
+        paid = order.paid_amount
+        balance = order.balance  # todays_confirmed_orders() is always CONFIRMED
         status = _PAYMENT_STATUS_RU[SaleOrder.payment_status_for(order.total, paid)]
         total_base = order.total_kgs  # frozen at confirm — never re-converted
         paid_base = to_base(paid, order.currency, today)
+
+        payments = list(order.payments.all())
+        currencies_used = "; ".join(sorted({p.currency for p in payments})) or "—"
+        rates_used = (
+            "; ".join(
+                sorted({f"{p.rate_to_kgs:.4f}" for p in payments if p.currency != order.currency})
+            )
+            or "—"
+        )
+        sources_used = (
+            "; ".join(
+                sorted(
+                    {
+                        _RATE_SOURCE_RU[p.rate_source]
+                        for p in payments
+                        if p.currency != order.currency
+                    }
+                )
+            )
+            or "—"
+        )
+        # Gross/change/net together (CLAUDE.md): change and its rounding
+        # residue, summed across this order's payments, in сом — the residue
+        # feeds the day's till-drift total below, never dropped silently.
+        change_kgs_total = sum((p.change_amount_kgs for p in payments), Decimal("0"))
+        order_rounding_kgs = sum((p.change_rounding_kgs for p in payments), Decimal("0"))
+        rounding_total += order_rounding_kgs
+
         rows.append(
             [
                 timezone.localtime(order.confirmed_at).strftime("%H:%M"),
@@ -85,6 +125,11 @@ def _sales_rows() -> list[list]:
                 str(paid),
                 str(balance),
                 status,
+                currencies_used,
+                rates_used,
+                sources_used,
+                str(change_kgs_total) if change_kgs_total else "—",
+                str(order_rounding_kgs) if order_rounding_kgs else "—",
             ]
         )
         if total_base is not None:
@@ -105,6 +150,10 @@ def _sales_rows() -> list[list]:
             f"Получено ≈{collected_base} {settings.CURRENCY}",
             f"Долг ≈{revenue_base - collected_base} {settings.CURRENCY}",
             "",
+            "",
+            "",
+            "Итоги:",
+            f"Округление за день ≈{rounding_total} {settings.CURRENCY}",
         ]
     )
     return rows
@@ -201,12 +250,43 @@ def _unreviewed_rows() -> list[list]:
     return rows
 
 
+def _orders_rows() -> list[list]:
+    """Open production orders (CLAUDE.md Part 3g) — due dates, deposits taken,
+    and what's still owed. Never includes выдан/отменён — those are closed."""
+    from apps.orders.models import Order
+    from apps.orders.services import order_paid_amount
+
+    rows = [["Клиент", "Телефон", "Статус", "Срок", "Итого", "Валюта", "Аванс", "Остаток"]]
+    orders = (
+        Order.objects.filter(status__in=Order.OPEN_STATUSES)
+        .select_related("client")
+        .order_by("due_date", "-created_at")
+    )
+    for order in orders:
+        paid = order_paid_amount(order)
+        remaining = max(order.total - paid, Decimal("0"))
+        rows.append(
+            [
+                order.client.name,
+                order.client.phone,
+                order.get_status_display(),
+                order.due_date.strftime("%Y-%m-%d") if order.due_date else "",
+                str(order.total),
+                order.currency,
+                str(paid),
+                str(remaining),
+            ]
+        )
+    return rows
+
+
 def _sheets() -> dict[str, list[list]]:
     return {
         "Продажи": _sales_rows(),
         "Остаток": _stock_rows(),
         "Долги": _debts_rows(),
         "Не проверено": _unreviewed_rows(),
+        "Заказы": _orders_rows(),
     }
 
 
@@ -227,6 +307,7 @@ _CSV_FILENAMES = {
     "Остаток": "ostatok",
     "Долги": "dolgi",
     "Не проверено": "ne_provereno",
+    "Заказы": "zakazy",
 }
 
 
@@ -281,7 +362,12 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("REPORT_RECIPIENTS is empty — email skipped."))
 
         # BotUser is the staff allowlist — the report goes out on the staff bot,
-        # never the public client bot.
+        # never the public client bot. BOTS_ENABLED=False (the shipped prod
+        # default — bots aren't production-ready) skips this block entirely;
+        # email delivery above is unaffected.
+        if not settings.BOTS_ENABLED:
+            self.stdout.write(self.style.WARNING("BOTS_ENABLED=False — Telegram delivery skipped."))
+            return
         token = settings.TELEGRAM_STAFF_TOKEN
         recipients = list(BotUser.objects.filter(is_active=True, receives_reports=True))
         if token and recipients:

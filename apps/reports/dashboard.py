@@ -17,7 +17,6 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.core.files.storage import default_storage
-
 from django.db.models import (
     Case,
     Count,
@@ -362,7 +361,73 @@ def dashboard_data(period: str) -> dict:
         "methods": _methods(start, end),
         "top_products": _top_products(start, end),
         "dead_stock": _dead_stock(),
+        # «Заказы» panels (CLAUDE.md Part 3g) — deliberately NOT touched by
+        # _convert_money's view-currency toggle (it only walks the keys above)
+        # since production orders are a separate concern from the revenue
+        # dashboard's сом/$/₽ display switch.
+        "orders_open": _orders_open_summary(),
+        "queue_top": _queue_top(),
+        # CLIENT_BOTS.md §1: "the one metric that governs everything" — every
+        # broadcast feature is worthless below a real audience. Bots aren't
+        # production-ready yet (see .env.example) — skip the queries entirely
+        # while both channels are off, the template hides the panels either way.
+        "telegram_reach": _telegram_reach(),
+        "top_favourited": _top_favourited(),
     }
+
+
+def _bots_enabled() -> bool:
+    from django.conf import settings
+
+    return settings.BOTS_ENABLED or settings.WHATSAPP_ENABLED
+
+
+def _telegram_reach() -> dict:
+    if not _bots_enabled():
+        return {"reachable": 0, "total": 0}
+    from apps.inbox.services import telegram_reach
+
+    return telegram_reach()
+
+
+def _top_favourited() -> list[dict]:
+    """«Чаще всего добавляют в избранное» — free demand research for the
+    dashboard (CLIENT_BOTS.md §3.6)."""
+    if not _bots_enabled():
+        return []
+    from apps.inbox.services import top_favourited
+
+    return [{"variant": v, "count": n} for v, n in top_favourited(limit=5)]
+
+
+def _orders_open_summary() -> dict:
+    """«Заказы в работе»: count + total value of open production orders
+    (новый/в производстве/готов), in KGS — orders can be in different
+    currencies, so a single total needs a display-time conversion, same
+    principle as today_summary() for sales."""
+    from apps.core.currency import to_base
+    from apps.orders.models import Order
+
+    today = timezone.localdate()
+    orders = Order.objects.filter(status__in=Order.OPEN_STATUSES).prefetch_related("items")
+    count = 0
+    value = Decimal("0")
+    for order in orders:
+        count += 1
+        converted = to_base(order.total, order.currency, today)
+        if converted is not None:
+            value += converted
+    return {"count": count, "value": value}
+
+
+def _queue_top(limit: int = 5) -> list[dict]:
+    """Top variants by production need, for the dashboard link-out to the
+    full «К производству» queue — same derived computation, just truncated."""
+    from apps.orders.services import production_queue
+
+    rows = [r for r in production_queue() if not r["covered"]]
+    rows.sort(key=lambda r: r["to_produce"], reverse=True)
+    return rows[:limit]
 
 
 # --- Export: the same dashboard_data(), flattened into spreadsheet rows --------

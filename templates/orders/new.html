@@ -1,0 +1,27 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Новый заказ" %}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2><svg class="ic"><use href="#i-orders"/></svg>{% trans "Новый заказ — клиент" %}</h2>
+ <input type="search" name="q" placeholder="{% trans "Телефон или имя" %}" inputmode="tel" autofocus
+   hx-get="{% url 'orders:client_search' %}" hx-trigger="keyup changed delay:300ms, load"
+   hx-target="#client-results" hx-swap="innerHTML">
+ <div id="client-results" style="margin-top:var(--space-2)"></div>
+</div>
+
+{% if new_client_error %}<div class="error">{{ new_client_error }}</div>{% endif %}
+<div class="card">
+ <h2>{% trans "+ Новый клиент" %}</h2>
+ <form method="post" action="{% url 'orders:client_create' %}">
+  {% csrf_token %}
+  <label>{% trans "Имя" %}</label>
+  <input name="first_name" value="{{ new_client_values.first_name|default:'' }}" required>
+  <label>{% trans "Фамилия" %}</label>
+  <input name="last_name" value="{{ new_client_values.last_name|default:'' }}">
+  <label>{% trans "Телефон" %}</label>
+  <input name="phone" type="tel" inputmode="tel" value="{{ new_client_values.phone|default:'' }}" required>
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Создать и продолжить" %}</button>
+ </form>
+</div>
+{% endblock %}

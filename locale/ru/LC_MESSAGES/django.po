@@ -3,445 +3,991 @@ msgid ""
 msgstr ""
 "Project-Id-Version: acocos-crm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-19 07:18+0600\n"
+"POT-Creation-Date: 2026-07-29 00:30+0600\n"
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
+#: apps/campaigns/admin.py:43
 msgid "Audience"
 msgstr "Аудитория"
 
+#: apps/campaigns/admin.py:52
+#, fuzzy
+#| msgid ""
+#| "Consent and a linked Telegram chat are always required on top of these "
+#| "filters. Save, then use “Send” to preview the count."
 msgid ""
-"Consent and a linked Telegram chat are always required on top of these "
-"filters. Save, then use “Send” to preview the count."
+"Consent and a reachable channel (Telegram chat / WhatsApp opt-in) are always"
+" required on top of these filters, and the 2-per-week frequency cap always "
+"applies. Save, then use “Send” to preview the count."
 msgstr ""
 "Согласие и привязанный Telegram-чат обязательны в дополнение к этим "
 "фильтрам. Сохраните, затем нажмите «Отправить», чтобы увидеть количество."
 
+#: apps/campaigns/admin.py:58
 msgid "Status"
 msgstr "Статус"
 
+#: apps/campaigns/admin.py:61
 msgid "reachable"
 msgstr "охват"
 
+#: apps/campaigns/admin.py:85
 msgid "Send now (Telegram)"
 msgstr "Отправить сейчас (Telegram)"
 
+#: apps/campaigns/admin.py:88
+msgid "Campaigns are disabled."
+msgstr "Рассылки отключены."
+
+#: apps/campaigns/admin.py:91
 msgid "Only the owner can send campaigns."
 msgstr "Только владелец может отправлять рассылки."
 
+#: apps/campaigns/admin.py:98
 #, python-format
 msgid "«%(name)s»: no reachable clients — nothing sent."
 msgstr "«%(name)s»: нет доступных клиентов — ничего не отправлено."
 
+#: apps/campaigns/admin.py:107
 #, python-format
 msgid "«%(name)s» failed: %(err)s"
 msgstr "«%(name)s» — ошибка: %(err)s"
 
+#: apps/campaigns/admin.py:113
 #, python-format
 msgid "«%(name)s» sent to %(n)s client(s)."
 msgstr "«%(name)s» отправлено клиентам: %(n)s."
 
+#: apps/campaigns/apps.py:8
 msgid "Campaigns"
 msgstr "Рассылки"
 
+#: apps/campaigns/models.py:16 apps/core/models.py:109 apps/inbox/models.py:47
 msgid "Telegram"
 msgstr "Telegram"
 
+#: apps/campaigns/models.py:16 apps/core/models.py:109 apps/inbox/models.py:47
 msgid "WhatsApp"
 msgstr "WhatsApp"
 
+#: apps/campaigns/models.py:21
 msgid "Draft"
 msgstr "Черновик"
 
+#: apps/campaigns/models.py:21
 msgid "Sending"
 msgstr "Отправляется"
 
+#: apps/campaigns/models.py:21 apps/campaigns/models.py:82
 msgid "Sent"
 msgstr "Отправлено"
 
+#: apps/campaigns/models.py:23 apps/core/models.py:89
+#: apps/inventory/models.py:18 apps/inventory/models.py:33
 msgid "name"
 msgstr "название"
 
+#: apps/campaigns/models.py:24
 msgid "message (Russian)"
 msgstr "сообщение (рус.)"
 
+#: apps/campaigns/models.py:27 apps/inventory/admin.py:32
+#: apps/inventory/models.py:47
 msgid "products"
 msgstr "товары"
 
+#: apps/campaigns/models.py:29
 msgid "Their photos are sent as a media group with the message."
 msgstr "Их фотографии отправляются группой вместе с сообщением."
 
+#: apps/campaigns/models.py:32 apps/core/models.py:115 apps/sales/models.py:50
 msgid "channel"
 msgstr "канал"
 
+#: apps/campaigns/models.py:34 apps/campaigns/models.py:91
+#: apps/inbox/models.py:55 apps/orders/models.py:49 apps/sales/models.py:51
 msgid "status"
 msgstr "статус"
 
+#: apps/campaigns/models.py:38
 msgid "only clients who bought before"
 msgstr "только клиенты, которые уже покупали"
 
+#: apps/campaigns/models.py:39
 msgid "only clients with debt"
 msgstr "только клиенты с долгом"
 
+#: apps/campaigns/models.py:41
 msgid "only clients inactive for N days"
 msgstr "только клиенты без покупок N дней"
 
+#: apps/campaigns/models.py:44
 msgid "Leave empty to ignore. E.g. 60 = haven't purchased in 60 days."
 msgstr "Оставьте пустым, чтобы не учитывать. Напр. 60 = не покупали 60 дней."
 
+#: apps/campaigns/models.py:50
+#, fuzzy
+#| msgid "only clients with debt"
+msgid "only clients who favourited this product"
+msgstr "только клиенты с долгом"
+
+#: apps/campaigns/models.py:59 apps/clients/models.py:76
+#: apps/inventory/models.py:174 apps/notes/models.py:24
+#: apps/orders/models.py:65 apps/sales/models.py:72 apps/sales/models.py:313
 msgid "created by"
 msgstr "создал(а)"
 
+#: apps/campaigns/models.py:64 apps/clients/models.py:44
+#: apps/clients/models.py:81 apps/core/models.py:93 apps/core/models.py:134
+#: apps/inbox/models.py:63 apps/inbox/models.py:124 apps/inbox/models.py:152
+#: apps/inventory/models.py:42 apps/inventory/models.py:179
+#: apps/notes/models.py:30 apps/orders/models.py:70 apps/sales/models.py:77
+#: apps/sales/models.py:318
 msgid "created at"
 msgstr "создано"
 
+#: apps/campaigns/models.py:67 apps/campaigns/models.py:88
 msgid "campaign"
 msgstr "рассылка"
 
+#: apps/campaigns/models.py:68
 msgid "campaigns"
 msgstr "рассылки"
 
+#: apps/campaigns/models.py:81 apps/sales/models.py:19
 msgid "Pending"
 msgstr "Ожидает"
 
+#: apps/campaigns/models.py:83
 msgid "Failed"
 msgstr "Ошибка"
 
+#: apps/campaigns/models.py:84
 msgid "Skipped"
 msgstr "Пропущено"
 
+#: apps/campaigns/models.py:90 apps/clients/models.py:48
+#: apps/clients/models.py:70 apps/core/models.py:128 apps/inbox/models.py:51
+#: apps/inbox/models.py:117 apps/inbox/models.py:145 apps/orders/models.py:42
+#: apps/sales/models.py:43 apps/sales/models.py:217
 msgid "client"
 msgstr "клиент"
 
+#: apps/campaigns/models.py:92
 msgid "error"
 msgstr "ошибка"
 
+#: apps/campaigns/models.py:93
 msgid "sent at"
 msgstr "отправлено в"
 
+#: apps/campaigns/models.py:96
 msgid "campaign recipient"
 msgstr "получатель рассылки"
 
+#: apps/campaigns/models.py:97
 msgid "campaign recipients"
 msgstr "получатели рассылки"
 
+#: apps/clients/admin.py:33
 msgid "debt"
 msgstr "долг"
 
+#: apps/clients/admin.py:40
 msgid "unpaid orders"
 msgstr "неоплаченные продажи"
 
+#: apps/clients/admin.py:57
 msgid "None — all settled."
 msgstr "Нет — всё оплачено."
 
+#: apps/clients/apps.py:8
 msgid "Clients"
 msgstr "Клиенты"
 
+#: apps/clients/models.py:15 apps/sales/models.py:37
 msgid "Shop"
 msgstr "Магазин"
 
+#: apps/clients/models.py:16 apps/sales/models.py:38
 msgid "Wholesale"
 msgstr "Опт"
 
+#: apps/clients/models.py:19
 msgid "first name"
 msgstr "имя"
 
+#: apps/clients/models.py:20
 msgid "last name"
 msgstr "фамилия"
 
+#: apps/clients/models.py:21
 msgid "phone"
 msgstr "телефон"
 
+#: apps/clients/models.py:22 apps/core/models.py:27 apps/core/models.py:65
+#: apps/inbox/models.py:56
 msgid "source"
 msgstr "источник"
 
+#: apps/clients/models.py:23 apps/clients/models.py:73 apps/inbox/models.py:57
+#: apps/inbox/models.py:100 apps/notes/models.py:34 apps/orders/models.py:51
+#: apps/sales/models.py:69 apps/sales/models.py:291
 msgid "note"
 msgstr "заметка"
 
+#: apps/clients/models.py:29
 msgid "Telegram chat ID"
 msgstr "ID чата Telegram"
 
+#: apps/clients/models.py:31
 msgid "marketing consent"
 msgstr "согласие на рассылку"
 
+#: apps/clients/models.py:32
 msgid "WhatsApp opt-in"
 msgstr "согласие на WhatsApp"
 
+#: apps/clients/models.py:37
+#, fuzzy
+#| msgid "bot message"
+msgid "bot language"
+msgstr "сообщение бота"
+
+#: apps/clients/models.py:42
+msgid "human handoff until"
+msgstr "человеку до"
+
+#: apps/clients/models.py:43 apps/core/models.py:92 apps/inbox/models.py:14
+#: apps/inventory/models.py:41 apps/inventory/models.py:106
 msgid "active"
 msgstr "активен"
 
+#: apps/clients/models.py:49
 msgid "clients"
 msgstr "клиенты"
 
+#: apps/clients/models.py:67
 msgid "Call"
 msgstr "Звонок"
 
+#: apps/clients/models.py:67
 msgid "Message"
 msgstr "Сообщение"
 
+#: apps/clients/models.py:67
 msgid "Visit"
 msgstr "Визит"
 
+#: apps/clients/models.py:72 apps/inventory/models.py:161
 msgid "type"
 msgstr "тип"
 
+#: apps/clients/models.py:84
 msgid "interaction"
 msgstr "взаимодействие"
 
+#: apps/clients/models.py:85
 msgid "interactions"
 msgstr "взаимодействия"
 
+#: apps/core/admin.py:20 apps/core/models.py:18 apps/core/models.py:60
+#: apps/inventory/models.py:97 apps/orders/models.py:47
+#: apps/orders/models.py:127 apps/sales/models.py:53 apps/sales/models.py:245
 msgid "currency"
 msgstr "валюта"
 
+#: apps/core/admin.py:80 apps/core/models.py:21
 msgid "rate"
 msgstr "курс"
 
+#: apps/core/apps.py:8
 msgid "Core"
 msgstr "Система"
 
-msgid "Неверный логин, пароль или код."
+#: apps/core/auth_views.py:26 templates/registration/login.html:22
+#, fuzzy
+#| msgid "Неверный логин, пароль или код."
+msgid "Неверный логин или пароль."
 msgstr "Неверный логин, пароль или код."
 
+#: apps/core/currency.py:22
 msgid "Kyrgyzstani som"
 msgstr "Кыргызский сом"
 
+#: apps/core/currency.py:23
 msgid "US dollar"
 msgstr "Доллар США"
 
+#: apps/core/currency.py:24
 msgid "Russian ruble"
 msgstr "Российский рубль"
 
+#: apps/core/models.py:16 apps/sales/models.py:195
 msgid "Manual"
 msgstr "Вручную"
 
+#: apps/core/models.py:16 apps/sales/models.py:195
 msgid "NBKR"
 msgstr "НБКР"
 
-msgid "date"
+#: apps/core/models.py:19
+#, fuzzy
+#| msgid "date"
+msgid "updated"
 msgstr "дата"
 
+#: apps/core/models.py:19
+msgid "When this rate was last updated."
+msgstr "Когда этот курс обновлялся в последний раз."
+
+#: apps/core/models.py:24
 msgid "How many units of the base currency equal 1 unit of this currency."
 msgstr "Сколько единиц базовой валюты равны 1 единице этой валюты."
 
+#: apps/core/models.py:30
 msgid "exchange rate"
 msgstr "обменный курс"
 
+#: apps/core/models.py:31
 msgid "exchange rates"
 msgstr "обменные курсы"
 
+#: apps/core/models.py:42
 #, python-format
 msgid "The base currency (%(base)s) is always 1 — no rate needed."
 msgstr "Базовая валюта (%(base)s) всегда равна 1 — курс не нужен."
 
+#: apps/core/models.py:47
 #, python-format
 msgid "Unknown currency. Configured currencies: %(list)s."
 msgstr "Неизвестная валюта. Настроенные валюты: %(list)s."
 
+#: apps/core/models.py:51
 msgid "Rate must be greater than zero."
 msgstr "Курс должен быть больше нуля."
 
+#: apps/core/models.py:62
+#, fuzzy
+#| msgid "rate"
+msgid "old rate"
+msgstr "курс"
+
+#: apps/core/models.py:64
+#, fuzzy
+#| msgid "exchange rate"
+msgid "new rate"
+msgstr "обменный курс"
+
+#: apps/core/models.py:68
+#, fuzzy
+#| msgid "created by"
+msgid "changed by"
+msgstr "создал(а)"
+
+#: apps/core/models.py:72
+msgid "Empty for the automatic scheduled/system refresh."
+msgstr "Пусто для автоматического обновления по расписанию."
+
+#: apps/core/models.py:74
+#, fuzzy
+#| msgid "exchange rate"
+msgid "changed at"
+msgstr "обменный курс"
+
+#: apps/core/models.py:77
+msgid "rate change"
+msgstr "изменение курса"
+
+#: apps/core/models.py:78
+msgid "rate change log"
+msgstr "журнал изменений курса"
+
+#: apps/core/models.py:88
 msgid "Telegram ID"
 msgstr "Telegram ID"
 
+#: apps/core/models.py:90
 msgid "can see cost prices"
 msgstr "видит себестоимость"
 
+#: apps/core/models.py:91
 msgid "receives daily reports"
 msgstr "получает ежедневные отчёты"
 
+#: apps/core/models.py:96
 msgid "bot user"
 msgstr "пользователь бота"
 
+#: apps/core/models.py:97
 msgid "bot users"
 msgstr "пользователи бота"
 
+#: apps/core/models.py:113
 msgid "Incoming"
 msgstr "Входящее"
 
+#: apps/core/models.py:113
 msgid "Outgoing"
 msgstr "Исходящее"
 
+#: apps/core/models.py:117
 msgid "external ID"
 msgstr "внешний ID"
 
+#: apps/core/models.py:119
 msgid "Telegram user ID or WhatsApp phone number"
 msgstr "Telegram ID пользователя или номер WhatsApp"
 
+#: apps/core/models.py:121
 msgid "direction"
 msgstr "направление"
 
+#: apps/core/models.py:122
 msgid "text"
 msgstr "текст"
 
+#: apps/core/models.py:137
 msgid "bot message"
 msgstr "сообщение бота"
 
+#: apps/core/models.py:138
 msgid "bot messages"
 msgstr "сообщения бота"
 
+#: apps/inbox/models.py:11
+msgid "key"
+msgstr "ключ"
+
+#: apps/inbox/models.py:12
+#, fuzzy
+#| msgid "message (Russian)"
+msgid "title (Russian)"
+msgstr "сообщение (рус.)"
+
+#: apps/inbox/models.py:13
+#, fuzzy
+#| msgid "Russian"
+msgid "body (Russian)"
+msgstr "Русский"
+
+#: apps/inbox/models.py:17 apps/inbox/models.py:18
+msgid "bot content"
+msgstr "контент бота"
+
+#: apps/inbox/models.py:38 apps/orders/models.py:29
+msgid "New"
+msgstr "Новый"
+
+#: apps/inbox/models.py:39
+#, fuzzy
+#| msgid "confirmed at"
+msgid "Confirmed"
+msgstr "подтверждена"
+
+#: apps/inbox/models.py:40
+msgid "Declined"
+msgstr "Отклонена"
+
+#: apps/inbox/models.py:41 apps/orders/models.py:33 apps/sales/models.py:21
+msgid "Cancelled"
+msgstr "Отменена"
+
+#: apps/inbox/models.py:59
+#, fuzzy
+#| msgid "bot message"
+msgid "raw message"
+msgstr "сообщение бота"
+
+#: apps/inbox/models.py:61
+msgid "The client's own words — kept for a WhatsApp free-text заявка."
+msgstr ""
+"Собственные слова клиента — сохраняются для свободной заявки по WhatsApp."
+
+#: apps/inbox/models.py:66
+#, fuzzy
+#| msgid "created by"
+msgid "handled by"
+msgstr "создал(а)"
+
+#: apps/inbox/models.py:71
+#, fuzzy
+#| msgid "created at"
+msgid "handled at"
+msgstr "создано"
+
+#: apps/inbox/models.py:72
+#, fuzzy
+#| msgid "reason"
+msgid "decline reason"
+msgstr "причина"
+
+#: apps/inbox/models.py:75 apps/orders/models.py:116
+#, fuzzy
+#| msgid "sale order"
+msgid "order"
+msgstr "продажа"
+
+#: apps/inbox/models.py:83
+msgid "order request"
+msgstr "заявка"
+
+#: apps/inbox/models.py:84
+msgid "order requests"
+msgstr "заявки"
+
+#: apps/inbox/models.py:94
+msgid "request"
+msgstr "заявка"
+
+#: apps/inbox/models.py:97 apps/inbox/models.py:122 apps/inbox/models.py:150
+#, fuzzy
+#| msgid "product variant"
+msgid "variant"
+msgstr "вариант товара"
+
+#: apps/inbox/models.py:99 apps/inventory/models.py:162
+#: apps/orders/models.py:124 apps/sales/models.py:154
+msgid "quantity"
+msgstr "количество"
+
+#: apps/inbox/models.py:103
+msgid "request item"
+msgstr "позиция заявки"
+
+#: apps/inbox/models.py:104
+#, fuzzy
+#| msgid "sale items"
+msgid "request items"
+msgstr "позиции продажи"
+
+#: apps/inbox/models.py:127
+msgid "favourite"
+msgstr "избранное"
+
+#: apps/inbox/models.py:128
+msgid "favourites"
+msgstr "избранное"
+
+#: apps/inbox/models.py:153
+#, fuzzy
+#| msgid "confirmed at"
+msgid "notified at"
+msgstr "подтверждена"
+
+#: apps/inbox/models.py:156
+#, fuzzy
+#| msgid "stock movement"
+msgid "stock alert"
+msgstr "движение товара"
+
+#: apps/inbox/models.py:157
+#, fuzzy
+#| msgid "stock movements"
+msgid "stock alerts"
+msgstr "движения товара"
+
+#: apps/inbox/services.py:132
+#, python-format
+msgid "You already have %(n)s open requests — please write to us directly."
+msgstr "У вас уже %(n)s открытых заявок — напишите нам напрямую."
+
+#: apps/inbox/services.py:159 apps/inbox/services.py:192
+msgid "This request has already been handled."
+msgstr "Эта заявка уже обработана."
+
+#: apps/inbox/services.py:162
+msgid "Request has no items — cannot confirm."
+msgstr "В заявке нет позиций — подтвердить нельзя."
+
+#: apps/inbox/services.py:211
+msgid "This request can no longer be cancelled."
+msgstr "Эту заявку больше нельзя отменить."
+
+#: apps/inbox/views.py:171
+#, python-format
+msgid "Заявка подтверждена — заказ №%(n)s создан."
+msgstr ""
+
+#: apps/inbox/views.py:180
+msgid "Не указана"
+msgstr ""
+
+#: apps/inventory/admin.py:70 apps/inventory/admin.py:122
 msgid "stock"
 msgstr "остаток"
 
+#: apps/inventory/admin.py:178
 msgid "Enter a positive quantity."
 msgstr "Введите положительное количество."
 
+#: apps/inventory/admin.py:183
 #, python-format
 msgid "Cannot write off %(n)s — only %(s)s in stock."
 msgstr "Нельзя списать %(n)s — на складе только %(s)s."
 
+#: apps/inventory/admin.py:193 apps/inventory/admin.py:299
 msgid "Receive stock"
 msgstr "Приём на склад"
 
+#: apps/inventory/admin.py:193
 msgid "Write off"
 msgstr "Списать"
 
+#: apps/inventory/admin.py:197
 #, python-format
 msgid "Done — stock is now %(s)s."
 msgstr "Готово — остаток теперь %(s)s."
 
+#: apps/inventory/admin.py:208
 msgid "Enter the counted quantity (0 or more)."
 msgstr "Введите пересчитанное количество (0 или больше)."
 
+#: apps/inventory/admin.py:212 apps/inventory/admin.py:316
 msgid "A reason is required for a recount."
 msgstr "Для пересчёта необходимо указать причину."
 
+#: apps/inventory/admin.py:217
 msgid "Count matched — nothing changed."
 msgstr "Количество совпало — без изменений."
 
+#: apps/inventory/admin.py:220
 #, python-format
 msgid "Recounted — stock is now %(s)s."
 msgstr "Пересчитано — остаток теперь %(s)s."
 
+#: apps/inventory/admin.py:275
 #, python-format
 msgid "Updated stock for %(n)s item(s)."
 msgstr "Обновлён остаток для %(n)s позиций."
 
+#: apps/inventory/admin.py:278
 msgid "No quantities entered — nothing changed."
 msgstr "Количество не указано — изменений нет."
 
+#: apps/inventory/admin.py:293
 msgid "Receive stock (Принять на склад)"
 msgstr "Принять на склад"
 
+#: apps/inventory/admin.py:303
 msgid "Write off (Списать)"
 msgstr "Списать"
 
+#: apps/inventory/admin.py:306
 msgid "Write off stock"
 msgstr "Списание со склада"
 
+#: apps/inventory/admin.py:309
 msgid "Recount (Пересчёт)"
 msgstr "Пересчёт"
 
+#: apps/inventory/admin.py:330
 #, python-format
 msgid "Recounted %(n)s item(s)."
 msgstr "Пересчитано позиций: %(n)s."
 
+#: apps/inventory/admin.py:335
 msgid "Recount"
 msgstr "Пересчёт"
 
+#: apps/inventory/apps.py:8
 msgid "Inventory"
 msgstr "Склад"
 
+#: apps/inventory/models.py:21 apps/inventory/models.py:31
 msgid "category"
 msgstr "категория"
 
+#: apps/inventory/models.py:22
 msgid "categories"
 msgstr "категории"
 
+#: apps/inventory/models.py:34
 msgid "description"
 msgstr "описание"
 
+#: apps/inventory/models.py:35
 msgid "photo"
 msgstr "фото"
 
+#: apps/inventory/models.py:39
 msgid "thumbnail"
 msgstr "миниатюра"
 
+#: apps/inventory/models.py:46 apps/inventory/models.py:91
 msgid "product"
 msgstr "товар"
 
+#: apps/inventory/models.py:94
 msgid "size"
 msgstr "размер"
 
+#: apps/inventory/models.py:95
 msgid "color"
 msgstr "цвет"
 
+#: apps/inventory/models.py:101
 msgid "Applies to both cost price and sale price."
 msgstr "Применяется к себестоимости и цене продажи."
 
+#: apps/inventory/models.py:103
 msgid "cost price"
 msgstr "себестоимость"
 
+#: apps/inventory/models.py:104
 msgid "sale price"
 msgstr "цена продажи"
 
+#: apps/inventory/models.py:105
 msgid "low stock threshold"
 msgstr "порог низкого остатка"
 
+#: apps/inventory/models.py:110 apps/inventory/models.py:157
+#: apps/orders/models.py:120 apps/sales/models.py:150
 msgid "product variant"
 msgstr "вариант товара"
 
+#: apps/inventory/models.py:111
 msgid "product variants"
 msgstr "варианты товара"
 
+#: apps/inventory/models.py:145
 msgid "Production intake"
 msgstr "Приход с производства"
 
+#: apps/inventory/models.py:146
 msgid "Purchase intake"
 msgstr "Приход с закупки"
 
+#: apps/inventory/models.py:147
 msgid "Return"
 msgstr "Возврат"
 
+#: apps/inventory/models.py:148
 msgid "Sale"
 msgstr "Продажа"
 
+#: apps/inventory/models.py:149
 msgid "Write-off"
 msgstr "Списание"
 
+#: apps/inventory/models.py:150
 msgid "Adjustment"
 msgstr "Корректировка"
 
-msgid "quantity"
-msgstr "количество"
-
+#: apps/inventory/models.py:163
 msgid "reason"
 msgstr "причина"
 
+#: apps/inventory/models.py:166 apps/orders/models.py:57
+#: apps/sales/models.py:82 apps/sales/models.py:146 apps/sales/models.py:223
 msgid "sale order"
 msgstr "продажа"
 
+#: apps/inventory/models.py:182
 msgid "stock movement"
 msgstr "движение товара"
 
+#: apps/inventory/models.py:183
 msgid "stock movements"
 msgstr "движения товара"
 
+#: apps/inventory/models.py:211
 msgid "Quantity cannot be zero."
 msgstr "Количество не может быть нулевым."
 
+#: apps/inventory/models.py:213 apps/inventory/services.py:82
 msgid "An adjustment requires a reason."
 msgstr "Для корректировки требуется указать причину."
 
+#: apps/inventory/models.py:215
 msgid "Intake movements must have a positive quantity."
 msgstr "Приходные движения должны иметь положительное количество."
 
+#: apps/inventory/models.py:217
 msgid "Outgoing movements must have a negative quantity."
 msgstr "Расходные движения должны иметь отрицательное количество."
 
+#: apps/notes/models.py:12
+msgid "title"
+msgstr "заголовок"
+
+#: apps/notes/models.py:13
+msgid "body"
+msgstr "текст"
+
+#: apps/notes/models.py:14
+msgid "done"
+msgstr "готово"
+
+#: apps/notes/models.py:20
+#, fuzzy
+#| msgid "created at"
+msgid "completed at"
+msgstr "создано"
+
+#: apps/notes/models.py:21
+msgid "pinned"
+msgstr "закреплено"
+
+#: apps/notes/models.py:31
+#, fuzzy
+#| msgid "created at"
+msgid "updated at"
+msgstr "создано"
+
+#: apps/notes/models.py:35
+#, fuzzy
+#| msgid "note"
+msgid "notes"
+msgstr "заметка"
+
+#: apps/notes/models.py:40
+msgid "(empty note)"
+msgstr "(пустая заметка)"
+
+#: apps/orders/admin.py:38 apps/sales/admin.py:188 apps/sales/models.py:56
+msgid "total"
+msgstr "итого"
+
+#: apps/orders/admin.py:42 apps/sales/admin.py:192
+msgid "paid"
+msgstr "оплачено"
+
+#: apps/orders/admin.py:46
+msgid "overdue"
+msgstr "просрочен"
+
+#: apps/orders/admin.py:59
+#, fuzzy
+#| msgid "Cancel selected sales (returns stock)"
+msgid "Cancel selected orders (releases reservation)"
+msgstr "Отменить выбранные продажи (возвращает остаток)"
+
+#: apps/orders/admin.py:63
+msgid "Cancelling an order is Owner-only."
+msgstr "Отменить заказ может только владелец."
+
+#: apps/orders/admin.py:75
+#, fuzzy, python-format
+#| msgid "Settled %(n)s order(s)."
+msgid "Cancelled %(n)s order(s)."
+msgstr "Погашено заказов: %(n)s."
+
+#: apps/orders/models.py:30
+#, fuzzy
+#| msgid "product"
+msgid "In production"
+msgstr "товар"
+
+#: apps/orders/models.py:31
+msgid "Ready"
+msgstr "Готов"
+
+#: apps/orders/models.py:32
+msgid "Delivered"
+msgstr "Выдан"
+
+#: apps/orders/models.py:50
+#, fuzzy
+#| msgid "date"
+msgid "due date"
+msgstr "дата"
+
+#: apps/orders/models.py:71
+#, fuzzy
+#| msgid "reviewed at"
+msgid "delivered at"
+msgstr "дата проверки"
+
+#: apps/orders/models.py:75 apps/sales/models.py:237
+#, fuzzy
+#| msgid "Production intake"
+msgid "production order"
+msgstr "Приход с производства"
+
+#: apps/orders/models.py:76
+#, fuzzy
+#| msgid "Production intake"
+msgid "production orders"
+msgstr "Приход с производства"
+
+#: apps/orders/models.py:125 apps/sales/models.py:155
+msgid "unit price"
+msgstr "цена за единицу"
+
+#: apps/orders/models.py:132
+#, fuzzy
+#| msgid "Counted quantity"
+msgid "produced quantity"
+msgstr "Посчитанное количество"
+
+#: apps/orders/models.py:135
+#, fuzzy
+#| msgid "sale item"
+msgid "order item"
+msgstr "позиция продажи"
+
+#: apps/orders/models.py:136
+#, fuzzy
+#| msgid "sale items"
+msgid "order items"
+msgstr "позиции продажи"
+
+#: apps/orders/services.py:33
+msgid "Order must have at least one item."
+msgstr "В заказе должна быть хотя бы одна позиция."
+
+#: apps/orders/services.py:151
+msgid "Quantity to produce must be positive."
+msgstr "Количество к производству должно быть положительным."
+
+#: apps/orders/services.py:156
+#, fuzzy, python-format
+#| msgid "Cannot return %(qty)s of %(sku)s — only %(have)s were sold."
+msgid "Cannot produce %(qty)s — only %(remaining)s remain on this line."
+msgstr "Нельзя вернуть %(qty)s шт. %(sku)s — продано только %(have)s."
+
+#: apps/orders/services.py:196
+#, fuzzy
+#| msgid "Only pending sales can be approved."
+msgid "Only an open order can be handed over."
+msgstr "Одобрить можно только ожидающую продажу."
+
+#: apps/orders/services.py:199
+msgid "Order has no items."
+msgstr "В заказе нет позиций."
+
+#: apps/orders/services.py:232
+msgid "This order is already closed."
+msgstr "Этот заказ уже закрыт."
+
+#: apps/orders/views.py:113 apps/pos/views.py:525
+msgid "Имя и телефон обязательны."
+msgstr "Имя и телефон обязательны."
+
+#: apps/orders/views.py:115 apps/pos/views.py:527
+msgid "Клиент с этим телефоном уже есть."
+msgstr "Клиент с этим телефоном уже есть."
+
+#: apps/pos/apps.py:8
 msgid "POS"
 msgstr "Точка продаж"
 
+#: apps/pos/messaging.py:22
 msgid "Спасибо за покупку в ACOCOS! 🌸"
 msgstr "Спасибо за покупку в ACOCOS! 🌸"
 
+#: apps/pos/messaging.py:26
 #, python-format
 msgid "Итого: %(total)s %(cur)s"
 msgstr "Итого: %(total)s %(cur)s"
 
+#: apps/pos/messaging.py:33
 #, python-format
 msgid ""
 "Здравствуйте, %(name)s! Напоминаем о задолженности %(amounts)s. Спасибо! — "
@@ -450,21 +996,55 @@ msgstr ""
 "Здравствуйте, %(name)s! Напоминаем о задолженности %(amounts)s. Спасибо! — "
 "ACOCOS"
 
+#: apps/pos/templatetags/pos_extras.py:18
 msgid "долг"
 msgstr "долг"
 
+#: apps/pos/templatetags/pos_extras.py:19
 msgid "частично"
 msgstr "частично"
 
+#: apps/pos/templatetags/pos_extras.py:20
 msgid "оплачено"
 msgstr "оплачено"
 
-msgid "Имя и телефон обязательны."
-msgstr "Имя и телефон обязательны."
+#: apps/pos/templatetags/pos_extras.py:50 templates/pos/partials/rates.html:7
+msgid "вручную"
+msgstr ""
 
-msgid "Клиент с этим телефоном уже есть."
-msgstr "Клиент с этим телефоном уже есть."
+#: apps/pos/templatetags/pos_extras.py:68
+msgid "сдача"
+msgstr ""
 
+#: apps/pos/templatetags/pos_extras.py:69
+msgid "зачтено"
+msgstr ""
+
+#: apps/pos/views.py:207
+#, python-format
+msgid "Курс сильно отличается от официального (НБКР %(o)s)."
+msgstr ""
+
+#: apps/pos/views.py:209
+msgid "курс введён вручную"
+msgstr ""
+
+#: apps/pos/views.py:222
+#, python-format
+msgid "курс устарел (%(n)s дн.)"
+msgstr ""
+
+#: apps/pos/views.py:238
+#, python-format
+msgid "крупная сумма — %(a)s %(c)s"
+msgstr ""
+
+#: apps/pos/views.py:316 apps/pos/views.py:883
+#, python-format
+msgid "крупная сдача — %(a)s %(c)s"
+msgstr ""
+
+#: apps/pos/views.py:710
 #, python-format
 msgid ""
 "Товар в %(vc)s нельзя добавить в продажу в %(oc)s — оформите отдельной "
@@ -473,46 +1053,88 @@ msgstr ""
 "Товар в %(vc)s нельзя добавить в продажу в %(oc)s — оформите отдельной "
 "продажей."
 
+#: apps/pos/views.py:726
+#, python-format
+msgid "Товар «%(name)s» уже полностью в корзине — доступно %(n)s шт."
+msgstr ""
+
+#: apps/pos/views.py:732
+#, python-format
+msgid "Доступно только %(n)s шт «%(name)s»."
+msgstr ""
+
+#: apps/pos/views.py:845 apps/sales/services.py:403
+#, python-format
+msgid "Нет курса для %(c)s — оплата не сохранена. Обновите курс и повторите."
+msgstr ""
+
+#: apps/pos/views.py:866
+msgid "Выберите, что сделать с излишком: сдача, в счёт долга или аванс."
+msgstr ""
+
+#: apps/pos/views.py:872
+msgid "«В счёт долга» и «Аванс» требуют клиента на продаже."
+msgstr ""
+
+#: apps/pos/views.py:891
+#, python-format
+msgid "Требуется подтверждение платежа: %(reasons)s"
+msgstr ""
+
+#: apps/pos/views.py:1010
 msgid "Возврат оформлён."
 msgstr "Возврат оформлён."
 
+#: apps/pos/views.py:1032
 msgid "Чек отправлен"
 msgstr "Чек отправлен"
 
+#: apps/pos/views.py:1049
 msgid "Напоминание о долге"
 msgstr "Напоминание о долге"
 
+#: apps/reports/admin.py:55
 msgid "Mark reviewed (Отметить проверенным)"
 msgstr "Отметить проверенным"
 
+#: apps/reports/admin.py:60
 msgid "Only a superuser can mark payments as reviewed."
 msgstr "Только суперпользователь может отмечать платежи проверенными."
 
+#: apps/reports/admin.py:67
 #, python-format
 msgid "Marked %(n)s payment(s) reviewed."
 msgstr "Отмечено проверенными платежей: %(n)s."
 
+#: apps/reports/apps.py:8
 msgid "Reports"
 msgstr "Отчёты"
 
+#: apps/reports/models.py:12 apps/reports/models.py:13
 msgid "payment review"
 msgstr "проверка платежей"
 
+#: apps/sales/admin.py:22
 msgid "Paid"
 msgstr "Оплачено"
 
+#: apps/sales/admin.py:23
 msgid "Partial"
 msgstr "Частично"
 
+#: apps/sales/admin.py:24
 msgid "Unpaid"
 msgstr "Не оплачено"
 
+#: apps/sales/admin.py:45
 msgid "confirm overpayment"
 msgstr "подтвердить переплату"
 
+#: apps/sales/admin.py:46
 msgid "Tick to allow a payment larger than the order's remaining balance."
 msgstr "Отметьте, чтобы разрешить платёж больше остатка по заказу."
 
+#: apps/sales/admin.py:94
 #, python-format
 msgid ""
 "This would overpay the order (total %(total)s, already paid %(paid)s). Tick "
@@ -521,217 +1143,364 @@ msgstr ""
 "Это приведёт к переплате по заказу (итого %(total)s, уже оплачено %(paid)s)."
 " Отметьте «подтвердить переплату», чтобы продолжить."
 
+#: apps/sales/admin.py:123
 msgid "payments (for loans / partial payment)"
 msgstr "платежи (рассрочка / частичная оплата)"
 
-msgid "total"
-msgstr "итого"
+#: apps/sales/admin.py:125 apps/sales/admin.py:343
+#, fuzzy
+#| msgid "channel"
+msgid "change"
+msgstr "канал"
 
-msgid "paid"
-msgstr "оплачено"
-
+#: apps/sales/admin.py:198
 msgid "balance"
 msgstr "к оплате"
 
+#: apps/sales/admin.py:204 apps/sales/models.py:322
 msgid "payment"
 msgstr "оплата"
 
+#: apps/sales/admin.py:238
 msgid "Approve selected sales — record payment"
 msgstr "Одобрить выбранные продажи — записать оплату"
 
+#: apps/sales/admin.py:262
 #, python-format
 msgid "Approved %(n)s sale(s)."
 msgstr "Одобрено продаж: %(n)s."
 
+#: apps/sales/admin.py:267
 msgid "None of the selected sales are pending."
 msgstr "Ни одна из выбранных продаж не ожидает одобрения."
 
+#: apps/sales/admin.py:273
 msgid "Approve sales"
 msgstr "Одобрение продаж"
 
+#: apps/sales/admin.py:288
 msgid "Mark fully paid (settle balance)"
 msgstr "Отметить как полностью оплаченные (погасить остаток)"
 
+#: apps/sales/admin.py:299
 #, python-format
 msgid "Settled %(n)s order(s)."
 msgstr "Погашено заказов: %(n)s."
 
+#: apps/sales/admin.py:301
 msgid "Cancel selected sales (returns stock)"
 msgstr "Отменить выбранные продажи (возвращает остаток)"
 
+#: apps/sales/admin.py:306
 #, python-format
 msgid "Sale #%(id)s cancelled."
 msgstr "Продажа №%(id)s отменена."
 
+#: apps/sales/admin.py:335
+msgid "conversion"
+msgstr "конвертация"
+
+#: apps/sales/admin.py:360
 msgid "Void selected payments (creates a reversing entry)"
 msgstr "Аннулировать выбранные платежи (создаёт обратную запись)"
 
+#: apps/sales/admin.py:371
 #, python-format
 msgid "Voided %(n)s payment(s)."
 msgstr "Аннулировано платежей: %(n)s."
 
+#: apps/sales/apps.py:8
 msgid "Sales"
 msgstr "Продажи"
 
+#: apps/sales/models.py:20
 msgid "Approved"
 msgstr "Одобрена"
 
-msgid "Cancelled"
-msgstr "Отменена"
-
+#: apps/sales/models.py:48
 msgid "Leave empty for a walk-in sale."
 msgstr "Оставьте пустым для продажи без клиента."
 
+#: apps/sales/models.py:60
 msgid "Set automatically when the sale is approved."
 msgstr "Заполняется автоматически при одобрении продажи."
 
+#: apps/sales/models.py:65 apps/sales/models.py:251
 msgid "rate to KGS"
 msgstr "курс к сому"
 
+#: apps/sales/models.py:67
 msgid "total, KGS"
 msgstr "итого, сом"
 
+#: apps/sales/models.py:78
 msgid "confirmed at"
 msgstr "подтверждена"
 
+#: apps/sales/models.py:83
 msgid "sale orders"
 msgstr "продажи"
 
-msgid "unit price"
-msgstr "цена за единицу"
-
+#: apps/sales/models.py:158
 msgid "sale item"
 msgstr "позиция продажи"
 
+#: apps/sales/models.py:159
 msgid "sale items"
 msgstr "позиции продажи"
 
+#: apps/sales/models.py:187
 msgid "Cash"
 msgstr "Наличные"
 
+#: apps/sales/models.py:189
 msgid "Transfer"
 msgstr "Перевод"
 
+#: apps/sales/models.py:190
 msgid "Other"
 msgstr "Прочее"
 
+#: apps/sales/models.py:209
+msgid "—"
+msgstr ""
+
+#: apps/sales/models.py:210 templates/pos/partials/sale_body.html:140
+#: templates/pos/partials/sale_body.html:161
+msgid "Сдача"
+msgstr ""
+
+#: apps/sales/models.py:211 templates/pos/partials/sale_body.html:143
+#, fuzzy
+#| msgid "В долг"
+msgid "В счёт долга"
+msgstr "В долг"
+
+#: apps/sales/models.py:212 templates/orders/detail.html:59
+#: templates/pos/client_detail.html:19
+#: templates/pos/partials/sale_body.html:146 templates/pos/result.html:59
+msgid "Аванс"
+msgstr ""
+
+#: apps/sales/models.py:243
 msgid "amount"
 msgstr "сумма"
 
+#: apps/sales/models.py:256
+#, fuzzy
+#| msgid "source"
+msgid "rate source"
+msgstr "источник"
+
+#: apps/sales/models.py:262
+msgid "official rate"
+msgstr "официальный курс"
+
+#: apps/sales/models.py:264
 msgid "method"
 msgstr "способ"
 
+#: apps/sales/models.py:274
+msgid "excess disposition"
+msgstr "распределение излишка"
+
+#: apps/sales/models.py:280
+#, fuzzy
+#| msgid "exchange rate"
+msgid "change amount"
+msgstr "обменный курс"
+
+#: apps/sales/models.py:283
+#, fuzzy
+#| msgid "currency"
+msgid "change currency"
+msgstr "валюта"
+
+#: apps/sales/models.py:286
+msgid "change amount, KGS"
+msgstr "сумма сдачи, сом"
+
+#: apps/sales/models.py:289
+msgid "change rounding residue, KGS"
+msgstr "остаток округления сдачи, сом"
+
+#: apps/sales/models.py:292
 msgid "reviewed"
 msgstr "проверено"
 
+#: apps/sales/models.py:295
 msgid "reviewed by"
 msgstr "проверил(а)"
 
+#: apps/sales/models.py:301
 msgid "reviewed at"
 msgstr "дата проверки"
 
+#: apps/sales/models.py:304
 msgid "reverses payment"
 msgstr "аннулирует платёж"
 
+#: apps/sales/models.py:309
 msgid "Set automatically when this row voids an earlier payment."
 msgstr ""
-"Заполняется автоматически, когда эта запись аннулирует более ранний платёж."
+"Устанавливается автоматически, когда эта запись аннулирует более ранний "
+"платёж.Заполняется автоматически, когда эта запись аннулирует более ранний "
+"платёж."
 
+#: apps/sales/models.py:323
 msgid "payments"
 msgstr "оплаты"
 
+#: apps/sales/services.py:40
 msgid "Only pending sales can be approved."
 msgstr "Одобрить можно только ожидающую продажу."
 
+#: apps/sales/services.py:43
 msgid "Cannot approve a sale with no items."
 msgstr "Нельзя одобрить продажу без позиций."
 
+#: apps/sales/services.py:68
 #, python-format
 msgid ""
 "Insufficient stock for %(sku)s: available %(have)s, requested %(need)s."
 msgstr ""
 "Недостаточно остатка по %(sku)s: доступно %(have)s, запрошено %(need)s."
 
+#: apps/sales/services.py:101
 msgid "Only approved sales can be cancelled."
 msgstr "Отменить можно только одобрённую продажу."
 
+#: apps/sales/services.py:129
 msgid "Only approved sales can have returns."
 msgstr "Возврат возможен только для проведённых продаж."
 
+#: apps/sales/services.py:133
 msgid "Nothing to return."
 msgstr "Нечего возвращать."
 
+#: apps/sales/services.py:139
 msgid "Unknown item in this sale."
 msgstr "Неизвестная позиция в этой продаже."
 
+#: apps/sales/services.py:142
 #, python-format
 msgid "Cannot return %(qty)s of %(sku)s — only %(have)s were sold."
 msgstr "Нельзя вернуть %(qty)s шт. %(sku)s — продано только %(have)s."
 
+#: apps/sales/services.py:431
+msgid "Укажите причину изменения суммы сдачи."
+msgstr ""
+
+#: apps/sales/services.py:437 apps/sales/services.py:446
+#, fuzzy
+#| msgid ""
+#| "Оплата в другой валюте не засчитывается против остатка этого заказа."
+msgid "Сдача в этой валюте не может быть рассчитана по курсу платежа."
+msgstr "Оплата в другой валюте не засчитывается против остатка этого заказа."
+
+#: apps/sales/services.py:457
+msgid "Нельзя выдать сдачу, пока по продаже остаётся долг."
+msgstr ""
+
+#: apps/sales/services.py:463
+msgid "Неизвестный способ учёта излишка."
+msgstr ""
+
+#: apps/sales/services.py:480
+#, python-format
+msgid "Сдача изменена вручную: %(reason)s"
+msgstr ""
+
+#: apps/sales/services.py:492
 msgid "Only approved sales can be settled."
 msgstr "Погасить можно только одобрённую продажу."
 
+#: apps/sales/services.py:509
 msgid "This payment is already a reversal — nothing to void."
 msgstr "Этот платёж уже является аннулированием — аннулировать нечего."
 
+#: apps/sales/services.py:511
 msgid "Voiding a reviewed payment requires a superuser."
 msgstr "Аннулирование проверенного платежа требует прав суперпользователя."
 
+#: apps/sales/services.py:526
 #, python-format
 msgid "Void of payment #%(id)s"
 msgstr "Аннулирование платежа №%(id)s"
 
+#: config/settings/base.py:277
 msgid "English"
 msgstr "Английский"
 
+#: config/settings/base.py:277
 msgid "Russian"
 msgstr "Русский"
 
+#: templates/admin/inventory/stock_action.html:12
+#: templates/core/stats.html:182 templates/core/stats.html:195
 msgid "Item"
 msgstr "Товар"
 
+#: templates/admin/inventory/stock_action.html:13
 msgid "Current stock"
 msgstr "Текущий остаток"
 
+#: templates/admin/inventory/stock_action.html:15
 msgid "Counted quantity"
 msgstr "Посчитанное количество"
 
+#: templates/admin/inventory/stock_action.html:15
 msgid "Quantity"
 msgstr "Количество"
 
+#: templates/admin/inventory/stock_action.html:34
 msgid "Reason"
 msgstr "Причина"
 
+#: templates/admin/inventory/stock_action.html:39
 msgid "Apply"
 msgstr "Применить"
 
+#: templates/admin/inventory/stock_action.html:40
+#: templates/admin/sales/approve_sales.html:37
 msgid "Cancel"
 msgstr "Отменить"
 
+#: templates/admin/inventory/variant_change_form.html:11
 msgid "Остаток на складе"
 msgstr "Остаток на складе"
 
+#: templates/admin/inventory/variant_change_form.html:13
 msgid "Сейчас"
 msgstr "Сейчас"
 
+#: templates/admin/inventory/variant_change_form.html:25
 msgid "Принять"
 msgstr "Принять"
 
+#: templates/admin/inventory/variant_change_form.html:28
+#: templates/notes/index.html:12 templates/pos/partials/variant_picker.html:19
 msgid "Добавить"
 msgstr "Добавить"
 
+#: templates/admin/inventory/variant_change_form.html:36
+#: templates/admin/inventory/variant_change_form.html:39
 msgid "Списать"
 msgstr "Списать"
 
+#: templates/admin/inventory/variant_change_form.html:47
 msgid "Пересчёт"
 msgstr "Пересчёт"
 
+#: templates/admin/inventory/variant_change_form.html:50
 msgid "причина"
 msgstr "причина"
 
+#: templates/admin/inventory/variant_change_form.html:52
 msgid "Установить"
 msgstr "Установить"
 
+#: templates/admin/inventory/variant_change_form.html:57
 msgid ""
 "«Принять» и «Списать» меняют остаток на число. «Пересчёт» задаёт точное "
 "количество (с указанием причины). Каждое действие записывается в историю "
@@ -741,30 +1510,41 @@ msgstr ""
 "количество (с указанием причины). Каждое действие записывается в историю "
 "ниже."
 
+#: templates/admin/inventory/variant_change_form.html:62
 msgid "История"
 msgstr "История"
 
+#: templates/admin/inventory/variant_change_form.html:68
 msgid "Дата"
 msgstr "Дата"
 
+#: templates/admin/inventory/variant_change_form.html:69
 msgid "Операция"
 msgstr "Операция"
 
+#: templates/admin/inventory/variant_change_form.html:70
 msgid "Изменение"
 msgstr "Изменение"
 
+#: templates/admin/inventory/variant_change_form.html:71
+#: templates/orders/detail.html:104 templates/pos/partials/sale_body.html:205
 msgid "Остаток"
 msgstr "Остаток"
 
+#: templates/admin/inventory/variant_change_form.html:72
+#: templates/inbox/thread.html:51
 msgid "Причина"
 msgstr "Причина"
 
+#: templates/admin/inventory/variant_change_form.html:73
 msgid "Кто"
 msgstr "Кто"
 
+#: templates/admin/inventory/variant_change_form.html:97
 msgid "Пока нет движений по этому товару."
 msgstr "Пока нет движений по этому товару."
 
+#: templates/admin/sales/approve_sales.html:10
 #, python-format
 msgid "You are approving %(counter)s sale. Stock will be written off."
 msgid_plural "You are approving %(counter)s sales. Stock will be written off."
@@ -772,24 +1552,31 @@ msgstr[0] "Вы одобряете %(counter)s продажу. Остаток б
 msgstr[1] "Вы одобряете %(counter)s продажи. Остаток будет списан."
 msgstr[2] "Вы одобряете %(counter)s продаж. Остаток будет списан."
 
+#: templates/admin/sales/approve_sales.html:15
 msgid "walk-in"
 msgstr "без клиента"
 
+#: templates/admin/sales/approve_sales.html:21
 msgid "Payment received now"
 msgstr "Получена оплата сейчас"
 
+#: templates/admin/sales/approve_sales.html:23
 msgid "Paid in full"
 msgstr "Оплачено полностью"
 
+#: templates/admin/sales/approve_sales.html:25
 msgid "Partial amount"
 msgstr "Частичная сумма"
 
+#: templates/admin/sales/approve_sales.html:27
 msgid "(applied to each selected sale, in that sale's own currency)"
 msgstr "(применяется к каждой выбранной продаже, в её собственной валюте)"
 
+#: templates/admin/sales/approve_sales.html:29
 msgid "Loan — pay later (no payment now)"
 msgstr "В долг — оплата позже (сейчас без оплаты)"
 
+#: templates/admin/sales/approve_sales.html:31
 msgid ""
 "Payments are only recorded for sales that have a client. Walk-in sales are "
 "treated as paid on the spot."
@@ -797,24 +1584,31 @@ msgstr ""
 "Оплаты записываются только для продаж с клиентом. Продажи без клиента "
 "считаются оплаченными на месте."
 
+#: templates/admin/sales/approve_sales.html:36
 msgid "Approve"
 msgstr "Одобрить"
 
+#: templates/core/stats.html:6 templates/core/stats.html:69
 msgid "Statistics"
 msgstr "Статистика"
 
+#: templates/core/stats.html:70
 msgid "Back to panel"
 msgstr "Назад в панель"
 
+#: templates/core/stats.html:75
 msgid "View money in"
 msgstr "Показывать деньги в"
 
+#: templates/core/stats.html:81
 msgid "Using rate for date"
 msgstr "По курсу на дату"
 
+#: templates/core/stats.html:84
 msgid "Convert"
 msgstr "Пересчитать"
 
+#: templates/core/stats.html:87
 #, python-format
 msgid ""
 "No rate set for %(cur)s on or before this date — showing base currency. Add "
@@ -823,520 +1617,1398 @@ msgstr ""
 "Нет курса для %(cur)s на эту дату или ранее — показана базовая валюта. "
 "Добавьте курс в разделе «Обменные курсы»."
 
+#: templates/core/stats.html:89
 #, python-format
 msgid "1 %(cur)s = %(rate)s %(base)s"
 msgstr "1 %(cur)s = %(rate)s %(base)s"
 
+#: templates/core/stats.html:91
 #, python-format
 msgid "Base currency: %(base)s"
 msgstr "Базовая валюта: %(base)s"
 
+#: templates/core/stats.html:97
 msgid "Excel report"
 msgstr "Отчёт Excel"
 
+#: templates/core/stats.html:98
 msgid "Sales CSV"
 msgstr "Продажи CSV"
 
+#: templates/core/stats.html:99
 msgid "Stock CSV"
 msgstr "Остатки CSV"
 
+#: templates/core/stats.html:100
 msgid "Debts CSV"
 msgstr "Долги CSV"
 
+#: templates/core/stats.html:105
 msgid "Revenue today"
 msgstr "Выручка сегодня"
 
+#: templates/core/stats.html:109
 msgid "Confirmed sales"
 msgstr "Подтверждённые продажи"
 
+#: templates/core/stats.html:113
 msgid "Items sold"
 msgstr "Продано единиц"
 
+#: templates/core/stats.html:117
 msgid "Units in stock"
 msgstr "Единиц на складе"
 
+#: templates/core/stats.html:121
 msgid "Outstanding debt"
 msgstr "Общий долг"
 
+#: templates/core/stats.html:125
 msgid "Pending approvals"
 msgstr "Ожидают одобрения"
 
+#: templates/core/stats.html:130
 msgid "Revenue — last 7 days"
 msgstr "Выручка — последние 7 дней"
 
+#: templates/core/stats.html:145
 msgid "Sales by channel — 30 days"
 msgstr "Продажи по каналам — 30 дней"
 
+#: templates/core/stats.html:157 templates/core/stats.html:187
 msgid "No sales in this period."
 msgstr "Нет продаж за этот период."
 
+#: templates/core/stats.html:161
 msgid "Top debtors"
 msgstr "Крупнейшие должники"
 
+#: templates/core/stats.html:165
 msgid "Client"
 msgstr "Клиент"
 
+#: templates/core/stats.html:165
 msgid "Debt"
 msgstr "Долг"
 
+#: templates/core/stats.html:171
 msgid "No outstanding debts."
 msgstr "Нет задолженностей."
 
+#: templates/core/stats.html:178
 msgid "Bestsellers — 30 days"
 msgstr "Хиты продаж — 30 дней"
 
+#: templates/core/stats.html:182 templates/core/stats.html:195
 msgid "Sold"
 msgstr "Продано"
 
+#: templates/core/stats.html:191
 msgid "Slow movers — in stock, barely sold"
 msgstr "Залежавшиеся — есть в наличии, плохо продаются"
 
+#: templates/core/stats.html:195
 msgid "In stock"
 msgstr "На складе"
 
+#: templates/core/stats.html:200
 msgid "No stock on hand."
 msgstr "Нет товара в наличии."
 
+#: templates/core/stats.html:205
 msgid "Requests per day"
 msgstr "Запросов в день"
 
+#: templates/core/stats.html:208
 msgid "Day"
 msgstr "День"
 
+#: templates/core/stats.html:208
 msgid "Total"
 msgstr "Всего"
 
+#: templates/errors/400.html:4
 msgid "Некорректный запрос."
 msgstr "Некорректный запрос."
 
+#: templates/errors/403.html:4
 msgid "Нет доступа."
 msgstr "Нет доступа."
 
+#: templates/errors/403_csrf.html:4
 msgid "Сессия устарела. Войдите заново."
 msgstr "Сессия устарела. Войдите заново."
 
+#: templates/errors/403_csrf.html:6 templates/errors/lockout.html:6
 msgid "Войти"
 msgstr "Войти"
 
+#: templates/errors/404.html:7
 msgid "Пустая вешалка"
 msgstr "Пустая вешалка"
 
+#: templates/errors/404.html:12
 msgid "Страница не найдена."
 msgstr "Страница не найдена."
 
+#: templates/errors/base.html:17
 msgid "Вернуться к продажам"
 msgstr "Вернуться к продажам"
 
+#: templates/errors/lockout.html:4
 msgid "Слишком много попыток входа. Попробуйте через час."
 msgstr "Слишком много попыток входа. Попробуйте через час."
 
-msgid "Нужен код подтверждения."
-msgstr "Нужен код подтверждения."
+#: templates/inbox/index.html:3 templates/inbox/index.html:6
+#: templates/pos/base.html:62 templates/reports/_dashboard_panel.html:121
+msgid "Входящие"
+msgstr ""
 
-msgid "Продажа"
-msgstr "Продажа"
+#: templates/inbox/index.html:8 templates/pos/clients.html:25
+msgid "Все"
+msgstr ""
 
-msgid "Дашборд"
-msgstr "Дашборд"
+#: templates/inbox/index.html:9
+#, fuzzy
+#| msgid "Без клиента"
+msgid "Без ответа"
+msgstr "Без клиента"
 
-msgid "Склад"
-msgstr "Склад"
+#: templates/inbox/index.html:10
+msgid "С заявкой"
+msgstr ""
 
-msgid "Админпанель"
-msgstr "Админпанель"
+#: templates/inbox/index.html:11 templates/pos/clients.html:26
+#, fuzzy
+#| msgid "В долг"
+msgid "С долгом"
+msgstr "В долг"
 
-msgid "Тема"
-msgstr "Тема"
+#: templates/inbox/index.html:23
+msgid "заявка"
+msgstr ""
 
-msgid "Сегодня"
-msgstr "Сегодня"
+#: templates/inbox/index.html:28
+msgid "новое"
+msgstr ""
 
-msgid "Клиенты"
-msgstr "Клиенты"
+#: templates/inbox/index.html:28
+#, fuzzy
+#| msgid "оплачено"
+msgid "отвечено"
+msgstr "оплачено"
 
-msgid "Выход"
-msgstr "Выход"
+#: templates/inbox/index.html:33 templates/inbox/thread.html:70
+#, fuzzy
+#| msgid "Покупок пока нет"
+msgid "Сообщений пока нет"
+msgstr "Покупок пока нет"
 
+#: templates/inbox/thread.html:9 templates/pos/client_detail.html:9
+#: templates/pos/clients.html:18 templates/pos/partials/client_section.html:12
 msgid "Долг"
 msgstr "Долг"
 
-msgid "Напомнить о долге в WhatsApp"
-msgstr "Напомнить о долге в WhatsApp"
+#: templates/inbox/thread.html:12
+#, fuzzy
+#| msgid "от"
+msgid "нет"
+msgstr "от"
 
-msgid "История покупок"
+#: templates/inbox/thread.html:15
+#, fuzzy
+#| msgid "История покупок"
+msgid "Последняя покупка"
 msgstr "История покупок"
 
-msgid "Покупок пока нет"
-msgstr "Покупок пока нет"
+#: templates/inbox/thread.html:18
+msgid "Избранное"
+msgstr ""
 
-msgid "Взаимодействия"
-msgstr "Взаимодействия"
+#: templates/inbox/thread.html:25
+msgid "Открытые заказы"
+msgstr ""
 
-msgid "Пока нет записей"
-msgstr "Пока нет записей"
+#: templates/inbox/thread.html:38
+msgid "Заявка"
+msgstr ""
 
-msgid "Поиск клиента"
-msgstr "Поиск клиента"
+#: templates/inbox/thread.html:47
+#, fuzzy
+#| msgid "Подтвердить продажу"
+msgid "Подтвердить"
+msgstr "Подтвердить продажу"
 
-msgid "Телефон или имя"
-msgstr "Телефон или имя"
-
-msgid "Ничего не найдено"
-msgstr "Ничего не найдено"
-
-msgid "Последние клиенты"
-msgstr "Последние клиенты"
-
-msgid "Выбрать"
-msgstr "Выбрать"
-
-msgid "Клиент"
-msgstr "Клиент"
-
-msgid "Изменить"
+#: templates/inbox/thread.html:52
+#, fuzzy
+#| msgid "Изменить"
+msgid "Отклонить"
 msgstr "Изменить"
 
-msgid "Имя"
-msgstr "Имя"
+#: templates/inbox/thread.html:60
+msgid "Переписка"
+msgstr ""
 
-msgid "Фамилия"
-msgstr "Фамилия"
+#: templates/inbox/thread.html:78
+msgid "Ответить..."
+msgstr ""
 
-msgid "Телефон"
-msgstr "Телефон"
+#: templates/inbox/thread.html:79
+#, fuzzy
+#| msgid "Добавить"
+msgid "Отправить"
+msgstr "Добавить"
 
+#: templates/notes/edit.html:3 templates/orders/detail.html:18
+msgid "Заметка"
+msgstr ""
+
+#: templates/notes/edit.html:7
+#, fuzzy
+#| msgid "Изменить"
+msgid "Изменить заметку"
+msgstr "Изменить"
+
+#: templates/notes/edit.html:10 templates/notes/index.html:10
+msgid "Заголовок"
+msgstr ""
+
+#: templates/notes/edit.html:11
+msgid "Текст…"
+msgstr ""
+
+#: templates/notes/edit.html:13 templates/orders/detail.html:20
+#: templates/pos/partials/client_section.html:36
 msgid "Сохранить"
 msgstr "Сохранить"
 
+#: templates/notes/edit.html:14 templates/pos/partials/client_section.html:39
+#: templates/pos/partials/variant_picker.html:20 templates/pos/return.html:23
 msgid "Отмена"
 msgstr "Отмена"
 
-msgid "Без клиента"
-msgstr "Без клиента"
-
-msgid "+ Новый клиент"
-msgstr "+ Новый клиент"
-
-msgid "от"
-msgstr "от"
-
-msgid "нет в наличии"
-msgstr "нет в наличии"
-
-msgid "осталось"
-msgstr "осталось"
-
-msgid "в наличии"
-msgstr "в наличии"
-
-msgid "Позиции"
-msgstr "Позиции"
-
-msgid "шт"
-msgstr "шт"
-
-msgid "Удалить"
+#: templates/notes/edit.html:21
+#, fuzzy
+#| msgid "Удалить"
+msgid "Удалить заметку"
 msgstr "Удалить"
 
-msgid "Оплата"
-msgstr "Оплата"
+#: templates/notes/index.html:3 templates/pos/base.html:67
+msgid "Заметки"
+msgstr ""
 
-msgid "Сумма"
-msgstr "Сумма"
-
-msgid "Валюта"
-msgstr "Валюта"
-
-msgid "Способ"
-msgstr "Способ"
-
-msgid "Оплачено полностью"
-msgstr "Оплачено полностью"
-
-msgid "В долг"
-msgstr "В долг"
-
-msgid "Оплата в другой валюте не засчитывается против остатка этого заказа."
-msgstr "Оплата в другой валюте не засчитывается против остатка этого заказа."
-
-msgid "Итого"
-msgstr "Итого"
-
-msgid "Оплачено"
-msgstr "Оплачено"
-
-msgid "Подтвердить продажу?"
-msgstr "Подтвердить продажу?"
-
-msgid "Подтвердить продажу"
-msgstr "Подтвердить продажу"
-
-msgid "Вариант"
-msgstr "Вариант"
-
-msgid "Количество"
-msgstr "Количество"
-
-msgid "Продажа отменена"
-msgstr "Продажа отменена"
-
-msgid "Товар возвращён на склад."
-msgstr "Товар возвращён на склад."
-
-msgid "проведена"
-msgstr "проведена"
-
-msgid "Осталось"
-msgstr "Осталось"
-
-msgid "Долг клиента"
-msgstr "Долг клиента"
-
-msgid "Отправить чек в WhatsApp"
-msgstr "Отправить чек в WhatsApp"
-
-msgid "Оформить возврат"
-msgstr "Оформить возврат"
-
-msgid "Отменить эту продажу? Товар вернётся на склад."
-msgstr "Отменить эту продажу? Товар вернётся на склад."
-
-msgid "Отменить продажу"
-msgstr "Отменить продажу"
-
-msgid "Новая продажа"
+#: templates/notes/index.html:7
+#, fuzzy
+#| msgid "Новая продажа"
+msgid "Новая заметка"
 msgstr "Новая продажа"
 
-msgid "Возврат"
-msgstr "Возврат"
-
-msgid "Возврат по продаже"
-msgstr "Возврат по продаже"
-
-msgid ""
-"Укажите, сколько единиц возвращается. Товар вернётся на склад, сумма продажи"
-" уменьшится."
+#: templates/notes/index.html:11
+msgid "Задача, идея, что угодно про работу…"
 msgstr ""
-"Укажите, сколько единиц возвращается. Товар вернётся на склад, сумма продажи"
-" уменьшится."
 
-msgid "продано"
-msgstr "продано"
+#: templates/notes/index.html:16
+#, python-format
+msgid "%(n)s активная"
+msgid_plural "%(n)s активных"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
 
-msgid "К возврату"
-msgstr "К возврату"
+#: templates/notes/index.html:22
+msgid "Готово"
+msgstr ""
 
-msgid "Товары"
-msgstr "Товары"
+#: templates/notes/index.html:34
+msgid "Закрепить"
+msgstr ""
 
-msgid "Поиск по названию или артикулу"
-msgstr "Поиск по названию или артикулу"
+#: templates/notes/index.html:38 templates/pos/partials/client_section.html:25
+#: templates/pos/partials/sale_body.html:174
+#: templates/pos/partials/sale_body.html:181
+#: templates/pos/partials/sale_body.html:188
+msgid "Изменить"
+msgstr "Изменить"
 
-msgid "Выручка сегодня"
-msgstr "Выручка сегодня"
-
-msgid "Пока нет продаж. Начните новую."
+#: templates/notes/index.html:42
+#, fuzzy
+#| msgid "Пока нет продаж. Начните новую."
+msgid "Пока нет заметок. Добавьте первую выше."
 msgstr "Пока нет продаж. Начните новую."
 
-msgid "нет курса для"
-msgstr "нет курса для"
+#: templates/orders/detail.html:3 templates/orders/detail.html:7
+msgid "Заказ"
+msgstr ""
 
-msgid "продаж"
-msgstr "продаж"
+#: templates/orders/detail.html:9 templates/orders/index.html:23
+msgid "просрочен"
+msgstr ""
 
-msgid "товаров"
-msgstr "товаров"
-
-msgid "Непроверенные платежи"
-msgstr "Непроверенные платежи"
-
-msgid "Скачать отчёт"
-msgstr "Скачать отчёт"
-
-msgid "Продажи сегодня"
-msgstr "Продажи сегодня"
-
-msgid "без клиента"
-msgstr "без клиента"
-
-msgid "Log in"
-msgstr "Войти"
-
-msgid "Витрина ACOCOS"
-msgstr "Витрина ACOCOS"
-
-msgid "Sign in to continue"
-msgstr "Войдите, чтобы продолжить"
-
-msgid "Username"
-msgstr "Логин"
-
-msgid "Password"
-msgstr "Пароль"
-
-msgid "Authentication code"
-msgstr "Код аутентификации"
-
-msgid "Скачать за"
-msgstr "Скачать за"
-
-msgid "Топ товаров"
-msgstr "Топ товаров"
-
-msgid "Выручка"
-msgstr "Выручка"
-
-msgid "Прибыль"
-msgstr "Прибыль"
-
-msgid "маржа"
-msgstr "маржа"
-
-msgid "Продано"
-msgstr "Продано"
-
-msgid "Долги"
-msgstr "Долги"
-
-msgid "клиент(ов)"
-msgstr "клиент(ов)"
-
-msgid "Выручка по дням"
-msgstr "Выручка по дням"
-
-msgid "≈ сом, по курсу на день продажи"
-msgstr "≈ сом, по курсу на день продажи"
-
-msgid "Нет продаж за этот период"
-msgstr "Нет продаж за этот период"
-
-msgid "Каналы продаж"
-msgstr "Каналы продаж"
-
-msgid "Способы оплаты"
-msgstr "Способы оплаты"
-
-msgid "Нет оплат за этот период"
-msgstr "Нет оплат за этот период"
-
-msgid "Товар"
-msgstr "Товар"
-
-msgid "выручка"
-msgstr "выручка"
-
-msgid "прибыль"
-msgstr "прибыль"
-
-msgid "Долги по срокам"
-msgstr "Долги по срокам"
-
+#: templates/orders/detail.html:16 templates/orders/detail.html:23
+#: templates/reports/_dashboard_panel.html:249
 msgid "Срок"
 msgstr "Срок"
 
-msgid "сумма"
-msgstr "сумма"
+#: templates/orders/detail.html:28 templates/pos/partials/sale_body.html:11
+msgid "Позиции"
+msgstr "Позиции"
 
-msgid "дней"
-msgstr "дней"
+#: templates/orders/detail.html:33 templates/pos/partials/product_grid.html:27
+#: templates/pos/partials/variant_picker.html:10 templates/pos/result.html:19
+#: templates/pos/return.html:14 templates/reports/_dashboard_panel.html:74
+#: templates/reports/_dashboard_panel.html:103
+#: templates/reports/_dashboard_panel.html:163
+#: templates/reports/_dashboard_panel.html:223
+#: templates/reports/storage.html:55
+msgid "шт"
+msgstr "шт"
 
-msgid "Залежавшийся товар"
-msgstr "Залежавшийся товар"
+#: templates/orders/detail.html:33
+#, fuzzy
+#| msgid "проведена"
+msgid "произведено"
+msgstr "проведена"
 
-msgid "Есть на складе, но не продавалось 90+ дней"
-msgstr "Есть на складе, но не продавалось 90+ дней"
+#: templates/orders/detail.html:39 templates/pos/partials/sale_body.html:17
+msgid "Удалить"
+msgstr "Удалить"
 
-msgid "на складе"
-msgstr "на складе"
+#: templates/orders/detail.html:47
+#, fuzzy
+#| msgid "проведена"
+msgid "Произведено"
+msgstr "проведена"
 
-msgid "дней без продаж"
-msgstr "дней без продаж"
+#: templates/orders/detail.html:51
+#, fuzzy
+#| msgid "Пока нет записей"
+msgid "Пока нет позиций"
+msgstr "Пока нет записей"
 
-msgid "заморожено, сом"
-msgstr "заморожено, сом"
+#: templates/orders/detail.html:54
+#, fuzzy
+#| msgid "Добавить"
+msgid "+ Добавить товар"
+msgstr "Добавить"
 
-msgid "не продавалось"
+#: templates/orders/detail.html:68
+msgid "Аванс не внесён"
+msgstr ""
+
+#: templates/orders/detail.html:73
+#, fuzzy
+#| msgid "Сумма"
+msgid "Сумма аванса"
+msgstr "Сумма"
+
+#: templates/orders/detail.html:77 templates/pos/partials/sale_body.html:39
+msgid "Валюта"
+msgstr "Валюта"
+
+#: templates/orders/detail.html:83 templates/pos/partials/sale_body.html:47
+msgid "Способ"
+msgstr "Способ"
+
+#: templates/orders/detail.html:89
+msgid "Внести аванс"
+msgstr ""
+
+#: templates/orders/detail.html:96 templates/pos/partials/sale_body.html:196
+#: templates/pos/result.html:25
+msgid "Итого"
+msgstr "Итого"
+
+#: templates/orders/detail.html:100
+msgid "Аванс внесён"
+msgstr ""
+
+#: templates/orders/detail.html:110
+msgid "Выдать заказ? Остаток товара спишется со склада."
+msgstr ""
+
+#: templates/orders/detail.html:112
+#, fuzzy
+#| msgid "Скачать за"
+msgid "Выдать заказ"
+msgstr "Скачать за"
+
+#: templates/orders/detail.html:117
+#, fuzzy
+#| msgid "Отменить продажу"
+msgid "Открыть продажу"
+msgstr "Отменить продажу"
+
+#: templates/orders/detail.html:121
+#, fuzzy
+#| msgid "Отменить эту продажу? Товар вернётся на склад."
+msgid "Отменить заказ? Резерв товара снимется."
+msgstr "Отменить эту продажу? Товар вернётся на склад."
+
+#: templates/orders/detail.html:124
+#, fuzzy
+#| msgid "Отменить продажу"
+msgid "Отменить заказ"
+msgstr "Отменить продажу"
+
+#: templates/orders/index.html:3 templates/orders/index.html:6
+#: templates/pos/base.html:59
+msgid "Заказы"
+msgstr ""
+
+#: templates/orders/index.html:9
+#, fuzzy
+#| msgid "+ Новый клиент"
+msgid "+ Новый заказ"
+msgstr "+ Новый клиент"
+
+#: templates/orders/index.html:11 templates/orders/queue.html:3
+#: templates/reports/_dashboard_panel.html:97
+#, fuzzy
+#| msgid "не продавалось"
+msgid "К производству"
 msgstr "не продавалось"
 
-msgid "Нет залежавшегося товара"
-msgstr "Нет залежавшегося товара"
+#: templates/orders/index.html:21
+#, fuzzy
+#| msgid "Долги по срокам"
+msgid "без срока"
+msgstr "Долги по срокам"
 
-msgid "К продажам"
-msgstr "К продажам"
-
-msgid "Период"
-msgstr "Период"
-
-msgid "Скачать:"
-msgstr "Скачать:"
-
-msgid "Категории"
-msgstr "Категории"
-
-msgid "Позиций (SKU)"
-msgstr "Позиций (SKU)"
-
-msgid "Единиц на складе"
-msgstr "Единиц на складе"
-
-msgid "продано за всё время"
-msgstr "продано за всё время"
-
-msgid "Стоимость остатка"
-msgstr "Стоимость остатка"
-
-msgid "по себестоимости"
-msgstr "по себестоимости"
-
-msgid "Мало на складе"
-msgstr "Мало на складе"
-
-msgid "брак/списание"
-msgstr "брак/списание"
-
-msgid "По категориям"
-msgstr "По категориям"
-
-msgid "Категория"
-msgstr "Категория"
-
-msgid "позиций"
-msgstr "позиций"
-
-msgid "поступление"
-msgstr "поступление"
-
-msgid "возвраты"
-msgstr "возвраты"
-
-msgid "брак"
-msgstr "брак"
-
+#: templates/orders/index.html:28 templates/reports/storage.html:90
+#: templates/reports/storage.html:128
 msgid "остаток"
 msgstr "остаток"
 
+#: templates/orders/index.html:32
+#, fuzzy
+#| msgid "Покупок пока нет"
+msgid "Заказов пока нет"
+msgstr "Покупок пока нет"
+
+#: templates/orders/new.html:3
+#, fuzzy
+#| msgid "+ Новый клиент"
+msgid "Новый заказ"
+msgstr "+ Новый клиент"
+
+#: templates/orders/new.html:6
+#, fuzzy
+#| msgid "+ Новый клиент"
+msgid "Новый заказ — клиент"
+msgstr "+ Новый клиент"
+
+#: templates/orders/new.html:7 templates/pos/clients.html:9
+#: templates/pos/partials/client_section.html:43
+msgid "Телефон или имя"
+msgstr "Телефон или имя"
+
+#: templates/orders/new.html:15 templates/pos/partials/client_section.html:53
+msgid "+ Новый клиент"
+msgstr "+ Новый клиент"
+
+#: templates/orders/new.html:18 templates/pos/clients.html:17
+#: templates/pos/partials/client_section.html:29
+msgid "Имя"
+msgstr "Имя"
+
+#: templates/orders/new.html:20 templates/pos/partials/client_section.html:31
+msgid "Фамилия"
+msgstr "Фамилия"
+
+#: templates/orders/new.html:22 templates/pos/partials/client_section.html:33
+msgid "Телефон"
+msgstr "Телефон"
+
+#: templates/orders/new.html:24
+#, fuzzy
+#| msgid "Возврат по продаже"
+msgid "Создать и продолжить"
+msgstr "Возврат по продаже"
+
+#: templates/orders/partials/client_results.html:10
+#: templates/orders/product_grid.html:29
+#: templates/pos/partials/client_results.html:13
+#: templates/pos/partials/product_grid.html:31
+msgid "Ничего не найдено"
+msgstr "Ничего не найдено"
+
+#: templates/orders/product_grid.html:3 templates/orders/product_grid.html:7
+#: templates/pos/sale_detail.html:20 templates/reports/storage.html:37
+msgid "Товары"
+msgstr "Товары"
+
+#: templates/orders/product_grid.html:3
+msgid "заказ"
+msgstr ""
+
+#: templates/orders/product_grid.html:5
+msgid "Назад к заказу"
+msgstr ""
+
+#: templates/orders/product_grid.html:8
+msgid ""
+"Остаток показан только для справки — заказ можно оформить и на "
+"непроизведённый товар."
+msgstr ""
+
+#: templates/orders/product_grid.html:10 templates/pos/sale_detail.html:21
+msgid "Поиск по названию или артикулу"
+msgstr "Поиск по названию или артикулу"
+
+#: templates/orders/product_grid.html:26 templates/orders/queue.html:16
+#: templates/orders/variant_picker.html:14
+#: templates/reports/_dashboard_panel.html:267
+msgid "на складе"
+msgstr "на складе"
+
+#: templates/orders/queue.html:6
+#, fuzzy
+#| msgid "не продавалось"
+msgid "Что производить"
+msgstr "не продавалось"
+
+#: templates/orders/queue.html:7
+msgid ""
+"Отсортировано по ближайшему сроку. Считается автоматически — нигде не "
+"хранится вручную."
+msgstr ""
+
+#: templates/orders/queue.html:16
+msgid "заказано"
+msgstr ""
+
+#: templates/orders/queue.html:17
+msgid "срок"
+msgstr ""
+
+#: templates/orders/queue.html:18 templates/reports/_dashboard_panel.html:93
+#, fuzzy
+#| msgid "клиент(ов)"
+msgid "заказ(ов)"
+msgstr "клиент(ов)"
+
+#: templates/orders/queue.html:23
+#, fuzzy
+#| msgid "Остаток на складе"
+msgid "есть на складе"
+msgstr "Остаток на складе"
+
+#: templates/orders/queue.html:25
+#, fuzzy
+#| msgid "не продавалось"
+msgid "к производству"
+msgstr "не продавалось"
+
+#: templates/orders/queue.html:30
+msgid "Нет открытых заказов — производить пока нечего."
+msgstr ""
+
+#: templates/orders/variant_picker.html:5
+#, fuzzy
+#| msgid "На складе пока нет товаров"
+msgid "Назад к товарам"
+msgstr "На складе пока нет товаров"
+
+#: templates/orders/variant_picker.html:10
+#: templates/pos/partials/variant_picker.html:5
+msgid "Вариант"
+msgstr "Вариант"
+
+#: templates/orders/variant_picker.html:18
+#: templates/pos/partials/variant_picker.html:14
+msgid "Количество"
+msgstr "Количество"
+
+#: templates/orders/variant_picker.html:20
+msgid ""
+"Остаток — только справка, лимита количества здесь нет: заказ оформляется и "
+"на непроизведённый товар."
+msgstr ""
+
+#: templates/orders/variant_picker.html:21
+#, fuzzy
+#| msgid "Добавить"
+msgid "Добавить в заказ"
+msgstr "Добавить"
+
+#: templates/pos/base.html:6 templates/pos/base.html:52
+#: templates/pos/result.html:3 templates/pos/result.html:11
+msgid "Продажа"
+msgstr "Продажа"
+
+#: templates/pos/base.html:27 templates/reports/dashboard.html:6
+#: templates/reports/dashboard.html:19 templates/reports/storage.html:20
+msgid "Дашборд"
+msgstr "Дашборд"
+
+#: templates/pos/base.html:28 templates/reports/dashboard.html:21
+#: templates/reports/storage.html:6 templates/reports/storage.html:18
+msgid "Склад"
+msgstr "Склад"
+
+#: templates/pos/base.html:29
+msgid "Админпанель"
+msgstr "Админпанель"
+
+#: templates/pos/base.html:35 templates/reports/dashboard.html:27
+#: templates/reports/storage.html:26
+msgid "Тема"
+msgstr "Тема"
+
+#: templates/pos/base.html:55 templates/pos/today.html:3
+msgid "Сегодня"
+msgstr "Сегодня"
+
+#: templates/pos/base.html:57 templates/pos/clients.html:3
+#: templates/pos/clients.html:7
+msgid "Клиенты"
+msgstr "Клиенты"
+
+#: templates/pos/base.html:71
+msgid "Выход"
+msgstr "Выход"
+
+#: templates/pos/client_detail.html:26
+msgid "Напомнить о долге в WhatsApp"
+msgstr "Напомнить о долге в WhatsApp"
+
+#: templates/pos/client_detail.html:31
+msgid "История покупок"
+msgstr "История покупок"
+
+#: templates/pos/client_detail.html:38
+msgid "Покупок пока нет"
+msgstr "Покупок пока нет"
+
+#: templates/pos/client_detail.html:44 templates/pos/result.html:30
+msgid "Платежи"
+msgstr ""
+
+#: templates/pos/client_detail.html:49 templates/pos/result.html:34
+#, fuzzy
+#| msgid "возвраты"
+msgid "возврат"
+msgstr "возвраты"
+
+#: templates/pos/client_detail.html:60
+msgid "Взаимодействия"
+msgstr "Взаимодействия"
+
+#: templates/pos/client_detail.html:65
+msgid "Пока нет записей"
+msgstr "Пока нет записей"
+
+#: templates/pos/clients.html:15 templates/pos/clients.html:16
+msgid "Сортировка"
+msgstr ""
+
+#: templates/pos/clients.html:19
+msgid "Новые"
+msgstr ""
+
+#: templates/pos/clients.html:23
+msgid "Показать"
+msgstr ""
+
+#: templates/pos/clients.html:24
+msgid "Фильтр"
+msgstr ""
+
+#: templates/pos/clients.html:27
+msgid "Согласие"
+msgstr ""
+
+#: templates/pos/clients.html:33 templates/reports/_dashboard_panel.html:83
+msgid "клиент(ов)"
+msgstr "клиент(ов)"
+
+#: templates/pos/clients.html:45
+#, fuzzy
+#| msgid "Ничего не найдено"
+msgid "Никого не найдено"
+msgstr "Ничего не найдено"
+
+#: templates/pos/clients.html:45
+#, fuzzy
+#| msgid "Пока нет записей"
+msgid "Пока нет клиентов"
+msgstr "Пока нет записей"
+
+#: templates/pos/partials/client_results.html:2
+msgid "Последние клиенты"
+msgstr "Последние клиенты"
+
+#: templates/pos/partials/client_results.html:10
+msgid "Выбрать"
+msgstr "Выбрать"
+
+#: templates/pos/partials/client_section.html:3
+msgid "Клиент"
+msgstr "Клиент"
+
+#: templates/pos/partials/client_section.html:50
+msgid "Без клиента"
+msgstr "Без клиента"
+
+#: templates/pos/partials/product_grid.html:17
+msgid "от"
+msgstr "от"
+
+#: templates/pos/partials/product_grid.html:20
+msgid "нет в наличии"
+msgstr "нет в наличии"
+
+#: templates/pos/partials/product_grid.html:22
+msgid "осталось"
+msgstr "осталось"
+
+#: templates/pos/partials/product_grid.html:24
+#: templates/reports/storage.html:48
+msgid "в наличии"
+msgstr "в наличии"
+
+#: templates/pos/partials/product_grid.html:27
+#: templates/pos/partials/variant_picker.html:10
+msgid "в заказах"
+msgstr ""
+
+#: templates/pos/partials/rates.html:7
+#: templates/pos/partials/sale_body.html:125
+msgid "НБКР"
+msgstr ""
+
+#: templates/pos/partials/rates.html:8
+msgid "Курс устарел"
+msgstr ""
+
+#: templates/pos/partials/rates.html:12
+msgid "Курс не загружен — нажмите «Обновить»."
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:31
+msgid "Оплата"
+msgstr "Оплата"
+
+#: templates/pos/partials/sale_body.html:34
+msgid "Сумма"
+msgstr "Сумма"
+
+#: templates/pos/partials/sale_body.html:57
+msgid "Оплачено полностью"
+msgstr "Оплачено полностью"
+
+#: templates/pos/partials/sale_body.html:59
+msgid "В долг"
+msgstr "В долг"
+
+#: templates/pos/partials/sale_body.html:78
+msgid "Без сдачи"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:83
+#, fuzzy
+#| msgid "нет курса для"
+msgid "Свой курс (Владелец)"
+msgstr "нет курса для"
+
+#: templates/pos/partials/sale_body.html:84
+msgid "Курс вручную"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:87
+msgid "напр. 89.00"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:88
+msgid "Оставьте пустым, чтобы использовать курс НБКР."
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:96
+#, fuzzy
+#| msgid "Валюта"
+msgid "Валюта сдачи"
+msgstr "Валюта"
+
+#: templates/pos/partials/sale_body.html:105
+#, fuzzy
+#| msgid "Отменить продажу"
+msgid "Изменить сумму сдачи"
+msgstr "Отменить продажу"
+
+#: templates/pos/partials/sale_body.html:106
+#, fuzzy
+#| msgid "Сумма"
+msgid "Сумма сдачи"
+msgstr "Сумма"
+
+#: templates/pos/partials/sale_body.html:109
+msgid ""
+"В пределах ±2 шагов округления без подтверждения владельца — требует "
+"причины."
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:110
+#, fuzzy
+#| msgid "Продажа отменена"
+msgid "Причина изменения"
+msgstr "Продажа отменена"
+
+#: templates/pos/partials/sale_body.html:121
+#, python-format
+msgid "Нет курса для %(c)s — оплата не пересчитана. Обновите курс выше."
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:125
+#: templates/pos/partials/sale_body.html:156
+msgid "курс вручную"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:136
+msgid "Клиент дал больше, чем нужно — что сделать с излишком?"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:141
+#: templates/pos/partials/sale_body.html:144
+#, fuzzy
+#| msgid "Нужен код подтверждения."
+msgid "Нужен клиент на продаже"
+msgstr "Нужен код подтверждения."
+
+#: templates/pos/partials/sale_body.html:154
+#, fuzzy
+#| msgid "Клиент"
+msgid "Клиент дал"
+msgstr "Клиент"
+
+#: templates/pos/partials/sale_body.html:156
+msgid "Курс НБКР"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:157
+msgid "Зачтено"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:159
+#, fuzzy
+#| msgid "Способы оплаты"
+msgid "Сумма к оплате"
+msgstr "Способы оплаты"
+
+#: templates/pos/partials/sale_body.html:165
+#, fuzzy, python-format
+#| msgid "поступление"
+msgid "округление %(r)s"
+msgstr "поступление"
+
+#: templates/pos/partials/sale_body.html:168
+msgid "Разные валюты — пересчитайте сдачу вручную перед выдачей."
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:177
+msgid "Излишек будет зачтён в счёт других продаж клиента."
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:184
+msgid "Излишек будет сохранён как аванс клиента."
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:201
+msgid "Оплачено"
+msgstr "Оплачено"
+
+#: templates/pos/partials/sale_body.html:211
+msgid "Подтвердить продажу?"
+msgstr "Подтвердить продажу?"
+
+#: templates/pos/partials/sale_body.html:223
+#, fuzzy
+#| msgid "Непроверенные платежи"
+msgid "Требуется подтверждение платежа:"
+msgstr "Непроверенные платежи"
+
+#: templates/pos/partials/sale_body.html:229
+msgid "Понимаю риск, подтверждаю оплату на этих условиях"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:234
+#, fuzzy
+#| msgid "Подтвердить продажу"
+msgid "Подтвердить и выдать сдачу"
+msgstr "Подтвердить продажу"
+
+#: templates/pos/partials/sale_body.html:234
+msgid "Подтвердить продажу"
+msgstr "Подтвердить продажу"
+
+#: templates/pos/result.html:7
+msgid "Продажа отменена"
+msgstr "Продажа отменена"
+
+#: templates/pos/result.html:8
+msgid "Товар возвращён на склад."
+msgstr "Товар возвращён на склад."
+
+#: templates/pos/result.html:11
+msgid "проведена"
+msgstr "проведена"
+
+#: templates/pos/result.html:20
+msgid "Осталось"
+msgstr "Осталось"
+
+#: templates/pos/result.html:51
+msgid "Долг клиента"
+msgstr "Долг клиента"
+
+#: templates/pos/result.html:72
+msgid "Отправить чек в WhatsApp"
+msgstr "Отправить чек в WhatsApp"
+
+#: templates/pos/result.html:77 templates/pos/return.html:21
+msgid "Оформить возврат"
+msgstr "Оформить возврат"
+
+#: templates/pos/result.html:79
+msgid "Отменить эту продажу? Товар вернётся на склад."
+msgstr "Отменить эту продажу? Товар вернётся на склад."
+
+#: templates/pos/result.html:82
+msgid "Отменить продажу"
+msgstr "Отменить продажу"
+
+#: templates/pos/result.html:90 templates/pos/sale_detail.html:3
+msgid "Новая продажа"
+msgstr "Новая продажа"
+
+#: templates/pos/return.html:3
+msgid "Возврат"
+msgstr "Возврат"
+
+#: templates/pos/return.html:6
+msgid "Возврат по продаже"
+msgstr "Возврат по продаже"
+
+#: templates/pos/return.html:7
+msgid ""
+"Укажите, сколько единиц возвращается. Товар вернётся на склад, сумма продажи"
+" уменьшится."
+msgstr ""
+"Укажите, сколько единиц возвращается. Товар вернётся на склад, сумма продажи"
+" уменьшится."
+
+#: templates/pos/return.html:14 templates/reports/storage.html:87
+#: templates/reports/storage.html:124
+msgid "продано"
+msgstr "продано"
+
+#: templates/pos/return.html:17
+msgid "К возврату"
+msgstr "К возврату"
+
+#: templates/pos/sale_detail.html:6
+msgid "Курс"
+msgstr ""
+
+#: templates/pos/sale_detail.html:11
+msgid "Обновить курс НБКР"
+msgstr ""
+
+#: templates/pos/today.html:6
+msgid "Выручка сегодня"
+msgstr "Выручка сегодня"
+
+#: templates/pos/today.html:10 templates/pos/today.html:40
+msgid "Пока нет продаж. Начните новую."
+msgstr "Пока нет продаж. Начните новую."
+
+#: templates/pos/today.html:14
+msgid "нет курса для"
+msgstr "нет курса для"
+
+#: templates/pos/today.html:16 templates/reports/_dashboard_panel.html:162
+msgid "продаж"
+msgstr "продаж"
+
+#: templates/pos/today.html:16
+msgid "товаров"
+msgstr "товаров"
+
+#: templates/pos/today.html:20
+msgid "Непроверенные платежи"
+msgstr "Непроверенные платежи"
+
+#: templates/pos/today.html:26
+msgid "Скачать отчёт"
+msgstr "Скачать отчёт"
+
+#: templates/pos/today.html:30
+msgid "Продажи сегодня"
+msgstr "Продажи сегодня"
+
+#: templates/pos/today.html:35
+msgid "без клиента"
+msgstr "без клиента"
+
+#: templates/registration/login.html:6 templates/registration/login.html:36
+msgid "Log in"
+msgstr "Войти"
+
+#: templates/registration/login.html:15
+msgid "Витрина ACOCOS"
+msgstr "Витрина ACOCOS"
+
+#: templates/registration/login.html:19
+msgid "Sign in to continue"
+msgstr "Войдите, чтобы продолжить"
+
+#: templates/registration/login.html:27
+msgid "Username"
+msgstr "Логин"
+
+#: templates/registration/login.html:31
+msgid "Password"
+msgstr "Пароль"
+
+#: templates/reports/_dashboard_panel.html:16
+msgid "Период"
+msgstr "Период"
+
+#: templates/reports/_dashboard_panel.html:25
+#, fuzzy
+#| msgid "Валюта"
+msgid "Валюта показа"
+msgstr "Валюта"
+
+#: templates/reports/_dashboard_panel.html:36
+msgid "Курс валюты недоступен — суммы показаны в сомах."
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:38
+#, fuzzy
+#| msgid "Сумма"
+msgid "Суммы в"
+msgstr "Сумма"
+
+#: templates/reports/_dashboard_panel.html:38
+#, fuzzy
+#| msgid "прибыль"
+msgid "приблизительны"
+msgstr "прибыль"
+
+#: templates/reports/_dashboard_panel.html:38
+msgid "по курсу НБКР на"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:38
+msgid "Точные суммы — в сомах и в выгрузке."
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:44
+#: templates/reports/storage.html:35
+msgid "Скачать:"
+msgstr "Скачать:"
+
+#: templates/reports/_dashboard_panel.html:46
+#: templates/reports/_dashboard_panel.html:219
+msgid "Топ товаров"
+msgstr "Топ товаров"
+
+#: templates/reports/_dashboard_panel.html:47
+#: templates/reports/_dashboard_panel.html:57
+msgid "Выручка"
+msgstr "Выручка"
+
+#: templates/reports/_dashboard_panel.html:65
+msgid "Прибыль"
+msgstr "Прибыль"
+
+#: templates/reports/_dashboard_panel.html:67
+msgid "маржа"
+msgstr "маржа"
+
+#: templates/reports/_dashboard_panel.html:73
+msgid "Продано"
+msgstr "Продано"
+
+#: templates/reports/_dashboard_panel.html:81
+msgid "Долги"
+msgstr "Долги"
+
+#: templates/reports/_dashboard_panel.html:83
+#, fuzzy
+#| msgid "Сейчас"
+msgid "сейчас"
+msgstr "Сейчас"
+
+#: templates/reports/_dashboard_panel.html:92
+msgid "Заказы в работе"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:94
+msgid "Открыть заказы"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:108
+#, fuzzy
+#| msgid "проведена"
+msgid "Всё произведено."
+msgstr "проведена"
+
+#: templates/reports/_dashboard_panel.html:110
+msgid "Вся очередь"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:119
+msgid "Охват в Telegram"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:120
+#, fuzzy
+#| msgid "поступление"
+msgid "Доступно в Telegram"
+msgstr "поступление"
+
+#: templates/reports/_dashboard_panel.html:120
+msgid "из"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:120
+#, fuzzy
+#| msgid "клиент(ов)"
+msgid "клиентов"
+msgstr "клиент(ов)"
+
+#: templates/reports/_dashboard_panel.html:124
+msgid "Чаще всего в избранном"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:135
+msgid "Пока пусто."
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:144
+msgid "Выручка по дням"
+msgstr "Выручка по дням"
+
+#: templates/reports/_dashboard_panel.html:145
+#, fuzzy
+#| msgid "прибыль"
+msgid "приблизительно"
+msgstr "прибыль"
+
+#: templates/reports/_dashboard_panel.html:145
+#, fuzzy
+#| msgid "Страница не найдена."
+msgid "нажмите на день"
+msgstr "Страница не найдена."
+
+#: templates/reports/_dashboard_panel.html:145
+msgid "Нажмите на день, чтобы увидеть его продажи"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:150
+msgid "Пн"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:150
+#, fuzzy
+#| msgid "от"
+msgid "Вт"
+msgstr "от"
+
+#: templates/reports/_dashboard_panel.html:150
+#, fuzzy
+#| msgid "Срок"
+msgid "Ср"
+msgstr "Срок"
+
+#: templates/reports/_dashboard_panel.html:150
+#, fuzzy
+#| msgid "от"
+msgid "Чт"
+msgstr "от"
+
+#: templates/reports/_dashboard_panel.html:150
+#, fuzzy
+#| msgid "от"
+msgid "Пт"
+msgstr "от"
+
+#: templates/reports/_dashboard_panel.html:150
+msgid "Сб"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:150
+msgid "Вс"
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:158
+msgid "Нажмите на день, чтобы увидеть выручку, продажи и штуки."
+msgstr ""
+
+#: templates/reports/_dashboard_panel.html:161
+#: templates/reports/_dashboard_panel.html:223
+msgid "выручка"
+msgstr "выручка"
+
+#: templates/reports/_dashboard_panel.html:172
+msgid "Каналы продаж"
+msgstr "Каналы продаж"
+
+#: templates/reports/_dashboard_panel.html:183
+#: templates/reports/_dashboard_panel.html:241
+msgid "Нет продаж за этот период"
+msgstr "Нет продаж за этот период"
+
+#: templates/reports/_dashboard_panel.html:189
+#: templates/reports/_dashboard_panel.html:193
+msgid "Способы оплаты"
+msgstr "Способы оплаты"
+
+#: templates/reports/_dashboard_panel.html:211
+msgid "Нет оплат за этот период"
+msgstr "Нет оплат за этот период"
+
+#: templates/reports/_dashboard_panel.html:223
+#: templates/reports/_dashboard_panel.html:267
+#: templates/reports/storage.html:122
+msgid "Товар"
+msgstr "Товар"
+
+#: templates/reports/_dashboard_panel.html:223
+msgid "прибыль"
+msgstr "прибыль"
+
+#: templates/reports/_dashboard_panel.html:247
+msgid "Долги по срокам"
+msgstr "Долги по срокам"
+
+#: templates/reports/_dashboard_panel.html:249
+msgid "сумма"
+msgstr "сумма"
+
+#: templates/reports/_dashboard_panel.html:251
+#: templates/reports/_dashboard_panel.html:252
+#: templates/reports/_dashboard_panel.html:253
+msgid "дней"
+msgstr "дней"
+
+#: templates/reports/_dashboard_panel.html:262
+msgid "Залежавшийся товар"
+msgstr "Залежавшийся товар"
+
+#: templates/reports/_dashboard_panel.html:263
+msgid "Есть на складе, но не продавалось 90+ дней"
+msgstr "Есть на складе, но не продавалось 90+ дней"
+
+#: templates/reports/_dashboard_panel.html:267
+msgid "дней без продаж"
+msgstr "дней без продаж"
+
+#: templates/reports/_dashboard_panel.html:267
+#, fuzzy
+#| msgid "заморожено, сом"
+msgid "заморожено"
+msgstr "заморожено, сом"
+
+#: templates/reports/_dashboard_panel.html:278
+msgid "не продавалось"
+msgstr "не продавалось"
+
+#: templates/reports/_dashboard_panel.html:285
+msgid "Нет залежавшегося товара"
+msgstr "Нет залежавшегося товара"
+
+#: templates/reports/dashboard.html:22 templates/reports/storage.html:21
+msgid "К продажам"
+msgstr "К продажам"
+
+#: templates/reports/storage.html:38
+msgid "Категории"
+msgstr "Категории"
+
+#: templates/reports/storage.html:46
+msgid "Позиций (SKU)"
+msgstr "Позиций (SKU)"
+
+#: templates/reports/storage.html:54
+msgid "Единиц на складе"
+msgstr "Единиц на складе"
+
+#: templates/reports/storage.html:56
+msgid "продано за всё время"
+msgstr "продано за всё время"
+
+#: templates/reports/storage.html:62
+msgid "Стоимость остатка"
+msgstr "Стоимость остатка"
+
+#: templates/reports/storage.html:64
+msgid "по себестоимости"
+msgstr "по себестоимости"
+
+#: templates/reports/storage.html:70
+msgid "Мало на складе"
+msgstr "Мало на складе"
+
+#: templates/reports/storage.html:72
+msgid "брак/списание"
+msgstr "брак/списание"
+
+#: templates/reports/storage.html:79
+msgid "По категориям"
+msgstr "По категориям"
+
+#: templates/reports/storage.html:84 templates/reports/storage.html:120
+msgid "Категория"
+msgstr "Категория"
+
+#: templates/reports/storage.html:85
+msgid "позиций"
+msgstr "позиций"
+
+#: templates/reports/storage.html:86
+msgid "поступление"
+msgstr "поступление"
+
+#: templates/reports/storage.html:88 templates/reports/storage.html:125
+msgid "возвраты"
+msgstr "возвраты"
+
+#: templates/reports/storage.html:89 templates/reports/storage.html:126
+msgid "брак"
+msgstr "брак"
+
+#: templates/reports/storage.html:91 templates/reports/storage.html:129
 msgid "≈ стоимость"
 msgstr "≈ стоимость"
 
+#: templates/reports/storage.html:109 templates/reports/storage.html:151
 msgid "На складе пока нет товаров"
 msgstr "На складе пока нет товаров"
 
+#: templates/reports/storage.html:114
 msgid "Все товары"
 msgstr "Все товары"
 
+#: templates/reports/storage.html:115
 msgid ""
 "Каждая строка — вариант товара; движения по складскому журналу за всё время."
 msgstr ""
 "Каждая строка — вариант товара; движения по складскому журналу за всё время."
 
+#: templates/reports/storage.html:121
 msgid "Артикул"
 msgstr "Артикул"
 
+#: templates/reports/storage.html:123
 msgid "поступл."
 msgstr "поступл."
 
+#: templates/reports/storage.html:127
 msgid "коррект."
 msgstr "коррект."
 
+#: templates/reports/storage.html:143
 msgid "мало"
 msgstr "мало"

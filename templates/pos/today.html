@@ -1,16 +1,16 @@
 {% extends "pos/base.html" %}
-{% load i18n %}
+{% load i18n pos_extras %}
 {% block title %}{% trans "Сегодня" %}{% endblock %}
 {% block content %}
 <div class="card">
  <h2>{% trans "Выручка сегодня" %}</h2>
  {% for cur, amt in summary.revenue_by_currency.items %}
-   <p class="num" style="margin:2px 0;font-size:16px;font-weight:500">{{ amt }} {{ cur }}</p>
+   <p class="num" style="margin:2px 0;font-size:16px;font-weight:500">{{ amt|money:cur }}</p>
  {% empty %}
    <p class="muted">{% trans "Пока нет продаж. Начните новую." %}</p>
  {% endfor %}
  {% if summary.revenue_by_currency %}
-   <p class="hint">≈ {{ revenue_base }} {{ base_currency }}
+   <p class="hint">≈ {{ revenue_base|money:base_currency }}
      {% if skipped_currencies %}({% trans "нет курса для" %} {{ skipped_currencies|join:", " }}){% endif %}</p>
  {% endif %}
  <p class="muted">{{ summary.orders }} {% trans "продаж" %} · {{ summary.items }} {% trans "товаров" %}</p>
@@ -34,7 +34,7 @@
      <a href="{% url 'pos:sale_result' o.pk %}">{{ o.confirmed_at|date:"H:i" }}</a><br>
      <span class="muted">{% if o.client %}{{ o.client.name }}{% else %}{% trans "без клиента" %}{% endif %}</span>
    </div>
-   <div class="line-row__total num">{{ o.total }} {{ o.currency }}</div>
+   <div class="line-row__total num">{{ o.total|money:o.currency }}</div>
  </div>
  {% empty %}
  <p class="muted">{% trans "Пока нет продаж. Начните новую." %}</p>

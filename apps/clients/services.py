@@ -23,10 +23,33 @@ def log_whatsapp_interaction(phone: str, text: str) -> Client:
     return client
 
 
+def set_marketing_consent(client: Client, consent: bool) -> None:
+    """The explicit «Присылать новинки?» Да/Нет step — the ONLY place
+    marketing_consent is set True (besides an owner's manual admin edit)."""
+    client.marketing_consent = consent
+    client.save(update_fields=["marketing_consent"])
+
+
+def client_by_chat_id(chat_id: int) -> Client | None:
+    return Client.objects.filter(telegram_chat_id=chat_id).first()
+
+
+def log_telegram_interaction(client: Client, text: str) -> None:
+    """Mirrors log_whatsapp_interaction's CRM-linking rule for the client
+    Telegram bot's «Написать нам» — every free-text message to staff is
+    logged against the client, not just answered and forgotten."""
+    Interaction.objects.create(client=client, kind=Interaction.MESSAGE, note=text)
+
+
 def subscribe_telegram(phone: str, chat_id: int) -> Client | None:
-    """A client shared their contact with the bot: link their Telegram chat and
-    opt them into broadcasts. Matches by phone; returns None if no client has
+    """A client shared their contact with the bot: link their Telegram chat so
+    the bot CAN reach them. Matches by phone; returns None if no client has
     that number (the bot then can't reach them — messaging is chat_id-only).
+
+    Deliberately does NOT set marketing_consent — CLIENT_BOTS.md §3.1: "Never
+    assume consent from /start alone." A verified phone only makes a client
+    reachable; consent is a separate explicit «Присылать новинки?» Да/Нет
+    step (see set_marketing_consent), asked right after this.
 
     Matching is digit-exact but format-tolerant («+996 700...» == «996700...»).
     Separators are stripped in SQL (REPLACE chain) so the prefilter returns a
@@ -39,9 +62,7 @@ def subscribe_telegram(phone: str, chat_id: int) -> Client | None:
     normalized = F("phone")
     for sep in (" ", "-", "(", ")", "+", "."):
         normalized = Replace(normalized, Value(sep))
-    candidates = Client.objects.annotate(_digits=normalized).filter(
-        _digits__endswith=digits[-7:]
-    )
+    candidates = Client.objects.annotate(_digits=normalized).filter(_digits__endswith=digits[-7:])
     client = next(
         (c for c in candidates if "".join(ch for ch in c.phone if ch.isdigit()) == digits),
         None,
@@ -49,9 +70,34 @@ def subscribe_telegram(phone: str, chat_id: int) -> Client | None:
     if client is None:
         return None
     client.telegram_chat_id = chat_id
-    client.marketing_consent = True
-    client.save(update_fields=["telegram_chat_id", "marketing_consent"])
+    client.save(update_fields=["telegram_chat_id"])
     return client
+
+
+def start_handoff(client: Client, hours: int = 6) -> None:
+    """WhatsApp auto-reply goes quiet for `hours` — on «менеджер», on any
+    staff reply from /inbox/, or on a burst of client messages (see
+    apps.wa.client_replies / apps.inbox.views). NULL/past = bot answers
+    normally again."""
+    client.human_handoff_until = timezone.now() + timedelta(hours=hours)
+    client.save(update_fields=["human_handoff_until"])
+
+
+def is_handed_off(client: Client) -> bool:
+    return bool(client.human_handoff_until and client.human_handoff_until > timezone.now())
+
+
+def recent_message_burst(client: Client, within_minutes: int = 2, threshold: int = 3) -> bool:
+    """3+ inbound messages from this client within `within_minutes` — the
+    other automatic handoff trigger (CLIENT_BOTS.md §4): a rapid-fire client
+    is asking for a human, not another auto-reply."""
+    cutoff = timezone.now() - timedelta(minutes=within_minutes)
+    return (
+        Interaction.objects.filter(
+            client=client, kind=Interaction.MESSAGE, created_at__gte=cutoff
+        ).count()
+        >= threshold
+    )
 
 
 def unsubscribe_telegram(chat_id: int) -> Client | None:
@@ -86,8 +132,18 @@ def lapsed_clients(days: int = 60) -> list[Client]:
 
 def client_debts_by_currency() -> dict[int, dict[str, Decimal]]:
     """{client_id: {currency: debt}} — confirmed sale totals minus payments,
-    computed independently per currency (a KGS payment never offsets a USD
-    debt). Two grouped queries total, no N+1 regardless of client count."""
+    keyed by the ORDER's currency. A payment counts against the order it was
+    made for by its NET applied amount (gross minus any change handed back,
+    see Payment.net_applied_kgs — never the raw gross amount), converted into
+    that order's currency at the rate frozen on the payment
+    (net_applied_kgs ÷ order_rate) — so a USD payment on a сом order reduces
+    the сом debt by what actually stayed with the shop. Two grouped queries
+    total, no N+1."""
+    from decimal import ROUND_HALF_UP
+
+    from django.db.models import DecimalField, ExpressionWrapper
+
+    from apps.core.currency import CENTS
     from apps.sales.models import Payment, SaleOrder
 
     totals: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
@@ -100,23 +156,47 @@ def client_debts_by_currency() -> dict[int, dict[str, Decimal]]:
     for row in sales_rows:
         totals[row["client_id"]][row["currency"]] += row["t"] or Decimal("0")
 
+    converted = ExpressionWrapper(
+        (F("amount") * F("rate_to_kgs") - F("change_amount_kgs")) / F("order__rate_to_kgs"),
+        output_field=DecimalField(max_digits=20, decimal_places=6),
+    )
     payment_rows = (
-        Payment.objects.filter(client__isnull=False)
-        .values("client_id", "currency")
-        .annotate(t=Sum("amount"))
+        Payment.objects.filter(client__isnull=False, order__isnull=False)
+        .values("client_id", "order__currency")
+        .annotate(t=Sum(converted))
     )
     for row in payment_rows:
-        totals[row["client_id"]][row["currency"]] -= row["t"] or Decimal("0")
+        totals[row["client_id"]][row["order__currency"]] -= row["t"] or Decimal("0")
 
-    return {
-        cid: {cur: amt for cur, amt in currs.items() if amt != 0} for cid, currs in totals.items()
-    }
+    from django.conf import settings
+
+    tolerance = settings.PAYMENT_ROUNDING_TOLERANCE
+    result = {}
+    for cid, currs in totals.items():
+        quantized = {cur: amt.quantize(CENTS, rounding=ROUND_HALF_UP) for cur, amt in currs.items()}
+        # A residue of at most `tolerance` сом (sub-сом currency-conversion
+        # rounding) is treated as fully settled, not a lingering debt — but a
+        # negative amount (client overpaid) is a real credit and stays visible.
+        kept = {cur: amt for cur, amt in quantized.items() if amt > tolerance or amt < 0}
+        if kept:
+            result[cid] = kept
+    return result
 
 
 def client_debt(client: Client) -> dict[str, Decimal]:
-    """{currency: debt} for one client — positive balances only."""
+    """{currency: debt} for one client — positive balances only. Deliberately
+    excludes credits (see client_credits) — this feeds debt-reminder logic,
+    which must never nudge a client who's actually in credit."""
     debts = client_debts_by_currency().get(client.pk, {})
     return {cur: amt for cur, amt in debts.items() if amt > 0}
+
+
+def client_credits(client: Client) -> dict[str, Decimal]:
+    """{currency: credit} for one client — a negative pooled balance (paid
+    more than they owe, via «В счёт долга»/«Аванс», see Payment) shown as a
+    positive «Аванс» figure, never as a negative debt."""
+    debts = client_debts_by_currency().get(client.pk, {})
+    return {cur: -amt for cur, amt in debts.items() if amt < 0}
 
 
 def total_outstanding_debt() -> dict[str, Decimal]:

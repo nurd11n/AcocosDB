@@ -1,4 +1,10 @@
-"""Shared bilingual command handling — used by both the WhatsApp and Telegram bots."""
+"""Staff-only bilingual command handling — used EXCLUSIVELY by bot/staff_bot.py
+(the internal, allowlisted Telegram bot). Never wired into the public WhatsApp
+webhook or the client Telegram bot: every function here accepts an arbitrary
+query/phone and returns aggregate business data (revenue, debts, stock
+totals). The WhatsApp client channel uses apps.wa.client_replies instead,
+which is scoped to a single resolved Client and holds no aggregate lookups.
+"""
 
 from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
@@ -91,20 +97,3 @@ def lapsed_reply(days: int = 60) -> str:
     lines = [f"Inactive {days}+ days / Давно не покупали ({days}+ дн.):"]
     lines.extend(f"{c.name} ({c.phone})" for c in clients[:20])
     return "\n".join(lines)
-
-
-def build_reply(text: str) -> str:
-    lowered = text.lower()
-    if lowered.startswith(("stock", "остаток")):
-        return stock_reply(text.split(maxsplit=1)[1].strip() if " " in text else "")
-    if lowered.startswith(("today", "сегодня")):
-        return today_reply()
-    if lowered.startswith(("client", "клиент")):
-        return client_reply(text.split(maxsplit=1)[1].strip() if " " in text else "")
-    if lowered.startswith(("debts", "долги")):
-        return debts_reply()
-    if lowered.startswith(("restock", "мало", "низк")):
-        return restock_reply()
-    if lowered.startswith(("lapsed", "давно")):
-        return lapsed_reply()
-    return HELP

@@ -1,20 +1,36 @@
 """ACOCOS CRM — base settings. Everything configurable comes from .env (see .env.example)."""
 
+import os
+from decimal import Decimal
 from pathlib import Path
 
+import certifi
 import environ
 from django.utils.translation import gettext_lazy as _
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+# Point Python's default TLS trust store at certifi's CA bundle. Django's email
+# backend uses stdlib smtplib + ssl.create_default_context(), which reads the OS
+# trust store — and a macOS python.org install (how dev runs bare, no Docker
+# yet) ships without a usable one, so sending mail dies with "unable to get
+# local issuer certificate". certifi is a current, reliable CA bundle already
+# present (requests/aiogram use it) and valid on every platform, so pointing at
+# it is safe in Docker/prod too. setdefault so an explicit host override wins.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+
 env = environ.Env(
     DEBUG=(bool, False),
-    OTP_ENABLED=(bool, False),
     REDIS_URL=(str, ""),
     TIME_ZONE=(str, "Asia/Bishkek"),
     CURRENCY=(str, "KGS"),
     REPORT_HOUR=(str, "21:00"),
+    RATES_HOUR=(str, "08:00"),
+    SNAPSHOT_HOURS=(str, "00:00,06:00,12:00,18:00"),
     ADMIN_URL=(str, "panel/"),
+    LARGE_PAYMENT_THRESHOLD_KGS=(int, 10000),
+    CHANGE_ROUNDING_STEP=(str, "1.00"),
+    CHANGE_CONFIRM_THRESHOLD_KGS=(int, 5000),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -23,9 +39,26 @@ DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
-OTP_ENABLED = env("OTP_ENABLED")  # TOTP 2FA on the shared login — mandatory in prod
 REPORT_HOUR = env("REPORT_HOUR")  # HH:MM, TIME_ZONE below — used by the scheduler container
+RATES_HOUR = env("RATES_HOUR")  # HH:MM — daily automatic NBKR pull (manual refresh stays too)
 ADMIN_URL = env("ADMIN_URL")  # admin is no longer the front door — /pos/ is
+
+# --- On-server database snapshots (apps.core...backup_db + scheduler.py) ---
+# A local, always-available snapshot floor that works in ANY environment
+# (sqlite or postgres, Docker or bare) with no age/rclone/B2 needed — the first
+# line of defence so a snapshot always exists on the box. The prod Docker
+# `backup` service layers encryption + offsite B2 on top (see README/Backups).
+# SNAPSHOT_HOURS: comma-separated HH:MM times (TIME_ZONE) the scheduler runs it.
+SNAPSHOT_HOURS = env("SNAPSHOT_HOURS")
+# Where snapshots land. Kept under backups/ (gitignored) so they never get
+# committed. In Docker prod this path is a mounted volume so it survives a
+# container rebuild — see docker-compose.prod.yml's scheduler service.
+BACKUP_SNAPSHOT_DIR = env("BACKUP_SNAPSHOT_DIR", default=str(BASE_DIR / "backups" / "snapshots"))
+# Retention tiers (days): keep every snapshot for KEEP_ALL_DAYS, then one per
+# day up to KEEP_DAILY_DAYS, then one per ISO week up to KEEP_WEEKLY_DAYS.
+SNAPSHOT_KEEP_ALL_DAYS = env.int("SNAPSHOT_KEEP_ALL_DAYS", default=7)
+SNAPSHOT_KEEP_DAILY_DAYS = env.int("SNAPSHOT_KEEP_DAILY_DAYS", default=30)
+SNAPSHOT_KEEP_WEEKLY_DAYS = env.int("SNAPSHOT_KEEP_WEEKLY_DAYS", default=183)
 
 # --- Auth routing: /pos/ is the front door, not the admin ---
 LOGIN_URL = "/login/"
@@ -40,6 +73,38 @@ LOGOUT_REDIRECT_URL = "/login/"
 # only the BASE currency that ExchangeRate rates are quoted against.
 CURRENCY = env("CURRENCY")  # base currency, e.g. KGS
 
+# A converted foreign payment needs an explicit second confirmation (not just
+# the primary "Подтвердить продажу" tap) when the rate behind it is risky:
+# older than RATE_STALE_DAYS, manually overridden, or the converted amount
+# exceeds this threshold. Fresh + small stays one tap — see apps.pos.views.
+LARGE_PAYMENT_THRESHOLD_KGS = env.int("LARGE_PAYMENT_THRESHOLD_KGS")
+# Курс card age badge + risk-friction boundaries, in days since the rate's
+# `date`. 0-1 fresh (--paid), 2-3 aging (--partial, still normal — NBKR
+# doesn't publish weekends/holidays), 4+ stale (--debt, «Курс устарел»,
+# and triggers the extra confirmation step). Never blocks a sale either way.
+RATE_STALE_WARN_DAYS = 2
+RATE_STALE_DAYS = 4
+# A payment is "fully paid" once the remainder is at most this many сом —
+# sub-сом rounding residue from currency conversion must never linger as a
+# permanent ghost debt.
+PAYMENT_ROUNDING_TOLERANCE = Decimal("1.00")
+
+# --- Change (сдача) ---
+# Computed change is rounded DOWN to the nearest step of physical cash — the
+# till operates in сом, so this is always KGS-denominated even when the
+# change itself is dispensed in another currency (see apps.sales.services.
+# compute_change_preview). The residue between the ideal and rounded figure
+# is stored on the payment (change_rounding_kgs) so till drift is reportable,
+# never silently dropped.
+CHANGE_ROUNDING_STEP = Decimal(env("CHANGE_ROUNDING_STEP"))
+# A computed change amount above this many сом needs the same explicit second
+# confirmation as a stale/manual-rate/large payment — never blocks, just asks
+# once. Small same-currency change stays one tap.
+CHANGE_CONFIRM_THRESHOLD_KGS = env.int("CHANGE_CONFIRM_THRESHOLD_KGS")
+# A manual rate more than this fraction away from the official NBKR rate at
+# the same moment gets a warning (never a block) — see Payment.rate_official.
+MANUAL_RATE_DEVIATION_WARN_PCT = Decimal("0.05")
+
 INSTALLED_APPS = [
     "jazzmin",
     "django.contrib.admin",
@@ -49,12 +114,6 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     # security / auditing
-    "django_otp",
-    "django_otp.plugins.otp_totp",
-    # Static (single-use) tokens — used ONCE to bootstrap the first superuser
-    # into the admin when OTP_ENABLED=True (a fresh account has no TOTP device,
-    # so it could never log in to enroll one). See README's TOTP bootstrap.
-    "django_otp.plugins.otp_static",
     "axes",
     "simple_history",
     "import_export",
@@ -63,8 +122,10 @@ INSTALLED_APPS = [
     "apps.inventory",
     "apps.clients",
     "apps.sales",
+    "apps.orders",
     "apps.reports",
     "apps.campaigns",
+    "apps.inbox",
     "apps.pos",
     "apps.notes",
     "apps.wa",
@@ -85,7 +146,6 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "simple_history.middleware.HistoryRequestMiddleware",
@@ -137,6 +197,8 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "apps.core.context_processors.admin_url",
                 "apps.core.context_processors.theme",
+                "apps.core.context_processors.feature_flags",
+                "apps.inbox.context_processors.inbox_badges",
             ],
         },
     },
@@ -254,10 +316,23 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = env("EMAIL_HOST", default="")
 EMAIL_PORT = env.int("EMAIL_PORT", default=587)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+# Gmail shows an App Password grouped as "abcd efgh ijkl mnop" for readability;
+# the actual secret has no spaces. Strip them so a copy-paste with spaces still
+# authenticates instead of failing with a confusing 535 BadCredentials.
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="").replace(" ", "")
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
 DEFAULT_FROM_EMAIL = env("EMAIL_HOST_USER", default="acocos@localhost")
 REPORT_RECIPIENTS = env.list("REPORT_RECIPIENTS", default=[])
+
+# --- Feature flags — bots are not production-ready yet; everything else is.
+# All three default OFF here (a bare prod deploy with no .env override ships
+# safe): bot/main.py idles instead of polling, the WhatsApp webhook 404s, and
+# the campaigns admin/send_campaign refuse — see each gate's own comment for
+# exactly what it does. dev.py flips the default to True for local/docker-dev
+# convenience; .env can still override either way in any environment. ---
+BOTS_ENABLED = env.bool("BOTS_ENABLED", default=False)
+WHATSAPP_ENABLED = env.bool("WHATSAPP_ENABLED", default=False)
+CAMPAIGNS_ENABLED = env.bool("CAMPAIGNS_ENABLED", default=False)
 
 # --- Bots ---
 # TWO separate Telegram bots, two tokens — see bot/staff_bot.py and
@@ -270,6 +345,16 @@ WHATSAPP_VERIFY_TOKEN = env("WHATSAPP_VERIFY_TOKEN", default="")
 WHATSAPP_TOKEN = env("WHATSAPP_TOKEN", default="")
 WHATSAPP_PHONE_NUMBER_ID = env("WHATSAPP_PHONE_NUMBER_ID", default="")
 WHATSAPP_APP_SECRET = env("WHATSAPP_APP_SECRET", default="")
+# WhatsApp broadcasts stay off by default (CLIENT_BOTS.md §5.3): a mistaken
+# free-form blast risks a ban. Flip on only once an approved Meta template
+# exists — send_campaign refuses WhatsApp sends without both set.
+WHATSAPP_BROADCAST_ENABLED = env.bool("WHATSAPP_BROADCAST_ENABLED", default=False)
+WHATSAPP_TEMPLATE_NAME = env("WHATSAPP_TEMPLATE_NAME", default="")
+# Public https:// base of THIS deployment (e.g. https://crm.example.com), used
+# to turn a relative media path into an absolute URL that Meta can fetch for a
+# WhatsApp template's hero image. Empty = send the template text-only rather
+# than a broken relative link. Set it to https:// + your DOMAIN in prod.
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="")
 
 # --- Admin UI (django-jazzmin) ---
 # The sidebar is a workflow, not an alphabetical model dump: Продажи (the sale
@@ -304,7 +389,6 @@ JAZZMIN_SETTINGS = {
         "reports.DailyReview",
         "core",
         "auth",
-        "otp_totp",
         "axes",
     ],
     "icons": {
