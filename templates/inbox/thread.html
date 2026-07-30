@@ -1,0 +1,82 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{{ client.name }}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{{ client.name }} <span class="muted num">{{ client.phone }}</span></h2>
+ <div class="row" style="flex-wrap:wrap;gap:var(--space-3)">
+  <div>
+   <span class="hint">{% trans "Долг" %}</span><br>
+   {% if debt %}
+    {% for cur, amt in debt.items %}<span class="badge badge--debt">{{ amt|money:cur }}</span> {% endfor %}
+   {% else %}<span class="badge badge--paid">{% trans "нет" %}</span>{% endif %}
+  </div>
+  {% if last_sale %}
+  <div><span class="hint">{% trans "Последняя покупка" %}</span><br>{{ last_sale.confirmed_at|date:"d.m.Y" }} — {{ last_sale.total|money:last_sale.currency }}</div>
+  {% endif %}
+  {% if favourites %}
+  <div><span class="hint">{% trans "Избранное" %}</span><br>{% for f in favourites %}{{ f.variant }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
+  {% endif %}
+ </div>
+</div>
+
+{% if open_orders %}
+<div class="card">
+ <h2>{% trans "Открытые заказы" %}</h2>
+ {% for order in open_orders %}
+ <a class="line-row" href="{% url 'orders:detail' order.pk %}" style="text-decoration:none;color:inherit">
+   <div class="line-row__label">№{{ order.pk }} · {{ order.get_status_display }}</div>
+   <div class="line-row__total num">{{ order.total|money:order.currency }}</div>
+ </a>
+ {% endfor %}
+</div>
+{% endif %}
+
+{% for req in order_requests %}
+{% if req.status == 'new' %}
+<div class="card">
+ <h2>{% trans "Заявка" %} №{{ req.pk }}</h2>
+ <ul>
+  {% for item in req.items.all %}<li>{{ item.variant }} × {{ item.quantity }}</li>{% endfor %}
+ </ul>
+ {% if req.note %}<p class="muted">{{ req.note }}</p>{% endif %}
+ {% if can_write %}
+ <form method="post" action="{% url 'inbox:request_confirm' req.pk %}" class="row" style="gap:var(--space-2)">
+  {% csrf_token %}
+  <input type="date" name="due_date" class="input">
+  <button type="submit" class="btn btn-primary">{% trans "Подтвердить" %}</button>
+ </form>
+ <form method="post" action="{% url 'inbox:request_decline' req.pk %}" class="row" style="margin-top:var(--space-2);gap:var(--space-2)">
+  {% csrf_token %}
+  <input type="text" name="reason" class="input" placeholder="{% trans 'Причина' %}">
+  <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Отклонить" %}</button>
+ </form>
+ {% endif %}
+</div>
+{% endif %}
+{% endfor %}
+
+<div class="card">
+ <h2>{% trans "Переписка" %}</h2>
+ <div style="display:flex;flex-direction:column;gap:var(--space-2)">
+ {% for m in messages %}
+  <div style="align-self:{% if m.direction == 'out' %}flex-end{% else %}flex-start{% endif %};max-width:80%">
+   <div class="line-row" style="background:{% if m.direction == 'out' %}var(--surface-sunken){% else %}var(--surface){% endif %}">
+    <div class="line-row__label">{{ m.text }}</div>
+   </div>
+   <span class="muted" style="font-size:11px">{{ m.get_channel_display }} · {{ m.created_at|date:"d.m H:i" }}</span>
+  </div>
+ {% empty %}
+  <p class="muted">{% trans "Сообщений пока нет" %}</p>
+ {% endfor %}
+ </div>
+</div>
+
+{% if can_write %}
+<form method="post" action="{% url 'inbox:reply' client.pk %}" class="card">
+ {% csrf_token %}
+ <textarea name="text" class="input" rows="3" placeholder="{% trans 'Ответить...' %}" required></textarea>
+ <button type="submit" class="btn btn-primary" style="margin-top:var(--space-2)">{% trans "Отправить" %}</button>
+</form>
+{% endif %}
+{% endblock %}

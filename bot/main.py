@@ -10,6 +10,12 @@ TELEGRAM_STAFF_TOKEN or only TELEGRAM_CLIENT_TOKEN set (e.g. rolling out the
 client bot later), and that half simply doesn't poll. Both empty is a
 configuration error and stops the process, same as before.
 
+BOTS_ENABLED=False (the shipped prod default — bots are not production-ready
+yet) makes this process idle forever instead of exiting: the `bot`/`scheduler`
+containers run with `restart: unless-stopped` in docker-compose.prod.yml, so
+an exit would just restart-loop. Idling keeps the container quiet with zero
+Telegram polling — functionally "not started" without the log churn.
+
 Run: python bot/main.py  (or the `bot` service in docker compose)
 """
 
@@ -36,6 +42,11 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
+    if not settings.BOTS_ENABLED:
+        logger.warning("BOTS_ENABLED=False — bot process idling, no Telegram polling started.")
+        while True:
+            await asyncio.sleep(3600)
+
     # start_polling with no allowed_updates resolves the update types actually
     # used by each dispatcher's handlers (messages only, here) — so polling is
     # already scoped; Telegram won't push update kinds nobody handles.

@@ -78,7 +78,14 @@ a { color: inherit; }
 .wrap {
   max-width: 480px;
   margin: 0 auto;
-  padding: var(--space-4) var(--space-4) calc(var(--nav-height) + var(--space-4));
+  padding: var(--space-4) var(--space-4) calc(var(--nav-height) + var(--safe-bottom) + var(--space-4));
+}
+/* Sale screen (mobile): extra bottom room so the last card isn't hidden behind
+   the fixed money bar — but only while the bar is actually shown (cart has
+   items). Empty cart keeps the normal padding, no dead gap. Desktop resets
+   this below — the money bar is static in the rail there. */
+.wrap:has(.money-bar:not(.money-bar--empty)) {
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 210px);
 }
 
 .top {
@@ -106,11 +113,50 @@ a { color: inherit; }
   gap: var(--space-2);
 }
 .rates-strip__item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   font-size: 18px;
   font-weight: 700;
   color: var(--text);
-  white-space: nowrap;
 }
+.rates-strip__age {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: none;
+}
+/* Курс card: the rates on the left, a big blue «pull fresh NBKR rate» button
+   on the right. The button's icon spins only while its HTMX request is in
+   flight (htmx adds .htmx-request), giving staff clear feedback. */
+.rates-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.rates-refresh {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+.rates-refresh .ic { width: 26px; height: 26px; }
+@media (hover: hover) {
+  .rates-refresh:hover { filter: brightness(1.08); }
+}
+.rates-refresh:active { transform: scale(0.96); }
+@media (prefers-reduced-motion: no-preference) {
+  .rates-refresh.htmx-request .ic { animation: rates-spin 0.7s linear infinite; }
+}
+@keyframes rates-spin { to { transform: rotate(360deg); } }
 .top__actions { display: flex; align-items: center; gap: var(--space-2); }
 .top__link {
   font-size: 13px;
@@ -165,7 +211,10 @@ html[data-theme="dark"] .theme-toggle__icon--moon { display: none; }
   left: 0;
   right: 0;
   bottom: 0;
-  height: var(--nav-height);
+  /* Content stays --nav-height tall; the safe-area gutter is extra padding
+     below it (iOS home-indicator), so icons/labels never sit in that zone. */
+  height: calc(var(--nav-height) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
   display: flex;
   background: var(--surface);
   border-top: 0.5px solid var(--border);
@@ -310,6 +359,18 @@ html[data-theme="dark"] .theme-toggle__icon--moon { display: none; }
   border-bottom: 0.5px solid var(--border);
 }
 .client-row:last-child { border-bottom: 0; }
+/* When the row is a CSRF-protected submit button (orders client picker) rather
+   than a link: strip the native button chrome so it reads identically. */
+.client-row--btn {
+  width: 100%;
+  border: 0;
+  border-bottom: 0.5px solid var(--border);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+form:last-child .client-row--btn { border-bottom: 0; }
 .client-row__main { min-width: 0; flex: 1; }
 .client-row__debt { flex: none; }
 .client-row__name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -347,6 +408,77 @@ html[data-theme="dark"] .theme-toggle__icon--moon { display: none; }
 
 .muted { color: var(--text-2); font-size: 13px; }
 .hint { color: var(--text-3); font-size: 12px; }
+/* Payment conversion math — calm, neutral, always shown for a foreign
+   payment: no alarm styling for the common case (risk-proportional friction,
+   not a blanket warning). --risk (amber) appears only when this specific
+   payment actually needs a second confirmation; --warn (red) only when
+   there's no rate to convert with at all. */
+.pay-note {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+}
+.pay-note--risk {
+  color: var(--partial);
+  background: var(--partial-bg);
+  margin-top: var(--space-2);
+}
+.pay-note--risk ul { margin: var(--space-2) 0 0; padding-left: 1.2em; }
+.pay-note--risk label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.pay-note--risk input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin-top: 1px;
+}
+.pay-note--warn { color: var(--debt); background: var(--debt-bg); }
+
+/* --- change (сдача) double-check panel: the full picture before handing
+   money back, always shown together (never just the final figure alone) --- */
+.change-panel {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-control);
+}
+.change-panel__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: 14px;
+  gap: var(--space-2);
+}
+.change-panel__row--total {
+  border-top: 2px solid var(--rule);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+/* Owner-only manual rate entry — tucked in a <details> so it never adds a tap
+   for Editor/Manager (who don't even get the toggle rendered, see
+   can_override_rate) and stays visually secondary for the Owner too. */
+.rate-override { margin-top: var(--space-3); }
+.rate-override summary {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.rate-override input { margin-top: var(--space-2); }
 
 .error {
   color: var(--debt);
@@ -436,6 +568,14 @@ input:focus, select:focus, textarea:focus {
   .btn-ghost--debt:not(:disabled):hover { background: var(--debt); color: var(--on-accent); }
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sm {
+  width: auto;
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.denom-row { flex-wrap: wrap; margin-top: var(--space-2); }
+.denom-row .btn { flex: none; }
 .btn-icon {
   width: var(--tap-min);
   min-width: var(--tap-min);
@@ -483,6 +623,7 @@ input:focus, select:focus, textarea:focus {
 }
 .tile__name { font-size: 13px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 2px; }
 .tile__price { font-size: 13px; color: var(--text); font-weight: 600; }
+.tile__reserved { font-size: 11px; color: var(--text-3); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .tile__badge {
   position: absolute;
   top: 0;
@@ -494,6 +635,36 @@ input:focus, select:focus, textarea:focus {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+/* --- variant picker: a centered modal OVER the products, not a card below the
+   grid. Tapping a tile opens the size/qty dialog right where the eye is — no
+   scrolling to find it. Shown purely by CSS when #variant-picker has content
+   (:not(:empty)); ОТМЕНА / Escape / adding an item clear it to empty, which
+   hides it again. No inline script needed (CSP-safe). --- */
+#variant-picker:not(:empty) {
+  position: fixed;
+  inset: 0;
+  z-index: 20; /* above header (6), nav (5), money bar (4) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.5); /* backdrop scrim */
+}
+#variant-picker > .card {
+  width: 100%;
+  max-width: 420px;
+  margin: 0;
+  max-height: calc(100dvh - 2 * var(--space-6));
+  overflow-y: auto;
+  animation: picker-in var(--dur-pos) var(--ease);
+}
+@keyframes picker-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Freeze the products behind the open dialog so only the dialog scrolls. */
+body:has(#variant-picker:not(:empty)) { overflow: hidden; }
 
 /* --- status badges: colour + word, never colour alone. Solid fills (not soft
    tints) at weight 800 — declarative, high-contrast; --on-accent flips per
@@ -542,22 +713,97 @@ input:focus, select:focus, textarea:focus {
 .line-row__label strong { font-weight: 500; }
 .line-row__total { text-align: right; white-space: nowrap; }
 
+/* Two lines per cart item: the full variant name (never truncated — a
+   clipped "Red Dr..." vs "Red Dres..." is a real mis-sale risk), then
+   qty×price + line total right-aligned below it. */
+.line-row--compact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.line-row__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+}
+.line-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  font-weight: 500;
+  font-size: 14px;
+  white-space: normal;
+  overflow-wrap: break-word;
+  /* A safety cap, not a truncation — full names read fine at 2 lines; an
+     exceptional third line clips rather than pushing the row open forever. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.line-row__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.line-row__qty { flex: none; white-space: nowrap; color: var(--text-3); }
+.line-row--compact .line-row__total { flex: none; }
+/* Loud bordered "btn" styling is wrong for a per-row delete — keep the 44px
+   touch target, but read as a quiet icon, not the row's dominant element.
+   Negative margin keeps the visual row compact while the hit area stays full. */
+.line-row__remove {
+  flex: none;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  margin: calc(-1 * (var(--tap-min) - 20px) / 2) calc(-1 * (var(--tap-min) - 20px) / 2) calc(-1 * (var(--tap-min) - 20px) / 2) 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (hover: hover) {
+  .line-row__remove:hover { color: var(--debt); background: var(--surface-sunken); }
+}
+
+/* Item count in the card header — "ПОЗИЦИИ · 4". */
+.items-card h2 { margin-bottom: var(--space-2); }
+.items-scroll { position: relative; }
+
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 td, th { padding: var(--space-2) var(--space-1); border-bottom: 0.5px solid var(--border); text-align: left; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* --- money bar: the signature element, always visible above the keyboard --- */
+/* Mobile: the money bar is FIXED above the bottom nav, so the running total +
+   confirm are visible from anywhere — no scrolling past the product grid to
+   reach the cart. (Desktop makes it static inside the right rail, below.) */
 .money-bar {
-  position: sticky;
-  bottom: var(--nav-height);
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--nav-height) + var(--safe-bottom));
+  max-width: 480px; /* match .wrap's content width */
+  margin-inline: auto;
   background: var(--surface);
-  border-top: 0.5px solid var(--border);
+  border-top: 2px solid var(--rule);
   border-radius: var(--radius-card) var(--radius-card) 0 0;
-  box-shadow: var(--shadow);
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.14);
   padding: var(--space-3) var(--space-4);
-  margin: var(--space-4) calc(var(--space-4) * -1) 0;
   z-index: 4;
 }
+/* Nothing in the cart yet — don't reserve the fixed bar; give products the room. */
+.money-bar--empty { display: none; }
 .money-bar__row {
   display: flex;
   align-items: baseline;
@@ -590,6 +836,13 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .money-bar__amount { font-variant-numeric: tabular-nums; }
 .money-bar__conv { font-size: 12px; color: var(--text-3); display: block; }
 .money-bar .btn { margin-top: var(--space-3); }
+
+/* Заказы order totals — the SAME row styling as the sale screen's money bar,
+   but a normal in-flow card, not the fixed floating bar: an order-detail
+   page has no "stay visible while scrolling a long product grid" need, so
+   position:fixed here only ever floated the totals over the Аванс form
+   below it. */
+.money-summary .btn { margin-top: var(--space-3); }
 
 /* --- login: split layout, the one place with room for character ---
    The whole page renders with the database down: the photo is a static file,
@@ -634,14 +887,15 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   width: 100%;
 }
 .login-otp input { letter-spacing: 0.35em; font-variant-numeric: tabular-nums; }
-.login-error {
+.login-error,
+.login-notice {
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-3);
-  background: var(--debt-bg);
-  color: var(--debt);
   border-radius: var(--radius-control);
   font-size: 13px;
 }
+.login-error { background: var(--debt-bg); color: var(--debt); }
+.login-notice { background: var(--paid-bg); color: var(--paid); }
 
 @media (min-width: 768px) {
   .login-page {
@@ -712,18 +966,69 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
     grid-column: 1;
     min-width: 0;
   }
+  /* The rail itself: a flex column capped to the viewport height so it can
+     NEVER grow taller than the screen. It does NOT scroll itself (overflow:
+     hidden) — its single scrolling child is .cart-scroll below. Sticky top
+     is the requested 16px of breathing room PAST the sticky header (76px);
+     max-height clears the header above and the fixed bottom-nav (+ iOS safe
+     area) below, each with the same 16px gap, so the rail can never render
+     under either fixed bar. */
   .wrap:has(#sale-body) > #sale-body {
     grid-column: 2;
     grid-row: 1 / 100; /* span the whole left stack */
     position: sticky;
-    top: 76px; /* clear the sticky header */
+    top: calc(76px + 16px);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(
+      100dvh - 76px - 16px - var(--nav-height) - var(--safe-bottom) - 16px
+    );
+    overflow: hidden;
   }
-  /* Inside the rail the money bar is no longer a floating bottom bar. */
+  /* ONE scroll region for the whole column — ПОЗИЦИИ and ОПЛАТА scroll
+     together, no nested scrollbar inside the items list. Итого/Остаток/
+     Подтвердить (.money-bar) live OUTSIDE this wrapper, pinned below it. */
+  .wrap:has(#sale-body) .cart-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+    /* Subtle top/bottom fade so a longer list reads as scrollable. */
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 12px,
+      black calc(100% - 12px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 12px,
+      black calc(100% - 12px),
+      transparent 100%
+    );
+  }
+  .wrap:has(#sale-body) .items-card {
+    margin-bottom: var(--space-3);
+  }
+  .wrap:has(#sale-body) .money-bar {
+    flex: 0 0 auto;
+  }
+  /* Desktop: the sale screen has room to reset the wider mobile bottom padding. */
+  .wrap:has(#sale-body) {
+    padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--space-6));
+  }
+  /* Inside the rail the money bar is no longer a floating bottom bar — reset
+     every fixed-position property back to a normal in-flow block. */
   .wrap:has(#sale-body) .money-bar {
     position: static;
+    max-width: none;
     margin: var(--space-3) 0 0;
     border-radius: var(--radius-card);
     border-top: 0.5px solid var(--border);
+    box-shadow: var(--shadow);
   }
 }
 

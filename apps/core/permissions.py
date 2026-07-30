@@ -4,20 +4,19 @@
 - Viewer — view-only on business models. No cost prices.
 
 Superuser is Django's built-in flag, not a group: it gets everything, including
-Users, Groups, TOTP devices, bot users, WhatsApp/bot logs, request stats, and
-cost prices.
+Users, Groups, bot users, WhatsApp/bot logs, request stats, and cost prices.
 """
 
 EDITOR = "Editor"
 VIEWER = "Viewer"
 
 # Only these apps' models are ever granted to Editor/Viewer. Everything else
-# (core, auth, otp_totp, axes, sessions) stays superuser-only — which also keeps
+# (core, auth, axes, sessions) stays superuser-only — which also keeps
 # those apps out of the Editor/Viewer sidebar entirely, since Django's admin only
 # lists apps a user has at least one permission in. "reports" is included so
 # Editor/Viewer can see the day-end review list — the ModelAdmin itself still
 # blocks editing/reviewing for non-superusers regardless of this DB permission.
-BUSINESS_APPS = ["inventory", "clients", "sales", "reports"]
+BUSINESS_APPS = ["inventory", "clients", "sales", "orders", "reports", "inbox"]
 
 
 def can_see_costs(user) -> bool:

@@ -1,0 +1,129 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Заказ" %} №{{ order.pk }}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>
+   {% trans "Заказ" %} №{{ order.pk }}
+   <span class="badge {% if order.status == 'delivered' %}badge--paid{% elif order.status == 'cancelled' %}badge--neutral{% elif order.is_overdue %}badge--debt{% else %}badge--partial{% endif %}">
+     {{ order.get_status_display }}{% if order.is_overdue %} · {% trans "просрочен" %}{% endif %}
+   </span>
+ </h2>
+ <p><a href="{% url 'pos:client_detail' order.client.pk %}">{{ order.client.name }}</a> · {{ order.client.phone }}</p>
+ {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
+ <form method="post" action="{% url 'orders:set_due_date' order.pk %}">
+  {% csrf_token %}
+  <label>{% trans "Срок" %}</label>
+  <input type="date" name="due_date" value="{{ order.due_date|date:'Y-m-d' }}">
+  <label>{% trans "Заметка" %}</label>
+  <input type="text" name="note" value="{{ order.note }}" maxlength="255">
+  <button type="submit" class="btn btn-ghost" style="margin-top:var(--space-3)">{% trans "Сохранить" %}</button>
+ </form>
+ {% elif order.due_date %}
+ <p class="muted">{% trans "Срок" %}: {{ order.due_date|date:"d.m.Y" }}</p>
+ {% endif %}
+</div>
+
+<div class="card">
+ <h2>{% trans "Позиции" %} · {{ items|length }}</h2>
+ {% for item in items %}
+ <div class="line-row">
+   <div class="line-row__label">
+     {{ item.variant }}<br>
+     <span class="muted">{{ item.quantity }} {% trans "шт" %} × {{ item.unit_price|money:item.currency }} · {{ item.produced_qty }}/{{ item.quantity }} {% trans "произведено" %}</span>
+   </div>
+   <div class="line-row__total num">{{ item.line_total|money:item.currency }}</div>
+   {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
+   <form method="post" action="{% url 'orders:item_remove' order.pk item.pk %}">
+     {% csrf_token %}
+     <button type="submit" class="btn btn-ghost btn-icon" aria-label="{% trans "Удалить" %}">✕</button>
+   </form>
+   {% endif %}
+ </div>
+ {% if can_write and item.remaining_to_produce > 0 and order.status != "cancelled" %}
+ <form method="post" action="{% url 'orders:produce' order.pk item.pk %}" class="row" style="margin:0 0 var(--space-2)">
+   {% csrf_token %}
+   <input type="number" name="quantity" inputmode="numeric" min="1" max="{{ item.remaining_to_produce }}" value="{{ item.remaining_to_produce }}">
+   <button type="submit" class="btn btn-ghost">{% trans "Произведено" %}</button>
+ </form>
+ {% endif %}
+ {% empty %}
+ <p class="muted">{% trans "Пока нет позиций" %}</p>
+ {% endfor %}
+ {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
+ <a class="btn btn-ghost" href="{% url 'orders:product_grid' order.pk %}" style="margin-top:var(--space-2)">{% trans "+ Добавить товар" %}</a>
+ {% endif %}
+</div>
+
+<div class="card">
+ <h2>{% trans "Аванс" %}</h2>
+ {% for d in deposits %}
+ <div class="line-row">
+   <div class="line-row__label">{{ d.created_at|date:"d.m.Y H:i" }}
+     {% with conv=d|payment_conversion %}{% if conv %}<br><span class="muted num">{{ conv }}</span>{% endif %}{% endwith %}
+   </div>
+   <div class="line-row__total num">{{ d.amount|money:d.currency }}</div>
+ </div>
+ {% empty %}
+ <p class="muted">{% trans "Аванс не внесён" %}</p>
+ {% endfor %}
+ {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
+ <form method="post" action="{% url 'orders:deposit_add' order.pk %}" style="margin-top:var(--space-3)">
+  {% csrf_token %}
+  <label>{% trans "Сумма аванса" %}</label>
+  <input type="text" name="amount" inputmode="decimal">
+  <div class="row">
+   <div>
+    <label>{% trans "Валюта" %}</label>
+    <select name="currency">
+     {% for c in currencies %}<option value="{{ c }}" {% if c == order.currency %}selected{% endif %}>{{ c|currency_symbol }}</option>{% endfor %}
+    </select>
+   </div>
+   <div>
+    <label>{% trans "Способ" %}</label>
+    <select name="method">
+     {% for code, label in methods %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+    </select>
+   </div>
+  </div>
+  <button type="submit" class="btn btn-ghost" style="margin-top:var(--space-3)">{% trans "Внести аванс" %}</button>
+ </form>
+ {% endif %}
+</div>
+
+<div class="card money-summary">
+ <div class="money-bar__row">
+  <span class="money-bar__label">{% trans "Итого" %}</span>
+  <span class="money-bar__amount num">{{ order.total|money:order.currency }}</span>
+ </div>
+ <div class="money-bar__row">
+  <span class="money-bar__label">{% trans "Аванс внесён" %}</span>
+  <span class="money-bar__amount num">{{ paid|money:order.currency }}</span>
+ </div>
+ <div class="money-bar__row money-bar__row--total">
+  <span class="money-bar__label">{% trans "Остаток" %}</span>
+  <span class="money-bar__amount num">{{ remaining|money:order.currency }}</span>
+ </div>
+
+ {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
+ <form method="post" action="{% url 'orders:deliver' order.pk %}"
+   data-network-safe data-confirm="{% trans "Выдать заказ? Остаток товара спишется со склада." %}" data-error-target="deliver-error">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary" {% if not items %}disabled{% endif %}>{% trans "Выдать заказ" %}</button>
+ </form>
+ <p id="deliver-error" class="error" hidden></p>
+ {% endif %}
+ {% if order.sale_order_id %}
+ <a class="btn btn-ghost" href="{% url 'pos:sale_result' order.sale_order_id %}" style="margin-top:var(--space-2)">{% trans "Открыть продажу" %}</a>
+ {% endif %}
+ {% if request.user.is_superuser and order.status != "delivered" and order.status != "cancelled" %}
+ <form method="post" action="{% url 'orders:cancel' order.pk %}"
+   data-network-safe data-confirm="{% trans "Отменить заказ? Резерв товара снимется." %}" data-error-target="cancel-error"
+   style="margin-top:var(--space-2)">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Отменить заказ" %}</button>
+ </form>
+ <p id="cancel-error" class="error" hidden></p>
+ {% endif %}
+</div>
+{% endblock %}

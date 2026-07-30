@@ -27,5 +27,23 @@ services:
       db:
         condition: service_healthy
 
+  # Telegram staff + client bots (bot/main.py starts whichever tokens are set
+  # in .env). entrypoint is cleared so it doesn't re-run migrate/collectstatic
+  # on top of web's — just polls Telegram.
+  bot:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    entrypoint: []
+    command: python bot/main.py
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:

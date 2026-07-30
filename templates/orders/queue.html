@@ -1,0 +1,33 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "К производству" %}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2><svg class="ic"><use href="#i-orders"/></svg>{% trans "Что производить" %}</h2>
+ <p class="hint">{% trans "Отсортировано по ближайшему сроку. Считается автоматически — нигде не хранится вручную." %}</p>
+</div>
+
+<div class="card">
+ {% for row in rows %}
+ <div class="line-row{% if row.covered %} muted{% endif %}">
+   <div class="line-row__label">
+     <strong>{{ row.variant }}</strong><br>
+     <span class="muted">
+       {% trans "заказано" %} {{ row.ordered }} · {% trans "на складе" %} {{ row.in_stock }}
+       {% if row.due_date %} · {% trans "срок" %} {{ row.due_date|date:"d.m.Y" }}{% endif %}
+       · {{ row.orders_count }} {% trans "заказ(ов)" %}
+     </span>
+   </div>
+   <div class="line-row__total num">
+     {% if row.covered %}
+       <span class="badge badge--paid">{% trans "есть на складе" %}</span>
+     {% else %}
+       <span class="badge badge--debt">{% trans "к производству" %} {{ row.to_produce }}</span>
+     {% endif %}
+   </div>
+ </div>
+ {% empty %}
+ <p class="muted">{% trans "Нет открытых заказов — производить пока нечего." %}</p>
+ {% endfor %}
+</div>
+{% endblock %}

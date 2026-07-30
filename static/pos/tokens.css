@@ -30,6 +30,7 @@
   --accent-bg: #E8F0F9;
   --accent-2: #D3E4F3; /* soft accent tint for tile placeholder gradients */
   --paid: #1D7A4F;
+  --paid-bg: #E4F3EB;
   /* darker amber than the original #B26B00 so text passes WCAG AA (>=4.5:1) on
      --surface — the one semantic colour that failed on white. */
   --partial: #8A5300;
@@ -56,6 +57,7 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --space-5: 20px;
   --space-6: 24px;
 
   /* --- radius --- */
@@ -66,6 +68,8 @@
   --tap-min: 44px;
   --nav-height: 56px; /* set at :root, not .bottom-nav — .money-bar is a
     sibling subtree and custom properties don't cross sibling boundaries */
+  --safe-bottom: env(safe-area-inset-bottom, 0px); /* iOS home-indicator gutter —
+    added on top of --nav-height wherever something is fixed to the bottom edge */
   --shadow: 0 1px 3px rgba(20, 24, 28, 0.08);
   /* text/icon colour on top of a filled --accent (or paid/partial/debt)
      background — white reads on the light theme's saturated fills, but the
@@ -94,6 +98,7 @@
     --accent-bg: #1B2C3D;
     --accent-2: #26374A;
     --paid: #4FBF8B;
+    --paid-bg: #142C22;
     --partial: #E5A245;
     --partial-bg: #2E2416;
     --debt: #E86A62;
@@ -119,6 +124,7 @@ html[data-theme="dark"] {
   --accent-bg: #1B2C3D;
   --accent-2: #26374A;
   --paid: #4FBF8B;
+  --paid-bg: #142C22;
   --partial: #E5A245;
   --partial-bg: #2E2416;
   --debt: #E86A62;
@@ -141,6 +147,7 @@ html[data-theme="light"] {
   --accent-bg: #E8F0F9;
   --accent-2: #D3E4F3;
   --paid: #1D7A4F;
+  --paid-bg: #E4F3EB;
   --partial: #8A5300;
   --partial-bg: #FBF0DE;
   --debt: #B3271F;

@@ -7,7 +7,10 @@ from .models import DailyReview
 
 @admin.register(DailyReview)
 class DailyReviewAdmin(admin.ModelAdmin):
-    """Day-end review: today's payments, oldest first. Reviewing is Owner
+    """The payment-review queue: newest first, defaulting to the ones still
+    awaiting a look (reviewed=No) so nothing is ever silently missed — a
+    payment made yesterday and not yet reviewed still shows today. Filter by
+    the реviewed pill or drill by date to see history. Reviewing is Owner
     (superuser) only; Editor/Viewer can see the list but not act on it."""
 
     list_display = [
@@ -21,13 +24,17 @@ class DailyReviewAdmin(admin.ModelAdmin):
         "reviewed_by",
     ]
     list_filter = ["reviewed", "method", "currency"]
+    date_hierarchy = "created_at"
     search_fields = ["client__name", "client__phone"]
     list_select_related = ["client", "order", "reviewed_by"]
     actions = ["mark_reviewed"]
 
-    def get_queryset(self, request):
-        today = timezone.localdate()
-        return super().get_queryset(request).filter(created_at__date=today).order_by("created_at")
+    # Unreviewed first (the queue that needs attention), then newest. No date
+    # restriction — the old "today only" filter (a) hid every payment on any day
+    # nothing was sold and (b) matched on the UTC date, not the shop's, so
+    # late-evening payments fell off. The review queue must never lose an
+    # unreviewed payment. Filter by the «Проверено» pill to hide done ones.
+    ordering = ["reviewed", "-created_at"]
 
     def has_add_permission(self, request):
         return False

@@ -30,6 +30,16 @@ class Client(models.Model):
     )
     marketing_consent = models.BooleanField(_("marketing consent"), default=False)
     whatsapp_opted_in = models.BooleanField(_("WhatsApp opt-in"), default=False)
+    RU = "ru"
+    KY = "ky"
+    BOT_LANGUAGE_CHOICES = [(RU, "Русский"), (KY, "Кыргызча")]
+    bot_language = models.CharField(
+        _("bot language"), max_length=4, choices=BOT_LANGUAGE_CHOICES, default=RU
+    )
+    # WhatsApp auto-reply goes quiet until this moment — set on «менеджер», on
+    # any staff reply from /inbox/, or on 3+ client messages in 2 minutes (see
+    # apps.wa.replies). NULL/past = bot answers normally.
+    human_handoff_until = models.DateTimeField(_("human handoff until"), null=True, blank=True)
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
     history = HistoricalRecords()

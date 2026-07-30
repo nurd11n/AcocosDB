@@ -1,8 +1,6 @@
 Django>=5.1,<5.2
 django-environ>=0.11
 django-jazzmin>=3.0
-django-otp>=1.5
-qrcode>=7.4
 django-axes>=7.0
 django-simple-history>=3.7
 django-import-export[xlsx]>=4.0
@@ -13,6 +11,7 @@ django-csp>=3.8,<4
 argon2-cffi>=23.1
 Pillow>=10.4
 requests>=2.32
+certifi>=2024.2  # explicit: config.settings points SSL_CERT_FILE at its CA bundle
 aiogram>=3.13
 gunicorn>=23.0
 openpyxl>=3.1

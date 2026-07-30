@@ -66,7 +66,12 @@ class PaymentInlineFormSet(forms.BaseInlineFormSet):
         order = self.instance
         if not order.pk or order.status != SaleOrder.CONFIRMED:
             return
-        running_total = order.paid_amount  # already-saved payments in this order's currency
+        from django.utils import timezone
+
+        from apps.core.currency import convert
+
+        today = timezone.localdate()
+        running_total = order.paid_amount  # already-saved payments, in this order's currency
         for form in self.forms:
             if not hasattr(form, "cleaned_data") or form.cleaned_data.get("DELETE"):
                 continue
@@ -74,9 +79,14 @@ class PaymentInlineFormSet(forms.BaseInlineFormSet):
                 continue  # existing rows are already counted in paid_amount
             amount = form.cleaned_data.get("amount") or Decimal("0")
             currency = form.cleaned_data.get("currency") or order.currency
-            if currency != order.currency or amount <= 0:
+            if amount <= 0:
                 continue
-            running_total += amount
+            # Foreign payments count too now (converted at today's rate); if no
+            # rate is on record we can't convert, so skip the overpay check.
+            in_order_ccy = convert(amount, currency, order.currency, today)
+            if in_order_ccy is None:
+                continue
+            running_total += in_order_ccy
             if running_total > order.total and not form.cleaned_data.get("confirm_overpayment"):
                 form.add_error(
                     "amount",
@@ -100,13 +110,25 @@ class PaymentInline(admin.TabularInline):
         "currency",
         "method",
         "note",
+        "change_display",
         "reviewed",
         "created_by",
         "created_at",
     ]
-    readonly_fields = ["reviewed", "created_by", "created_at"]
+    # Change is COMPUTED, never freely typed (see CLAUDE.md) — the admin inline
+    # only ever DISPLAYS it (via /pos/, the one place it's actually computed
+    # and recorded), never lets it be hand-entered here.
+    readonly_fields = ["change_display", "reviewed", "created_by", "created_at"]
     autocomplete_fields = ["client"]
     verbose_name_plural = _("payments (for loans / partial payment)")
+
+    @admin.display(description=_("change"))
+    def change_display(self, obj):
+        if not obj.pk or obj.excess_disposition == Payment.DISPOSITION_NONE:
+            return "—"
+        if obj.excess_disposition == Payment.DISPOSITION_CHANGE:
+            return f"{obj.change_amount} {obj.change_currency}"
+        return obj.get_excess_disposition_display()
 
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
@@ -140,17 +162,23 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     actions = ["approve_selected", "mark_paid_selected", "cancel_selected"]
 
     def get_queryset(self, request):
-        # Sum same-currency payments per order in SQL (one aggregate joined to a
-        # stored total — no row multiplication) so the payment badge stays
-        # single-query.
-        from django.db.models import F, Q
+        # Sum every payment's NET (gross minus any change given back) per
+        # order in SQL, converting into the order's currency (net_kgs ÷
+        # order_rate) so a foreign payment counts too — matching
+        # SaleOrder.paid_amount. One aggregate, no N+1.
+        from django.db.models import ExpressionWrapper, F
 
+        converted = ExpressionWrapper(
+            (F("payments__amount") * F("payments__rate_to_kgs") - F("payments__change_amount_kgs"))
+            / F("rate_to_kgs"),
+            output_field=DecimalField(max_digits=20, decimal_places=6),
+        )
         return (
             super()
             .get_queryset(request)
             .annotate(
                 _paid=Coalesce(
-                    Sum("payments__amount", filter=Q(payments__currency=F("currency"))),
+                    Sum(converted),
                     Value(Decimal("0")),
                     output_field=DecimalField(max_digits=14, decimal_places=2),
                 )
@@ -291,16 +319,35 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         "client",
         "amount",
         "currency",
+        "conversion_display",
+        "change_column",
         "method",
         "order",
         "reviewed",
         "created_by",
     ]
-    list_filter = ["method", "currency", "reviewed"]
+    list_filter = ["method", "currency", "rate_source", "excess_disposition", "reviewed"]
     search_fields = ["client__name", "client__phone"]
     list_select_related = ["client", "order", "created_by"]
     autocomplete_fields = ["client", "order"]
     actions = ["void_selected"]
+
+    @admin.display(description=_("conversion"))
+    def conversion_display(self, obj):
+        # The frozen rate must be visible, not just stored (CLAUDE.md) — same
+        # "amount × rate = сом · source date" line shown throughout /pos/.
+        from apps.pos.templatetags.pos_extras import payment_conversion_filter
+
+        return payment_conversion_filter(obj) or "—"
+
+    @admin.display(description=_("change"))
+    def change_column(self, obj):
+        if obj.excess_disposition == Payment.DISPOSITION_NONE:
+            return "—"
+        if obj.excess_disposition == Payment.DISPOSITION_CHANGE:
+            extra = f" (округление {obj.change_rounding_kgs})" if obj.change_rounding_kgs else ""
+            return f"{obj.change_amount} {obj.change_currency}{extra}"
+        return obj.get_excess_disposition_display()
 
     def has_module_permission(self, request):
         return False

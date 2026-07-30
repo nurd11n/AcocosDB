@@ -7,6 +7,7 @@ app_name = "pos"
 urlpatterns = [
     path("sw.js", views.service_worker, name="sw"),
     path("", views.index, name="index"),
+    path("rates/refresh/", views.refresh_rates, name="refresh_rates"),
     path("today/", views.today, name="today"),
     path("clients/", views.clients, name="clients"),
     path("clients/<int:pk>/", views.client_detail, name="client_detail"),

@@ -7,6 +7,17 @@ def admin_url(request):
     return {"ADMIN_URL_PATH": settings.ADMIN_URL}
 
 
+def feature_flags(request):
+    """Bots are not production-ready — templates use these to hide the
+    Входящие nav item and dashboard bot panels rather than showing a dead
+    link (see .env.example's Feature flags section)."""
+    return {
+        "BOTS_ENABLED": settings.BOTS_ENABLED,
+        "WHATSAPP_ENABLED": settings.WHATSAPP_ENABLED,
+        "CAMPAIGNS_ENABLED": settings.CAMPAIGNS_ENABLED,
+    }
+
+
 def theme(request):
     """The user's explicit light/dark choice, read from a cookie (never
     localStorage — see POS-DESIGN.md) so <html data-theme> can be rendered

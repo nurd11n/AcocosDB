@@ -1,0 +1,33 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Товары" %} — {% trans "заказ" %} №{{ order.pk }}{% endblock %}
+{% block content %}
+<a class="top__link" href="{% url 'orders:detail' order.pk %}" style="margin-bottom:var(--space-3);display:inline-flex">← {% trans "Назад к заказу" %}</a>
+<div class="card">
+ <h2>{% trans "Товары" %}</h2>
+ <p class="hint">{% trans "Остаток показан только для справки — заказ можно оформить и на непроизведённый товар." %}</p>
+ <form method="get">
+  <input type="search" name="q" placeholder="{% trans "Поиск по названию или артикулу" %}" value="{{ q }}" autofocus>
+ </form>
+ <div class="grid" style="margin-top:var(--space-3)">
+  {% for tile in tiles %}
+  <a class="tile" href="{% url 'orders:variant_picker' order.pk tile.product_id %}">
+   {% if tile.image_url %}
+     <img class="tile__photo" src="{{ tile.image_url }}" alt="" loading="lazy" width="400" height="300">
+   {% else %}
+     <div class="tile__photo tile__photo--empty" aria-hidden="true">
+       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+         <path d="M12 3a2 2 0 0 1 2 2c0 .9-.6 1.6-1.4 1.9L12 7v1.2l8.4 5.4c.6.4.9 1 .9 1.7 0 1-.9 1.7-1.9 1.7H4.6c-1 0-1.9-.7-1.9-1.7 0-.7.3-1.3.9-1.7L12 8.2V7l-.6-.1A2 2 0 0 1 10 5a2 2 0 0 1 2-2z"/>
+       </svg>
+     </div>
+   {% endif %}
+   <div class="tile__name">{{ tile.name }}</div>
+   {% if tile.price is not None %}<div class="tile__price num">{{ tile.price|money:tile.currency }}</div>{% endif %}
+   <span class="badge {% if tile.stock <= 0 %}badge--neutral{% else %}badge--paid{% endif %} tile__badge">{{ tile.stock }} {% trans "на складе" %}</span>
+  </a>
+  {% empty %}
+  <p class="muted" style="grid-column:1/-1">{% trans "Ничего не найдено" %}</p>
+  {% endfor %}
+ </div>
+</div>
+{% endblock %}

@@ -32,62 +32,65 @@ CURRENCY_SYMBOLS = {KGS: "сом", USD: "$", RUB: "₽"}
 CENTS = Decimal("0.01")
 
 
-def _dated_rates(on_date: date_cls) -> dict:
-    """{currency: effective rate} for one date, cached under rates:<date>.
-    Rates change at most once a day (the fetch) plus rare owner overrides, both
-    of which clear this key via a signal — so a whole day of «≈ сом» display
-    conversions costs one query, not one per amount shown."""
+def _current_rates() -> dict:
+    """{currency: current rate}, cached under rates:current. There is exactly
+    one ExchangeRate row per currency now; refreshing overwrites it in place and
+    clears this key via a signal — so a whole session of «≈ сом» conversions
+    costs one query, not one per amount shown."""
     from django.core.cache import cache
 
     from .models import ExchangeRate
 
-    key = f"rates:{on_date.isoformat()}"
+    key = "rates:current"
     cached = cache.get(key)
     if cached is not None:
         return cached
-    rates = {}
-    for code in CURRENCY_CODES:
-        if code == settings.CURRENCY:
-            continue
-        row = (
-            ExchangeRate.objects.filter(currency=code, date__lte=on_date).order_by("-date").first()
-        )
-        if row:
-            rates[code] = row.rate
+    rates = {r.currency: r.rate for r in ExchangeRate.objects.all()}
     cache.set(key, rates, 3600)
     return rates
 
 
-def get_rate(currency: str, on_date: date_cls) -> Decimal | None:
-    """Rate for `currency` effective on `on_date`: 1 unit of `currency` equals
-    `rate` units of the base currency (settings.CURRENCY), using the most
-    recent ExchangeRate row on or before that date. Base currency is always 1."""
+def get_rate(currency: str, on_date: date_cls | None = None) -> Decimal | None:
+    """Current rate for `currency`: 1 unit equals `rate` units of the base
+    currency. `on_date` is accepted for call-site compatibility but ignored —
+    rates are current-only now (one row per currency, refreshed on demand).
+    Base currency is always 1; None when no rate is on record."""
     if currency == settings.CURRENCY:
         return Decimal("1")
-    return _dated_rates(on_date).get(currency)
+    return _current_rates().get(currency)
 
 
-def snapshot_rate_to_base(currency: str, on_date: date_cls) -> Decimal:
-    """The rate to FREEZE onto a sale/payment at confirm time: how many base
-    (KGS) units 1 unit of `currency` is worth right now. Unlike get_rate this
-    never returns None — a sale must never fail for lack of a rate:
-      base currency -> 1;
-      else the latest dated rate on/before on_date;
-      else the most recent rate ever recorded for the currency;
-      else 1.0 (logged loudly — the owner hasn't configured a rate yet).
-    Once frozen, this value is NEVER recomputed, so historical figures don't
-    move when today's rate changes (that's the whole point of the snapshot)."""
-    if currency == settings.CURRENCY:
-        return Decimal("1")
-    rate = get_rate(currency, on_date)
-    if rate is not None:
-        return rate
+def rate_info(currency: str) -> dict | None:
+    """{'rate', 'date', 'source'} for the CURRENT row on record for `currency`
+    — the one canonical lookup behind the Курс card's date/age display and the
+    POS risk checks, so there is exactly one place that decides "what is the
+    rate right now" (never two code paths disagreeing). None when no rate has
+    ever been recorded. The base currency is always rate=1, dated today, and
+    never counts as stale."""
+    from django.utils import timezone
+
     from .models import ExchangeRate
 
-    row = ExchangeRate.objects.filter(currency=currency).order_by("-date").first()
-    if row:
-        return row.rate
-    logger.warning("No exchange rate for %s on %s — snapshotting 1.0", currency, on_date)
+    if currency == settings.CURRENCY:
+        return {"rate": Decimal("1"), "date": timezone.localdate(), "source": ExchangeRate.NBKR}
+    row = ExchangeRate.objects.filter(currency=currency).first()
+    if row is None:
+        return None
+    return {"rate": row.rate, "date": row.date, "source": row.source}
+
+
+def snapshot_rate_to_base(currency: str, on_date: date_cls | None = None) -> Decimal:
+    """The rate to FREEZE onto a sale/payment at confirm time: how many base
+    (KGS) units 1 unit of `currency` is worth right now. Unlike get_rate this
+    never returns None — a sale must never fail for lack of a rate: the current
+    rate, else 1.0 (logged loudly — the owner hasn't refreshed rates yet). Once
+    frozen this value is NEVER recomputed, so historical figures stay put."""
+    if currency == settings.CURRENCY:
+        return Decimal("1")
+    rate = get_rate(currency)
+    if rate is not None:
+        return rate
+    logger.warning("No exchange rate for %s — snapshotting 1.0", currency)
     return Decimal("1")
 
 
@@ -115,3 +118,20 @@ def from_base(amount: Decimal, currency: str, on_date: date_cls) -> Decimal | No
     if not rate:
         return None
     return (Decimal(amount) / rate).quantize(CENTS, rounding=ROUND_HALF_UP)
+
+
+def convert(
+    amount: Decimal, from_currency: str, to_currency: str, on_date: date_cls
+) -> Decimal | None:
+    """An amount in `from_currency` -> its equivalent in `to_currency`, via the
+    base currency (all rates are quoted vs KGS). Powers the POS "client paid in
+    USD toward a сом order" deduction: staff verify the rate by eye. Returns
+    None when either leg has no rate on record."""
+    if amount is None:
+        return None
+    if from_currency == to_currency:
+        return Decimal(amount).quantize(CENTS, rounding=ROUND_HALF_UP)
+    in_base = to_base(amount, from_currency, on_date)
+    if in_base is None:
+        return None
+    return from_base(in_base, to_currency, on_date)

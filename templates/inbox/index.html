@@ -1,0 +1,36 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Входящие" %}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2><svg class="ic"><use href="#i-inbox"/></svg>{% trans "Входящие" %}</h2>
+ <div class="row" style="flex-wrap:wrap;gap:var(--space-2)">
+  <a class="btn {% if not active_filter %}btn-primary{% else %}btn-ghost{% endif %}" href="{% url 'inbox:index' %}">{% trans "Все" %}</a>
+  <a class="btn {% if active_filter == 'unanswered' %}btn-primary{% else %}btn-ghost{% endif %}" href="?filter=unanswered">{% trans "Без ответа" %} ({{ unanswered_count }})</a>
+  <a class="btn {% if active_filter == 'requests' %}btn-primary{% else %}btn-ghost{% endif %}" href="?filter=requests">{% trans "С заявкой" %} ({{ requests_count }})</a>
+  <a class="btn {% if active_filter == 'debt' %}btn-primary{% else %}btn-ghost{% endif %}" href="?filter=debt">{% trans "С долгом" %}</a>
+  <a class="btn {% if channel == 'telegram' %}btn-primary{% else %}btn-ghost{% endif %}" href="?channel=telegram">Telegram</a>
+  <a class="btn {% if channel == 'whatsapp' %}btn-primary{% else %}btn-ghost{% endif %}" href="?channel=whatsapp">WhatsApp</a>
+ </div>
+</div>
+
+<div class="card">
+ {% for row in rows %}
+ <a class="line-row" href="{% url 'inbox:thread' row.client_id %}" style="text-decoration:none;color:inherit">
+   <div class="line-row__label">
+     <strong>{{ row.client.name|default:row.external_id }}</strong>
+     {% if row.channel == 'telegram' %}<span class="muted">· Telegram</span>{% else %}<span class="muted">· WhatsApp</span>{% endif %}
+     {% if row.client_id in open_request_client_ids %}<span class="badge badge--partial">{% trans "заявка" %}</span>{% endif %}
+     <br>
+     <span class="muted">{{ row.text|truncatechars:60 }}</span>
+   </div>
+   <div class="line-row__total num">
+     {% if row.direction == 'in' %}<span class="badge badge--debt">{% trans "новое" %}</span>{% else %}<span class="muted">{% trans "отвечено" %}</span>{% endif %}<br>
+     <span class="muted">{{ row.created_at|date:"d.m H:i" }}</span>
+   </div>
+ </a>
+ {% empty %}
+ <p class="muted">{% trans "Сообщений пока нет" %}</p>
+ {% endfor %}
+</div>
+{% endblock %}

@@ -22,11 +22,27 @@
  {% endfor %}
 
  <p class="num" style="margin-top:var(--space-3);font-size:16px;font-weight:500">
-  {% trans "Итого" %}: {{ order.total }} {{ order.currency }}
+  {% trans "Итого" %}: {{ order.total|money:order.currency }}
  </p>
 
+ {% if payments %}
+ <div style="margin-top:var(--space-3)">
+  <span class="hint">{% trans "Платежи" %}</span>
+  {% for p in payments %}
+  <div class="line-row">
+    <div class="line-row__label">
+      {{ p.amount|money:p.currency }}{% if p.amount < 0 %} <span class="muted">({% trans "возврат" %})</span>{% endif %}
+      {% with conv=p|payment_conversion %}{% if conv %}<br><span class="muted num">{{ conv }}</span>{% endif %}{% endwith %}
+      {% with chg=p|payment_change_display %}{% if chg %}<br><span class="muted num">{{ chg }}</span>{% endif %}{% endwith %}
+    </div>
+    <div class="line-row__total muted">{{ p.get_method_display }}</div>
+  </div>
+  {% endfor %}
+ </div>
+ {% endif %}
+
  {% if order.client %}
-   {% with debts=order.client|client_debts %}
+   {% with debts=order.client|client_debts credits=order.client|client_credits %}
    <div class="client-chip" style="margin-top:var(--space-3)">
      <div>
        <div class="client-chip__name">{{ order.client.name }}</div>
@@ -35,9 +51,15 @@
        <span class="hint">{% trans "Долг клиента" %}</span><br>
        {% if debts %}
          {% for cur, amt in debts.items %}
-           <span class="{% if amt > 0 %}badge badge--debt{% else %}muted{% endif %}">{{ amt }} {{ cur }}</span>{% if not forloop.last %}<br>{% endif %}
+           <span class="badge badge--debt">{{ amt|money:cur }}</span>{% if not forloop.last %}<br>{% endif %}
          {% endfor %}
-       {% else %}
+       {% endif %}
+       {% if credits %}
+         {% for cur, amt in credits.items %}
+           <span class="badge badge--paid">{% trans "Аванс" %} {{ amt|money:cur }}</span>{% if not forloop.last %}<br>{% endif %}
+         {% endfor %}
+       {% endif %}
+       {% if not debts and not credits %}
          <span class="badge badge--paid">0</span>
        {% endif %}
      </div>

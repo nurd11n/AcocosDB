@@ -1,17 +1,20 @@
-{% load i18n %}
+{% load i18n pos_extras %}
 <div class="card">
  <h2>{{ product.name }}</h2>
  <form hx-post="{% url 'pos:item_add' order.pk %}" hx-target="#sale-body" hx-swap="innerHTML">
   <label>{% trans "Вариант" %}</label>
-  <select name="variant_id" required>
+  <select name="variant_id" id="variant-select" required>
    {% for v in variants %}
-     <option value="{{ v.pk }}" {% if v.stock_qty|default:0 <= 0 %}disabled{% endif %}>
-       {{ v.size }} / {{ v.color }} — {{ v.sale_price }} {{ v.currency }} ({{ v.stock_qty|default:0 }} {% trans "шт" %})
+     <option value="{{ v.pk }}" data-max="{{ v.available_qty }}" {% if v.available_qty <= 0 %}disabled{% endif %}>
+       {{ v.size }} / {{ v.color }} — {{ v.sale_price|money:v.currency }}
+       ({{ v.available_qty }} {% trans "шт" %}{% if v.reserved_qty %} · {{ v.reserved_qty }} {% trans "в заказах" %}{% endif %})
      </option>
    {% endfor %}
   </select>
   <label>{% trans "Количество" %}</label>
-  <input type="number" name="quantity" inputmode="numeric" value="1" min="1" required>
+  <input type="number" name="quantity" id="picker-qty" inputmode="numeric" value="1" min="1"
+    max="{{ variants.0.available_qty|default:1 }}" required>
+  <p class="pay-note pay-note--risk" id="picker-qty-note" hidden></p>
   <div class="row" style="margin-top:var(--space-3)">
     <button type="submit" class="btn btn-primary">{% trans "Добавить" %}</button>
     <button type="button" class="btn btn-ghost" data-clear-target="variant-picker">{% trans "Отмена" %}</button>

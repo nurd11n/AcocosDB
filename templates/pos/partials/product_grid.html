@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n pos_extras %}
 {% for tile in tiles %}
 <button type="button" class="tile" {% if tile.out %}disabled{% endif %}
   hx-get="{% url 'pos:variant_picker' order.pk tile.product_id %}" hx-target="#variant-picker" hx-swap="innerHTML">
@@ -14,7 +14,7 @@
   {% endif %}
   <div class="tile__name">{{ tile.name }}</div>
   {% if tile.price is not None %}
-    <div class="tile__price num">{% if tile.price_varies %}{% trans "от" %} {% endif %}{{ tile.price }} {{ tile.currency }}</div>
+    <div class="tile__price num">{% if tile.price_varies %}{% trans "от" %} {% endif %}{{ tile.price|money:tile.currency }}</div>
   {% endif %}
   {% if tile.out %}
     <span class="badge badge--neutral tile__badge">{% trans "нет в наличии" %}</span>
@@ -22,6 +22,9 @@
     <span class="badge badge--partial tile__badge">{% trans "осталось" %} {{ tile.stock }}</span>
   {% else %}
     <span class="badge badge--paid tile__badge">{% trans "в наличии" %}</span>
+  {% endif %}
+  {% if tile.reserved %}
+    <div class="tile__reserved">{{ tile.stock }} {% trans "шт" %} · {{ tile.reserved }} {% trans "в заказах" %}</div>
   {% endif %}
 </button>
 {% empty %}
