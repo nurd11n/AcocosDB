@@ -43,6 +43,14 @@ REPORT_HOUR = env("REPORT_HOUR")  # HH:MM, TIME_ZONE below — used by the sched
 RATES_HOUR = env("RATES_HOUR")  # HH:MM — daily automatic NBKR pull (manual refresh stays too)
 ADMIN_URL = env("ADMIN_URL")  # admin is no longer the front door — /pos/ is
 
+# Optional forward proxy for the NBKR rate feed ONLY. nbkr.kg blocks many
+# foreign/cloud IP ranges (a DigitalOcean droplet can't reach it at all), so
+# the exchange-rate fetch — and only that one request — can be routed through a
+# proxy located somewhere NBKR allows (a KG box, an SSH SOCKS tunnel, etc.).
+# http://, https:// or socks5://[user:pass@]host:port. Empty = fetch directly.
+# Everything else in the app always goes direct; this never touches other traffic.
+NBKR_PROXY = env("NBKR_PROXY", default="")
+
 # --- On-server database snapshots (apps.core...backup_db + scheduler.py) ---
 # A local, always-available snapshot floor that works in ANY environment
 # (sqlite or postgres, Docker or bare) with no age/rclone/B2 needed — the first

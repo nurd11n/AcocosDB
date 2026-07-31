@@ -11,6 +11,7 @@ django-csp>=3.8,<4
 argon2-cffi>=23.1
 Pillow>=10.4
 requests>=2.32
+PySocks>=1.7  # lets requests use a socks5:// proxy (NBKR_PROXY — nbkr.kg IP block)
 certifi>=2024.2  # explicit: config.settings points SSL_CERT_FILE at its CA bundle
 aiogram>=3.13
 gunicorn>=23.0
