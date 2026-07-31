@@ -467,6 +467,30 @@ def test_fetch_rates_survives_network_failure(monkeypatch, settings):
     assert not ExchangeRate.objects.exists()  # nothing written, last known kept
 
 
+def test_fetch_rates_routes_through_nbkr_proxy_when_set(monkeypatch, settings):
+    """nbkr.kg blocks some server IPs — when NBKR_PROXY is set, the fetch (and
+    only the fetch) goes through it; unset, the request is direct (proxies=None)."""
+    settings.CURRENCY = "KGS"
+    captured = {}
+
+    def capture_get(url, **kwargs):
+        captured["proxies"] = kwargs.get("proxies")
+        return _FakeResp()
+
+    monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", capture_get)
+
+    settings.NBKR_PROXY = ""
+    call_command("fetch_rates")
+    assert captured["proxies"] is None  # direct
+
+    settings.NBKR_PROXY = "socks5://10.0.0.9:1080"
+    call_command("fetch_rates")
+    assert captured["proxies"] == {
+        "http": "socks5://10.0.0.9:1080",
+        "https": "socks5://10.0.0.9:1080",
+    }
+
+
 def test_convert_crosses_currencies_via_base():
     from apps.core.currency import convert
 

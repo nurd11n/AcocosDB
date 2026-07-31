@@ -353,6 +353,10 @@ def test_campaign_audience_whatsapp_requires_opted_in_not_just_consent():
 def test_send_campaign_refuses_during_quiet_hours(monkeypatch, settings):
     from apps.campaigns.models import Campaign
 
+    # Testing the quiet-hours gate, which is only reached once campaigns are
+    # enabled — set it explicitly so the test doesn't depend on the ambient
+    # flag (a prod .env with CAMPAIGNS_ENABLED=False would otherwise short it out).
+    settings.CAMPAIGNS_ENABLED = True
     settings.TELEGRAM_CLIENT_TOKEN = "test-token"
     monkeypatch.setattr(
         "apps.campaigns.management.commands.send_campaign._within_quiet_hours", lambda: True

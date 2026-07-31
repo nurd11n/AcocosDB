@@ -21,6 +21,7 @@ from decimal import Decimal, InvalidOperation
 from xml.etree import ElementTree
 
 import requests
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -30,6 +31,14 @@ from apps.core.models import ExchangeRate, RateChangeLog
 logger = logging.getLogger(__name__)
 
 NBKR_URL = "https://www.nbkr.kg/XML/daily.xml"
+
+
+def _nbkr_proxies():
+    """Route ONLY the NBKR request through settings.NBKR_PROXY when it's set
+    (nbkr.kg blocks foreign/cloud IPs — see the proxy note in settings). Empty
+    setting → None → a direct request, unchanged behaviour."""
+    proxy = settings.NBKR_PROXY
+    return {"http": proxy, "https": proxy} if proxy else None
 
 
 def fetch_nbkr_rates(changed_by=None) -> tuple[int, int]:
@@ -44,7 +53,7 @@ def fetch_nbkr_rates(changed_by=None) -> tuple[int, int]:
     changed_by=changed_by — None for the scheduled/system run, the acting
     user for the POS refresh button). A refresh that pulls back the same
     number is not a change and isn't logged, keeping the audit trail useful."""
-    resp = requests.get(NBKR_URL, timeout=20)
+    resp = requests.get(NBKR_URL, timeout=20, proxies=_nbkr_proxies())
     resp.raise_for_status()
     root = ElementTree.fromstring(resp.content)  # respects the XML's own encoding
 
