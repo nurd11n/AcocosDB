@@ -430,6 +430,76 @@ def refresh_rates(request):
     return render(request, "pos/partials/rates.html", {"rates": _today_rates()})
 
 
+@pos_view
+def rate_edit(request):
+    """Owner-only manual-rate dialog opened from the Курс card. Pre-fills each
+    non-base currency's current rate for editing. Hand-entering a rate is
+    OWNER-ONLY (CLAUDE.md) — enforced here and again in rate_save, not just
+    hidden in the UI. The useful path where NBKR is unreachable (it blocks some
+    server IPs): the Owner sets the rate by hand without opening /panel/."""
+    if not request.user.is_superuser:
+        raise PermissionDenied
+    rate_rows = []
+    for code in CURRENCY_CODES:
+        if code == settings.CURRENCY:
+            continue
+        current = get_rate(code)
+        rate_rows.append(
+            {
+                "currency": code,
+                "symbol": CURRENCY_SYMBOLS.get(code, code),
+                "value": current if current is not None else "",
+            }
+        )
+    return render(
+        request,
+        "pos/partials/rate_modal.html",
+        {
+            "rate_rows": rate_rows,
+            "base_symbol": CURRENCY_SYMBOLS.get(settings.CURRENCY, settings.CURRENCY),
+        },
+    )
+
+
+@pos_view
+@require_POST
+def rate_save(request):
+    """Save Owner-entered rates as MANUAL overrides (one row per currency,
+    overwritten in place), logging each ACTUAL change to RateChangeLog — the
+    same audit trail the /panel/ ExchangeRate admin writes. Owner-only,
+    enforced server-side. Returns the refreshed rate strip and closes the
+    dialog (out-of-band empty #rate-modal)."""
+    if not request.user.is_superuser:
+        raise PermissionDenied
+    from apps.core.models import ExchangeRate, RateChangeLog
+
+    today = timezone.localdate()
+    for code in CURRENCY_CODES:
+        if code == settings.CURRENCY:
+            continue
+        raw = (request.POST.get(f"rate_{code}", "") or "").strip().replace(",", ".")
+        if not raw:
+            continue  # left blank — leave that currency's rate untouched
+        value = _parse_decimal(raw)
+        if value is None or value <= 0:
+            continue  # ignore a non-positive/garbage entry rather than 500
+
+        old = ExchangeRate.objects.filter(currency=code).values_list("rate", flat=True).first()
+        ExchangeRate.objects.update_or_create(
+            currency=code,
+            defaults={"rate": value, "date": today, "source": ExchangeRate.MANUAL},
+        )
+        if old is None or old != value:
+            RateChangeLog.objects.create(
+                currency=code,
+                old_rate=old,
+                new_rate=value,
+                source=ExchangeRate.MANUAL,
+                changed_by=request.user,
+            )
+    return render(request, "pos/partials/rate_saved.html", {"rates": _today_rates()})
+
+
 # ---- Sale draft lifecycle -------------------------------------------------
 
 

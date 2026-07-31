@@ -491,6 +491,54 @@ def test_fetch_rates_routes_through_nbkr_proxy_when_set(monkeypatch, settings):
     }
 
 
+def test_owner_can_set_rate_by_hand_from_the_pos_card(client, django_user_model, settings):
+    """The «Изменить курс» dialog: an Owner hand-enters a rate (used where NBKR
+    is unreachable), stored as a MANUAL override and logged like the /panel/
+    ExchangeRate admin. Comma decimals are accepted; a blank field is left
+    untouched."""
+    from apps.core.models import ExchangeRate, RateChangeLog
+
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("rate_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+
+    # The modal opens (Owner) and offers a USD field.
+    resp = client.get("/pos/rates/edit/")
+    assert resp.status_code == 200
+    assert 'name="rate_USD"' in resp.content.decode()
+
+    # Save USD (comma decimal), leave RUB blank.
+    resp = client.post("/pos/rates/save/", {"rate_USD": "87,45", "rate_RUB": ""})
+    assert resp.status_code == 200
+    usd = ExchangeRate.objects.get(currency="USD")
+    assert usd.rate == Decimal("87.45") and usd.source == ExchangeRate.MANUAL
+    assert RateChangeLog.objects.filter(
+        currency="USD", source=ExchangeRate.MANUAL, changed_by=owner
+    ).exists()
+    assert not ExchangeRate.objects.filter(currency="RUB").exists()  # blank = untouched
+    assert 'id="rate-modal"' in resp.content.decode()  # dialog closes (oob)
+
+
+def test_manual_rate_entry_is_owner_only(client, django_user_model, settings):
+    from apps.core.models import ExchangeRate
+    from apps.core.permissions import EDITOR
+
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("rate_editor", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    assert client.get("/pos/rates/edit/").status_code == 403
+    assert client.post("/pos/rates/save/", {"rate_USD": "90"}).status_code == 403
+    assert not ExchangeRate.objects.exists()  # nothing written by a non-Owner
+
+
+def test_rate_save_rejects_get(client, django_user_model):
+    owner = django_user_model.objects.create_superuser("rate_owner2", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    assert client.get("/pos/rates/save/").status_code == 405  # POST-only mutation
+
+
 def test_convert_crosses_currencies_via_base():
     from apps.core.currency import convert
 

@@ -1,0 +1,21 @@
+{% load i18n %}
+<div class="card">
+ <h2>{% trans "Курс валют" %}</h2>
+ <p class="hint">{% blocktrans %}Сколько сомов стоит 1 единица валюты.{% endblocktrans %}</p>
+ <form hx-post="{% url 'pos:rate_save' %}" hx-target="#rates-strip" hx-swap="outerHTML">
+  {% csrf_token %}
+  {% for r in rate_rows %}
+  <label>1 {{ r.symbol }} = ? {{ base_symbol }}</label>
+  <input type="text" name="rate_{{ r.currency }}" inputmode="decimal"
+    value="{{ r.value }}" placeholder="{% trans "напр. 87.45" %}">
+  {% endfor %}
+  <div class="row" style="margin-top:var(--space-3)">
+   <button type="submit" class="btn btn-primary">{% trans "Сохранить" %}</button>
+   <button type="button" class="btn btn-ghost" data-clear-target="rate-modal">{% trans "Отмена" %}</button>
+  </div>
+ </form>
+ {# Still available where NBKR is reachable; a no-op (kept last rate) where it isn't. #}
+ <button type="button" class="btn btn-ghost btn-sm" style="margin-top:var(--space-2)"
+   hx-post="{% url 'pos:refresh_rates' %}" hx-target="#rates-strip" hx-swap="outerHTML"
+   data-clear-target="rate-modal">{% trans "Обновить из НБКР" %}</button>
+</div>
