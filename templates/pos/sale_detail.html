@@ -6,12 +6,22 @@
  <h2><svg class="ic"><use href="#i-payments"/></svg>{% trans "Курс" %}</h2>
  <div class="rates-row">
   {% include "pos/partials/rates.html" %}
+  {% if request.user.is_superuser %}
+  {# Owner: the button opens a manual-rate dialog (with a «Обновить из НБКР» inside). #}
+  <button type="button" class="rates-refresh" hx-get="{% url 'pos:rate_edit' %}"
+    hx-target="#rate-modal" hx-swap="innerHTML"
+    aria-label="{% trans 'Изменить курс' %}" title="{% trans 'Изменить курс' %}">
+    <svg class="ic"><use href="#i-refresh"/></svg></button>
+  {% else %}
+  {# Editor/Viewer can pull the official NBKR number but not hand-enter a rate. #}
   <button type="button" class="rates-refresh" hx-post="{% url 'pos:refresh_rates' %}"
     hx-target="#rates-strip" hx-swap="outerHTML"
     aria-label="{% trans 'Обновить курс НБКР' %}" title="{% trans 'Обновить курс НБКР' %}">
     <svg class="ic"><use href="#i-refresh"/></svg></button>
+  {% endif %}
  </div>
 </div>
+<div id="rate-modal"></div>
 <div id="client-section">
   {% include "pos/partials/client_section.html" %}
 </div>
