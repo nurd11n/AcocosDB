@@ -62,6 +62,53 @@ def test_unverified_session_is_rejected_on_every_protected_surface(
     assert resp.url.startswith("/login/")
 
 
+def test_unverified_session_visiting_login_sees_the_form_not_a_redirect_loop(
+    client, django_user_model, settings
+):
+    """THE BUG THAT TOOK PROD DOWN: pos_view (and every other OTP-gated view)
+    sends an authenticated-but-unverified session to /login/?next=.... Django's
+    stock LoginView.dispatch() bounces any is_authenticated user straight back
+    to `next` when redirect_authenticated_user is left at its default `True`
+    — which doesn't distinguish "authenticated" from "fully verified". That
+    sent the session right back to the page that just rejected it, forever:
+    /pos/ -> /login/?next=/pos/ -> /pos/ -> ... until the browser gave up
+    with "Load cannot follow more than 20 redirections". The regression here
+    is `client.get(..., follow=True)`: Django's test client raises
+    RedirectCycleError itself if a chain loops, which resp.status_code alone
+    (what the test above checks) can never catch — that's exactly how this
+    shipped."""
+    settings.OTP_ENABLED = True
+    owner = django_user_model.objects.create_superuser("loop_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+
+    # Must NOT raise RedirectCycleError, and must land on a real page (the
+    # login form) that actually lets the session finish verifying — not
+    # bounce back to the same protected page that rejected it.
+    resp = client.get("/pos/", follow=True)
+    assert resp.status_code == 200
+    assert resp.redirect_chain[-1][0].startswith("/login/")
+    assert len(resp.redirect_chain) <= 2, resp.redirect_chain
+    assert 'name="otp_token"' in resp.content.decode()
+
+    # Visiting /login/ directly (no `next`) behaves the same way — shows the
+    # form, doesn't bounce to /pos/ and back.
+    resp = client.get("/login/")
+    assert resp.status_code == 200
+    assert 'name="otp_token"' in resp.content.decode()
+
+    # Once actually verified (a real login), /login/ DOES redirect away — the
+    # fix must not break the normal "already logged in" shortcut.
+    _give_static_token(owner, token="loopcheck1")
+    client.post("/logout/")
+    login_resp = client.post(
+        "/login/", {"username": "loop_owner", "password": "x" * 12, "otp_token": "loopcheck1"}
+    )
+    assert login_resp.status_code == 302
+    resp = client.get("/login/")
+    assert resp.status_code == 302
+    assert resp.url == "/pos/"
+
+
 def test_login_form_shows_no_otp_field_when_disabled(client, django_user_model, settings):
     settings.OTP_ENABLED = False
     resp = client.get("/login/")

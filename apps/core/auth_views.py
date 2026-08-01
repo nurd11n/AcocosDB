@@ -105,7 +105,25 @@ class UnifiedAuthenticationForm(OTPAuthenticationForm):
 
 class UnifiedLoginView(LoginView):
     template_name = "registration/login.html"
-    redirect_authenticated_user = True
+
+    @property
+    def redirect_authenticated_user(self):
+        """Django's own LoginView.dispatch() reads this flag alongside a bare
+        `request.user.is_authenticated` check — NOT `is_verified()` — to
+        decide whether to bounce a visitor away from the login form straight
+        to LOGIN_REDIRECT_URL. Left as the plain `= True` this used to be,
+        that produces an infinite redirect loop the moment OTP_ENABLED is on:
+        apps.core.otp-gated views (pos_view, owner_only, _AdminSite, ...) send
+        an authenticated-but-not-yet-verified session to /login/?next=..., and
+        Django's own unmodified check immediately sends it straight back to
+        that same `next` page (is_authenticated is already True), which
+        rejects it again, forever. A session must stay ABLE to see and submit
+        the login form (to actually complete the OTP step) until it's fully
+        verified, not just authenticated. See tests/test_otp.py's dedicated
+        regression test — this is exactly what took the site down."""
+        from apps.core.otp import verified
+
+        return verified(self.request.user)
 
     def get_form_class(self):
         return UnifiedAuthenticationForm if settings.OTP_ENABLED else GenericAuthenticationForm
