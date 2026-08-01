@@ -46,6 +46,37 @@ def _incr(key: str) -> None:
             cache.set(key, 1, TTL)
 
 
+class AdminFrameOptionsMiddleware:
+    """X_FRAME_OPTIONS = DENY (settings.base) is deliberate for the public
+    surface (/pos/, /login/) — a clickjacking iframe from any origin, same-site
+    included, must be refused there. But Jazzmin's own "add related object"
+    popup (the + next to a select, e.g. adding a Category from the Product
+    add form) embeds an admin page inside another admin page via an iframe —
+    same-origin, /panel/ framing /panel/. DENY blocks that too, since unlike
+    SAMEORIGIN it does not distinguish same-origin from cross-origin — the
+    popup opens and shows nothing (see the report this fixes).
+
+    So /panel/ gets SAMEORIGIN instead: it still refuses a clickjacking iframe
+    from anyone else's site, it just allows the admin's own same-origin popup.
+    Same tradeoff CLAUDE.md already accepts for /panel/'s CSP exclusion —
+    Owner-only, behind login, not the public surface DENY protects.
+
+    Must sit AFTER django.middleware.clickjacking.XFrameOptionsMiddleware in
+    MIDDLEWARE: response processing runs bottom-to-top, so this sets the
+    header first; Django's middleware then sees it's already set and leaves
+    it alone (its own source explicitly does this — never overrides an
+    existing X-Frame-Options)."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.path.startswith("/" + settings.ADMIN_URL):
+            response["X-Frame-Options"] = "SAMEORIGIN"
+        return response
+
+
 class RequestCounterMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response

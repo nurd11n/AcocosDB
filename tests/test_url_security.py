@@ -308,3 +308,18 @@ def test_no_template_relies_on_an_inline_style_element(client, owner):
         and "<style" in p.read_text(encoding="utf-8")
     ]
     assert offenders == [], f"inline <style> would be blocked by CSP: {offenders}"
+
+
+# ---- X-Frame-Options: /panel/'s own iframe popup vs public clickjacking ----
+
+
+def test_panel_gets_sameorigin_but_public_pos_stays_deny(client, owner):
+    """DENY (settings.base) refuses ANY framing, same-origin included — which
+    also broke Jazzmin's own "add related object" popup (the + next to a
+    select), an iframe embedding one /panel/ page inside another. /panel/
+    gets SAMEORIGIN instead: still refuses a clickjacking iframe from
+    someone else's site, just allows the admin's own same-origin popup. The
+    public surface DENY exists to protect (/pos/, /login/) must not relax."""
+    assert client.get("/panel/inventory/category/add/").headers["X-Frame-Options"] == ("SAMEORIGIN")
+    assert client.get("/pos/today/").headers["X-Frame-Options"] == "DENY"
+    assert client.get("/login/").headers["X-Frame-Options"] == "DENY"
