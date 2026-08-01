@@ -30,7 +30,7 @@
      <input name="first_name" value="{{ new_client_values.first_name|default:'' }}" required>
      <label>{% trans "Уточнение" %}</label>
      <input name="descriptor" value="{{ new_client_values.descriptor|default:'' }}"
-       placeholder="{% trans "напр. сестра Розы — если есть тёзки" %}">
+       placeholder="{% trans "напр. район или профессия — если есть тёзки" %}">
      <label>{% trans "Телефон" %}</label>
      <input name="phone" type="tel" inputmode="tel" value="{{ new_client_values.phone|default:'' }}" required>
      <div class="row" style="margin-top:var(--space-3)">
