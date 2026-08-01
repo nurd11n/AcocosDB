@@ -1,0 +1,58 @@
+{% load i18n pos_extras %}
+{% comment %}
+The one irreversible step gets a real summary instead of a browser confirm():
+what leaves the warehouse, whether the stock is actually there, and what money
+is still owed. The submit is a plain data-network-safe POST — handover must
+never be retried or half-applied, so it keeps the same offline-safe path the
+sale confirmation uses.
+{% endcomment %}
+<div class="card">
+ <h2>{% trans "Выдать заказ" %} №{{ order.pk }}</h2>
+ <p class="hint">{% trans "Товар спишется со склада, заказ станет продажей." %}</p>
+
+ <div class="q-sub">
+  <div class="q-sub__label">{% trans "Спишется со склада" %}</div>
+  {% for row in lines %}
+  <div class="q-sub__row">
+   <span>{{ row.item.variant }}</span>
+   <span class="muted num">{% trans "на складе" %} {{ row.in_stock }}</span>
+   <span class="num">
+    {% if row.coverable %}
+      <span class="badge badge--paid">−{{ row.item.quantity }}</span>
+    {% else %}
+      <span class="badge badge--debt">−{{ row.item.quantity }}</span>
+    {% endif %}
+   </span>
+  </div>
+  {% endfor %}
+ </div>
+
+ {% if short_lines %}
+ <p class="pay-note pay-note--risk">
+   {% blocktrans count n=short_lines|length %}Не хватает остатка на {{ n }} позицию — выдача не пройдёт, пока её не произведут или не примут на склад.{% plural %}Не хватает остатка на {{ n }} позиции — выдача не пройдёт, пока их не произведут или не примут на склад.{% endblocktrans %}
+ </p>
+ {% endif %}
+
+ <div class="change-panel">
+  <div class="change-panel__row"><span>{% trans "Итого" %}</span>
+    <span class="num">{{ order.total|money:order.currency }}</span></div>
+  <div class="change-panel__row"><span>{% trans "Аванс внесён" %}</span>
+    <span class="num">{{ paid|money:order.currency }}</span></div>
+  <div class="change-panel__row change-panel__row--total"><span>{% trans "К оплате при выдаче" %}</span>
+    <span class="num">{{ remaining|money:order.currency }}</span></div>
+ </div>
+ {% if remaining > 0 %}
+ <p class="hint">{% trans "Остаток принимается на экране продажи сразу после выдачи." %}</p>
+ {% endif %}
+
+ <div class="row" style="margin-top:var(--space-3)">
+  <form method="post" action="{% url 'orders:deliver' order.pk %}"
+    data-network-safe data-error-target="deliver-modal-error">
+   {% csrf_token %}
+   <button type="submit" class="btn btn-primary" {% if short_lines %}disabled{% endif %}>
+     {% trans "Выдать" %}</button>
+  </form>
+  <button type="button" class="btn btn-ghost" data-clear-target="order-modal">{% trans "Отмена" %}</button>
+ </div>
+ <p id="deliver-modal-error" class="error" hidden></p>
+</div>

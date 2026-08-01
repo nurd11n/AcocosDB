@@ -3694,6 +3694,161 @@ def test_empty_order_hides_money_sections_until_it_has_items(
     assert "Аванс внесён" in body
 
 
+def test_order_line_progress_reports_real_stock_and_other_orders_claims(variant, settings):
+    """Per-line the order page must show real numbers: this line's own
+    production progress, the variant's actual stock, and how much of that
+    stock another open order has already been promised."""
+    from apps.orders.services import create_order, mark_produced, order_line_progress
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 30)
+    mine = Client.objects.create(first_name="Mine", phone="+996700002301")
+    rival = Client.objects.create(first_name="Rival", phone="+996700002302")
+    order = create_order(
+        mine, [{"variant": variant, "quantity": 10, "unit_price": variant.sale_price}]
+    )
+
+    row = order_line_progress(order)[0]
+    assert row["in_stock"] == 30
+    assert row["claimed_by_others"] == 0
+    assert row["free_for_order"] == 30
+    assert row["coverable"] is True  # 30 on hand covers this line's 10
+    assert row["made"] == 0 and row["percent"] == 0
+
+    # Another open order books 25 of the same SKU — only 5 are really free now.
+    create_order(rival, [{"variant": variant, "quantity": 25, "unit_price": variant.sale_price}])
+    row = order_line_progress(order)[0]
+    assert row["in_stock"] == 30  # unchanged fact
+    assert row["claimed_by_others"] == 25
+    assert row["free_for_order"] == 5
+    assert row["coverable"] is False  # 5 free < 10 ordered
+
+    # Taking 4 into stock moves this line's own progress to 40%.
+    mark_produced(order.items.get(), 4)
+    row = order_line_progress(order)[0]
+    assert row["made"] == 4
+    assert row["percent"] == 40
+    assert row["remaining"] == 6
+
+
+def test_shortfall_is_about_stock_not_production_progress(variant, settings):
+    """A fully produced line can still be short at handover, because another
+    open order holds a prior claim on the same shared stock. The shortfall
+    shown must be the STOCK gap — reporting the production remainder printed
+    the nonsense «принято 20 из 20 · 100%» next to «не хватает 0 шт»."""
+    from apps.orders.services import create_order, mark_produced, order_line_progress
+
+    settings.CURRENCY = "KGS"
+    mine = Client.objects.create(first_name="ShortMine", phone="+996700002306")
+    rival = Client.objects.create(first_name="ShortRival", phone="+996700002307")
+    order = create_order(
+        mine, [{"variant": variant, "quantity": 20, "unit_price": variant.sale_price}]
+    )
+    create_order(rival, [{"variant": variant, "quantity": 100, "unit_price": variant.sale_price}])
+
+    # Produce this line in full: 100% made, and those 20 units are in stock...
+    mark_produced(order.items.get(), 20)
+    row = order_line_progress(order)[0]
+    assert row["percent"] == 100
+    assert row["remaining"] == 0  # nothing left to sew
+    # ...but the rival order's 100-unit claim outweighs the 20 on hand, so
+    # handover would still fail — and the number said so must be the stock gap.
+    assert row["free_for_order"] == 0
+    assert row["coverable"] is False
+    assert row["short_by"] == 20  # not 0, which is the production remainder
+
+
+def test_order_progress_percentage_rolls_up_across_lines(variant, settings):
+    from apps.orders.services import create_order, mark_produced, order_progress
+
+    settings.CURRENCY = "KGS"
+    other = ProductVariant.objects.create(
+        product=variant.product,
+        sku="EVD-PROG-L",
+        size="L",
+        color="red",
+        cost_price=Decimal("1500.00"),
+        sale_price=Decimal("3200.00"),
+    )
+    cust = Client.objects.create(first_name="Prog", phone="+996700002303")
+    order = create_order(
+        cust,
+        [
+            {"variant": variant, "quantity": 3, "unit_price": variant.sale_price},
+            {"variant": other, "quantity": 1, "unit_price": other.sale_price},
+        ],
+    )
+    assert order_progress(order) == {"made": 0, "total": 4, "percent": 0, "complete": False}
+
+    mark_produced(order.items.get(variant=variant), 3)
+    prog = order_progress(order)
+    assert prog["made"] == 3 and prog["total"] == 4 and prog["percent"] == 75
+    assert prog["complete"] is False
+
+    mark_produced(order.items.get(variant=other), 1)
+    assert order_progress(order)["complete"] is True
+
+
+def test_saving_the_due_date_finishes_and_returns_to_the_list(
+    client, django_user_model, variant, settings
+):
+    """Setting the срок is the last step of creating an order, so it saves
+    and goes back to the list — both for a plain POST and under HTMX (which
+    needs HX-Redirect, or the whole list page would be pasted into the body)."""
+    from apps.orders.services import create_order
+
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("due_owner", "d@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="DueDate", phone="+996700002304")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 1, "unit_price": variant.sale_price}]
+    )
+    url = f"/orders/{order.pk}/due-date/"
+
+    resp = client.post(url, {"due_date": "2026-09-01", "note": "подшить"})
+    assert resp.status_code == 302
+    assert resp.url == "/orders/"
+    order.refresh_from_db()
+    assert str(order.due_date) == "2026-09-01"
+    assert order.note == "подшить"
+
+    resp = client.post(url, {"due_date": "2026-09-02", "note": ""}, HTTP_HX_REQUEST="true")
+    assert resp.status_code == 204  # nothing to swap
+    assert resp["HX-Redirect"] == "/orders/"
+
+
+def test_handover_dialog_blocks_when_stock_cannot_cover_the_order(
+    client, django_user_model, variant, settings
+):
+    """confirm_sale raises on an oversell anyway; the dialog's job is to say so
+    BEFORE the manager taps, instead of after."""
+    from apps.orders.services import create_order
+
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("hand_owner", "h@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Handover", phone="+996700002305")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 5, "unit_price": variant.sale_price}]
+    )
+
+    # Nothing produced yet -> the dialog warns and its submit is disabled.
+    resp = client.get(f"/orders/{order.pk}/deliver/confirm/")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert len(resp.context["short_lines"]) == 1
+    assert "Не хватает остатка" in body
+    assert "disabled" in body
+
+    # Take the goods into stock -> the same dialog now allows the handover.
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    resp = client.get(f"/orders/{order.pk}/deliver/confirm/")
+    assert resp.context["short_lines"] == []
+    assert "Не хватает остатка" not in resp.content.decode()
+    assert resp.context["remaining"] == order.total  # no deposit taken
+
+
 def test_order_page_offers_a_way_out_that_is_not_handing_over(
     client, django_user_model, variant, settings
 ):
@@ -3715,7 +3870,9 @@ def test_order_page_offers_a_way_out_that_is_not_handing_over(
     )
 
     def deliver_button_class(body):
-        m = re.search(r'<button type="submit" class="btn (btn-\w+)"[^>]*>\s*Выдать заказ', body)
+        # type="button" — it opens the handover summary dialog rather than
+        # submitting; the styling is what this test is about.
+        m = re.search(r'<button type="button"\s+class="btn (btn-\w+)"[^>]*>\s*Выдать заказ', body)
         assert m, "the Выдать заказ button disappeared"
         return m.group(1)
 

@@ -11,37 +11,78 @@ hidden until there's at least one line, because a deposit against a 0 сом
 order is a question with no meaning.
 {% endcomment %}
 <div id="variant-picker" hx-swap-oob="true"></div>
+<div id="order-modal" hx-swap-oob="true"></div>
 
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
 <div class="card">
  <h2>{% trans "В заказе" %}{% if items %} · {{ items|length }}{% endif %}</h2>
- {% for item in items %}
+ {% if items %}
+ <div class="oprogress oprogress--order">
+  <div class="oprogress__bar"><span style="width:{{ progress.percent }}%"></span></div>
+  <span class="oprogress__label muted num">
+    {% blocktrans with made=progress.made total=progress.total pct=progress.percent %}принято на склад {{ made }} из {{ total }} шт · {{ pct }}%{% endblocktrans %}</span>
+ </div>
+ {% endif %}
+
+ {% for row in lines %}
  <div class="oline">
   <div class="oline__main">
-   <span class="oline__name">{{ item.variant }}</span>
+   <span class="oline__name">{{ row.item.variant }}</span>
    <span class="oline__meta muted num">
-     {{ item.quantity }} {% trans "шт" %} × {{ item.unit_price|money:item.currency }}
-     {% if item.produced_qty %} · {% trans "готово" %} {{ item.produced_qty }}/{{ item.quantity }}{% endif %}
+     {{ row.item.quantity }} {% trans "шт" %} × {{ row.item.unit_price|money:row.item.currency }}
    </span>
   </div>
-  <span class="oline__total num">{{ item.line_total|money:item.currency }}</span>
+  <span class="oline__total num">{{ row.item.line_total|money:row.item.currency }}</span>
   {% if can_write and order.is_open %}
-  <form hx-post="{% url 'orders:item_remove' order.pk item.pk %}"
+  <form hx-post="{% url 'orders:item_remove' order.pk row.item.pk %}"
     hx-target="#order-body" hx-swap="innerHTML" class="oline__remove">
     {% csrf_token %}
     <button type="submit" class="btn btn-ghost btn-icon" aria-label="{% trans "Удалить" %}">✕</button>
   </form>
   {% endif %}
  </div>
- {% if can_write and item.remaining_to_produce > 0 and order.status != "cancelled" %}
- <form hx-post="{% url 'orders:produce' order.pk item.pk %}"
+
+ {% comment %}
+ Real numbers, no guesses: this line's own production progress, then the
+ variant's actual stock. «claimed_by_others» is spelled out whenever another
+ open order wants the same SKU — without it, «на складе 1670» would read as
+ 1670 units waiting for THIS client, which is exactly the wrong impression.
+ {% endcomment %}
+ <div class="oline__stock">
+  <div class="oprogress">
+   <div class="oprogress__bar"><span style="width:{{ row.percent }}%"></span></div>
+   <span class="oprogress__label muted num">
+     {% blocktrans with made=row.made total=row.item.quantity pct=row.percent %}принято {{ made }} из {{ total }} · {{ pct }}%{% endblocktrans %}</span>
+  </div>
+  <p class="oline__stockline muted num">
+   {% trans "На складе сейчас" %}: {{ row.in_stock }} {% trans "шт" %}
+   {% if row.claimed_by_others %}
+     · <span class="q-due--overdue">{% blocktrans with n=row.claimed_by_others %}{{ n }} шт обещано другим заказам{% endblocktrans %}</span>
+     · {% trans "свободно" %} {{ row.free_for_order }}
+   {% endif %}
+   {% if row.coverable %}
+     · <span class="oline__ok">{% trans "хватает для выдачи" %}</span>
+   {% else %}
+     · <span class="q-due--overdue">{% blocktrans with n=row.short_by %}для выдачи не хватает {{ n }} шт{% endblocktrans %}</span>
+   {% endif %}
+  </p>
+ </div>
+
+ {% if can_write and row.remaining > 0 and order.status != "cancelled" %}
+ {% comment %}
+ This writes a PRODUCTION_IN movement — the goods have been sewn and are
+ ARRIVING in the warehouse. «Принять на склад» is the same wording the
+ inventory intake action already uses (CLAUDE.md), and unlike «Произвести»
+ it can't be read as "the system will manufacture this for me".
+ {% endcomment %}
+ <form hx-post="{% url 'orders:produce' order.pk row.item.pk %}"
    hx-target="#order-body" hx-swap="innerHTML" class="oline__produce">
    {% csrf_token %}
    <input type="number" name="quantity" inputmode="numeric" min="1"
-     max="{{ item.remaining_to_produce }}" value="{{ item.remaining_to_produce }}"
-     aria-label="{% trans "Сколько произведено" %}">
-   <button type="submit" class="btn btn-ghost btn-sm">{% trans "Произвести" %}</button>
+     max="{{ row.remaining }}" value="{{ row.remaining }}"
+     aria-label="{% trans "Сколько готово" %}">
+   <button type="submit" class="btn btn-ghost btn-sm">{% trans "Принять на склад" %}</button>
  </form>
  {% endif %}
  {% empty %}
@@ -59,8 +100,14 @@ order is a question with no meaning.
   <label>{% trans "Заметка" %}</label>
   <input type="text" name="note" value="{{ order.note }}" maxlength="255"
     placeholder="{% trans "напр. подшить рукава" %}">
-  <button type="submit" class="btn btn-ghost" style="margin-top:var(--space-3)">
-    {% trans "Сохранить срок" %}</button>
+  {% comment %}
+  Setting the срок is the last step of creating an order, so this saves and
+  returns to the list — «готово, что дальше» rather than parking the manager
+  on a finished page. Posts to the same endpoint either way; the view sends
+  HX-Redirect so HTMX navigates instead of swapping a whole page into the body.
+  {% endcomment %}
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">
+    {% trans "Сохранить и закрыть" %}</button>
  </form>
 </div>
 {% else %}
@@ -127,35 +174,32 @@ order is a question with no meaning.
 </div>
 {% endif %}
 
-{% comment %}
-«Выдать заказ» is final — it confirms a sale and deducts stock. It only LOOKS
-like the default action once the order is готов; before that it sits under the
-plain «К заказам» exit, so finishing up can't be confused with handing over.
-Living inside the swapped body means it re-styles itself the moment the last
-item is marked produced.
-{% endcomment %}
 <div class="card order-actions">
- {% if can_write and order.is_open %}
- <form method="post" action="{% url 'orders:deliver' order.pk %}"
-   data-network-safe data-confirm="{% trans "Выдать заказ? Остаток товара спишется со склада." %}"
-   data-error-target="deliver-error">
-  {% csrf_token %}
-  <button type="submit" class="btn {% if order.status == 'ready' %}btn-primary{% else %}btn-ghost{% endif %}"
-    {% if not items %}disabled{% endif %}>{% trans "Выдать заказ" %}</button>
- </form>
- <p id="deliver-error" class="error" hidden></p>
- {% if items and order.status != "ready" %}
- <p class="hint">{{ order.produced_summary }} — {% trans "выдача спишет остаток со склада." %}</p>
- {% endif %}
- {% endif %}
-
- <a class="btn {% if order.status == 'ready' %}btn-ghost{% else %}btn-primary{% endif %}"
-   href="{% url 'orders:index' %}">{% trans "К заказам" %}</a>
-
+ <a class="btn btn-ghost" href="{% url 'orders:index' %}">{% trans "К заказам" %}</a>
  {% if order.sale_order_id %}
  <a class="btn btn-ghost" href="{% url 'pos:sale_result' order.sale_order_id %}">{% trans "Открыть продажу" %}</a>
  {% endif %}
- {% if request.user.is_superuser and order.is_open %}
+</div>
+
+{% comment %}
+Handover lives in its own block at the very bottom, after every edit control,
+because it ENDS the order: stock leaves and a sale is created. It opens the
+summary dialog rather than firing straight away, and only reads as the primary
+action once the order is готов — which it becomes on its own, inside this same
+swapped body, the moment the last item is taken into stock.
+{% endcomment %}
+{% if can_write and order.is_open %}
+<div class="card order-finish">
+ <h2>{% trans "Завершение" %}</h2>
+ {% if items and not progress.complete %}
+ <p class="hint">{{ order.produced_summary }} — {% trans "можно выдать и раньше, если товар есть на складе." %}</p>
+ {% endif %}
+ <button type="button"
+   class="btn {% if order.status == 'ready' %}btn-primary{% else %}btn-ghost{% endif %}"
+   {% if not items %}disabled{% endif %}
+   hx-get="{% url 'orders:deliver_confirm' order.pk %}"
+   hx-target="#order-modal" hx-swap="innerHTML">{% trans "Выдать заказ" %}</button>
+ {% if request.user.is_superuser %}
  <form method="post" action="{% url 'orders:cancel' order.pk %}"
    data-network-safe data-confirm="{% trans "Отменить заказ? Резерв товара снимется." %}"
    data-error-target="cancel-error">
@@ -165,3 +209,4 @@ item is marked produced.
  <p id="cancel-error" class="error" hidden></p>
  {% endif %}
 </div>
+{% endif %}

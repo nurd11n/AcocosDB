@@ -652,11 +652,13 @@ input:focus, select:focus, textarea:focus {
    scrolling to find it. Shown purely by CSS when #variant-picker has content
    (:not(:empty)); ОТМЕНА / Escape / adding an item clear it to empty, which
    hides it again. No inline script needed (CSP-safe). --- */
-/* Same CSS-only overlay mechanism is shared by the variant picker and the
-   Owner's manual-rate dialog (#rate-modal) — both show when their div has
-   content and hide when it's emptied (data-clear-target / oob swap). */
+/* Same CSS-only overlay mechanism is shared by the variant picker, the
+   Owner's manual-rate dialog (#rate-modal) and the order handover summary
+   (#order-modal) — each shows when its div has content and hides when it's
+   emptied (data-clear-target / oob swap). */
 #variant-picker:not(:empty),
-#rate-modal:not(:empty) {
+#rate-modal:not(:empty),
+#order-modal:not(:empty) {
   position: fixed;
   inset: 0;
   z-index: 20; /* above header (6), nav (5), money bar (4) */
@@ -667,7 +669,8 @@ input:focus, select:focus, textarea:focus {
   background: rgba(0, 0, 0, 0.5); /* backdrop scrim */
 }
 #variant-picker > .card,
-#rate-modal > .card {
+#rate-modal > .card,
+#order-modal > .card {
   width: 100%;
   max-width: 420px;
   margin: 0;
@@ -681,7 +684,8 @@ input:focus, select:focus, textarea:focus {
 }
 /* Freeze the page behind the open dialog so only the dialog scrolls. */
 body:has(#variant-picker:not(:empty)),
-body:has(#rate-modal:not(:empty)) { overflow: hidden; }
+body:has(#rate-modal:not(:empty)),
+body:has(#order-modal:not(:empty)) { overflow: hidden; }
 
 /* --- status badges: colour + word, never colour alone. Solid fills (not soft
    tints) at weight 800 — declarative, high-contrast; --on-accent flips per
@@ -933,10 +937,42 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Actions stack in their own card so «Выдать заказ» is never adjacent to an
    edit control that could be mis-tapped for it. */
-.order-actions { display: flex; flex-direction: column; gap: var(--space-2); }
-.order-actions form { margin: 0; }
-.order-actions .btn { margin: 0; }
-.order-actions .hint { margin: 0; }
+.order-actions,
+.order-finish { display: flex; flex-direction: column; gap: var(--space-2); }
+.order-actions form,
+.order-finish form { margin: 0; }
+.order-actions .btn,
+.order-finish .btn { margin: 0; }
+.order-actions .hint,
+.order-finish .hint { margin: 0; }
+/* The end of the order, visually separated from every edit control above it. */
+.order-finish { border-color: var(--border-strong); }
+.order-finish h2 { margin-bottom: var(--space-1); }
+
+/* Production progress: how much of a line has actually reached the warehouse.
+   Bar + number together — the bar is scannable down a long order, the number
+   is the one that's true. Never colour alone (matches the badge rule). */
+.oprogress { display: flex; align-items: center; gap: var(--space-2); margin-top: 2px; }
+.oprogress__bar {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.oprogress__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--paid);
+  border-radius: 3px;
+}
+.oprogress__label { flex: none; font-size: 12px; }
+.oprogress--order { margin: 0 0 var(--space-3); }
+
+.oline__stock { padding: 0 0 var(--space-2); }
+.oline__stockline { margin: 4px 0 0; font-size: 12px; }
+.oline__ok { color: var(--paid); }
 
 .order-flow {
   margin-top: var(--space-3);

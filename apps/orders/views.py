@@ -9,7 +9,9 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q, Sum
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
 
@@ -26,7 +28,9 @@ from .services import (
     cancel_order,
     hand_over,
     mark_produced,
+    order_line_progress,
     order_paid_amount,
+    order_progress,
     production_queue,
     queue_summary,
     record_deposit,
@@ -273,9 +277,14 @@ def _body_context(request, order, error=None) -> dict:
     totals. One context builder for the full page and for every partial swap,
     so a value can never drift between the two."""
     paid = order_paid_amount(order)
+    lines = order_line_progress(order)
     return {
         "order": order,
-        "items": list(order.items.select_related("variant__product")),
+        # `lines` carries each item plus its stock/production picture; `items`
+        # stays for the plain "is this order empty" checks in the template.
+        "lines": lines,
+        "items": [row["item"] for row in lines],
+        "progress": order_progress(order),
         "deposits": list(order.deposits.order_by("-created_at")),
         "paid": paid,
         "remaining": max(order.total - paid, Decimal("0")),
@@ -352,12 +361,51 @@ def detail(request, pk):
 @require_can_sell
 @require_POST
 def set_due_date(request, pk):
+    """Setting the срок is the last step of creating an order, so saving it
+    finishes the job and returns to the list rather than leaving the manager
+    parked on a page with nothing left to do. Editing an existing order's
+    date behaves the same way — it's still «done with this order»."""
     order = get_object_or_404(Order, pk=pk)
     raw = request.POST.get("due_date", "").strip()
     order.due_date = raw or None
     order.note = request.POST.get("note", "").strip()
     order.save(update_fields=["due_date", "note"])
-    return _after_mutation(request, order)
+    messages.success(request, _("Заказ №%(n)s сохранён.") % {"n": order.pk})
+    if _is_htmx(request):
+        # Tell HTMX to navigate instead of swapping — a redirect body would
+        # otherwise be pasted into #order-body as a whole page.
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = reverse("orders:index")
+        return response
+    return redirect("orders:index")
+
+
+@pos_view
+@require_can_sell
+def deliver_confirm(request, pk):
+    """The «Выдать заказ» dialog. Handover is the one irreversible step — it
+    confirms a sale and deducts stock — so it gets a real summary first
+    instead of a browser confirm(): what leaves the warehouse, whether the
+    stock is actually there, and what money is still owed. confirm_sale
+    re-checks availability and raises regardless; this just means a manager
+    finds out BEFORE tapping, not via an error afterwards."""
+    order = get_object_or_404(Order, pk=pk)
+    lines = order_line_progress(order)
+    paid = order_paid_amount(order)
+    return render(
+        request,
+        "orders/partials/deliver_modal.html",
+        {
+            "order": order,
+            "lines": lines,
+            "paid": paid,
+            "remaining": max(order.total - paid, Decimal("0")),
+            # available = on_hand − reserved by OTHER orders; this order's own
+            # reservation is released first by hand_over, so it never blocks
+            # its own conversion (see services.hand_over).
+            "short_lines": [r for r in lines if not r["coverable"]],
+        },
+    )
 
 
 @pos_view

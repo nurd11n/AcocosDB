@@ -346,6 +346,83 @@ def queue_summary(rows: list[dict]) -> dict:
     }
 
 
+def order_line_progress(order: Order) -> list[dict]:
+    """Per-line picture for ONE order: how much of it is already made, and what
+    the variant's stock looks like right now. Two grouped queries, no N+1.
+
+    The honest split, because stock is shared and cannot be pre-allocated:
+      made / quantity  — this LINE's own progress (produced_qty), unambiguous
+      in_stock         — the variant's total on_hand right now, a fact
+      claimed_by_others— the same SKU promised to OTHER open orders
+      free_for_order   — on_hand minus those other claims: what this order
+                         could actually be handed from today
+    «Сшить ещё» is deliberately NOT computed here — that's the production
+    queue's aggregate job (apps.orders.services.production_queue), and a
+    second per-order allocation would double-count whenever two clients want
+    the same SKU."""
+    items = list(order.items.select_related("variant__product"))
+    if not items:
+        return []
+
+    variant_ids = {item.variant_id for item in items}
+    on_hand = {
+        row["variant_id"]: row["s"] or 0
+        for row in StockMovement.objects.filter(variant_id__in=variant_ids)
+        .values("variant_id")
+        .annotate(s=Sum("quantity"))
+    }
+    others = {
+        row["variant_id"]: row["q"] or 0
+        for row in OrderItem.objects.filter(
+            variant_id__in=variant_ids, order__status__in=Order.OPEN_STATUSES
+        )
+        .exclude(order_id=order.pk)
+        .values("variant_id")
+        .annotate(q=Sum("quantity"))
+    }
+
+    rows = []
+    for item in items:
+        stock = on_hand.get(item.variant_id, 0)
+        claimed = others.get(item.variant_id, 0)
+        free = max(stock - claimed, 0)
+        made = min(item.produced_qty, item.quantity)
+        rows.append(
+            {
+                "item": item,
+                "made": made,
+                "remaining": item.remaining_to_produce,
+                "percent": round(made * 100 / item.quantity) if item.quantity else 0,
+                "in_stock": stock,
+                "claimed_by_others": claimed,
+                "free_for_order": free,
+                # Enough on hand to hand this line over today, produced or not.
+                # This mirrors exactly what confirm_sale will see at handover:
+                # hand_over releases THIS order's own reservation first, so the
+                # check it faces is on_hand minus what other open orders hold.
+                "coverable": free >= item.quantity,
+                # Shortfall for HANDOVER, which is not the production remainder
+                # — a fully produced line can still be short if other open
+                # orders have a prior claim on the same shared stock.
+                "short_by": max(item.quantity - free, 0),
+            }
+        )
+    return rows
+
+
+def order_progress(order: Order) -> dict:
+    """Whole-order production progress — the headline «X из Y принято»."""
+    items = list(order.items.all())
+    total = sum(i.quantity for i in items)
+    made = sum(min(i.produced_qty, i.quantity) for i in items)
+    return {
+        "made": made,
+        "total": total,
+        "percent": round(made * 100 / total) if total else 0,
+        "complete": bool(items) and made >= total,
+    }
+
+
 @transaction.atomic
 def mark_produced(order_item: OrderItem, quantity: int, user=None) -> OrderItem:
     """«Произведено N шт»: writes a PRODUCTION_IN movement for the item's
