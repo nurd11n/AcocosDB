@@ -502,6 +502,43 @@ form:last-child .client-row--btn { border-bottom: 0; }
   margin: 0 0 var(--space-3);
 }
 
+/* Flash messages carry their level's colour — a success banner rendered in
+   the error palette reads as a failure, which is worse than no banner. */
+.flash {
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+  font-size: 13px;
+  margin: 0 0 var(--space-3);
+}
+.flash--ok { color: var(--paid); background: var(--paid-bg); }
+.flash--warn { color: var(--partial); background: var(--partial-bg); }
+.flash--error { color: var(--debt); background: var(--debt-bg); }
+
+/* Creation step rail — three short words, current one filled. Not a
+   decorative eyebrow: the order genuinely is a 3-step run here. */
+.steps { display: flex; gap: var(--space-2); list-style: none; margin: var(--space-3) 0 0; padding: 0; }
+.steps__item {
+  flex: 1;
+  min-width: 0;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.steps__item.is-on { background: var(--accent); color: var(--on-accent); font-weight: 500; }
+.step-eyebrow {
+  margin: 0 0 var(--space-1);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}
+
 /* --- forms --- */
 label {
   display: block;

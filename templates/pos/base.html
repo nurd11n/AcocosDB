@@ -41,7 +41,13 @@
 
 <div class="wrap">
  {% if messages %}
-   {% for message in messages %}<div class="error">{{ message }}</div>{% endfor %}
+   {% comment %}
+   Every message used to render with class="error", so a success ("Заказ
+   сохранён") arrived styled as a failure. Style by level instead.
+   {% endcomment %}
+   {% for message in messages %}
+     <div class="flash flash--{% if message.tags == 'success' %}ok{% elif message.tags == 'warning' %}warn{% else %}error{% endif %}">{{ message }}</div>
+   {% endfor %}
  {% endif %}
  {% block content %}{% endblock %}
 </div>

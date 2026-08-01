@@ -7,8 +7,8 @@ never be retried or half-applied, so it keeps the same offline-safe path the
 sale confirmation uses.
 {% endcomment %}
 <div class="card">
- <h2>{% trans "Выдать заказ" %} №{{ order.pk }}</h2>
- <p class="hint">{% trans "Товар спишется со склада, заказ станет продажей." %}</p>
+ <h2>{% trans "Выдать заказ" %} №{{ order.pk }}?</h2>
+ <p class="hint">{% trans "Всё готово и клиент забирает заказ? Товар спишется со склада, заказ станет продажей, а остаток — долгом клиента. Отменить это нельзя." %}</p>
 
  <div class="q-sub">
   <div class="q-sub__label">{% trans "Спишется со склада" %}</div>

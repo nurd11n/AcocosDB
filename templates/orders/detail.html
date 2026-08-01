@@ -22,7 +22,13 @@ product search is what takes focus.
    <strong>{{ order.client.name }}</strong>
    <span class="muted num">{{ order.client.phone }}</span>
  </a>
- {% if order.is_open %}
+ {% if wizard %}
+ <ol class="steps">
+  <li class="steps__item is-on">{% trans "Товары" %}</li>
+  <li class="steps__item">{% trans "Срок" %}</li>
+  <li class="steps__item">{% trans "Оплата" %}</li>
+ </ol>
+ {% elif order.is_open %}
  <p class="order-flow">
    {% if items %}
      {% blocktrans count n=items|length %}{{ n }} позиция в очереди на производство.{% plural %}{{ n }} позиции в очереди на производство.{% endblocktrans %}
