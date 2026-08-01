@@ -7,18 +7,22 @@
  <div class="rates-row">
   {% include "pos/partials/rates.html" %}
   {% if request.user.is_superuser %}
-  {# Owner: opens the manual-rate dialog to hand-enter rates. nbkr.kg blocks the
-     production server's IP (works fine from a local dev machine — see
-     refresh_rates' docstring), so the dialog's own NBKR-pull button is
-     currently hidden too — apps/pos/views.py:refresh_rates stays reachable,
-     nothing here calls it right now. #}
+  {% comment %}
+  Owner: opens the manual-rate dialog to hand-enter rates. nbkr.kg blocks the
+  production server's IP (works fine from a local dev machine — see
+  refresh_rates' docstring), so the dialog's own NBKR-pull button is
+  currently hidden too — apps/pos/views.py:refresh_rates stays reachable,
+  nothing here calls it right now.
+  {% endcomment %}
   <button type="button" class="rates-refresh" hx-get="{% url 'pos:rate_edit' %}"
     hx-target="#rate-modal" hx-swap="innerHTML"
     aria-label="{% trans 'Изменить курс' %}" title="{% trans 'Изменить курс' %}">
     <svg class="ic"><use href="#i-refresh"/></svg></button>
   {% endif %}
-  {# Editor/Viewer: no rate button for now — their only action was pulling from
-     NBKR, which is dead in production (see the comment above). #}
+  {% comment %}
+  Editor/Viewer: no rate button for now — their only action was pulling from
+  NBKR, which is dead in production (see the comment above).
+  {% endcomment %}
  </div>
 </div>
 <div id="rate-modal"></div>
