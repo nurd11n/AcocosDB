@@ -1,0 +1,23 @@
+{% load i18n %}
+{% comment %}
+Step 2 of creating an order. Posting back to the same URL saves the срок and
+swaps step 3 (оплата) into this same slot, so the two dialogs read as one run
+rather than two separate errands.
+{% endcomment %}
+<div class="card">
+ <p class="step-eyebrow">{% trans "Шаг 2 из 3" %}</p>
+ <h2>{% trans "Срок заказа" %}</h2>
+ <p class="hint">{% trans "Когда заказ должен быть готов. Можно оставить пустым." %}</p>
+ <form hx-post="{% url 'orders:step_due' order.pk %}" hx-target="#order-modal" hx-swap="innerHTML">
+  {% csrf_token %}
+  <label>{% trans "Срок" %}</label>
+  <input type="date" name="due_date" value="{{ order.due_date|date:'Y-m-d' }}" autofocus>
+  <label>{% trans "Заметка" %}</label>
+  <input type="text" name="note" value="{{ order.note }}" maxlength="255"
+    placeholder="{% trans "напр. подшить рукава" %}">
+  <div class="row" style="margin-top:var(--space-3)">
+   <button type="submit" class="btn btn-primary">{% trans "Далее: оплата" %}</button>
+   <button type="button" class="btn btn-ghost" data-clear-target="order-modal">{% trans "Назад" %}</button>
+  </div>
+ </form>
+</div>

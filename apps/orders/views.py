@@ -136,7 +136,8 @@ def create(request):
     if request.method == "POST":
         client = get_object_or_404(Client, pk=request.POST.get("client"))
         order = Order.objects.create(client=client, created_by=request.user)
-        return redirect("orders:detail", pk=order.pk)
+        # ?new=1 puts this visit on the guided route (see _wizard_mode).
+        return redirect(reverse("orders:detail", args=[order.pk]) + "?new=1")
     return render(request, "orders/new.html", {"active": "orders"})
 
 
@@ -186,7 +187,7 @@ def client_create(request):
     # builder, rather than redirecting to a GET that creates the order (which
     # would reopen the same cross-site-GET hole `create` was closed against).
     order = Order.objects.create(client=client, created_by=request.user)
-    return redirect("orders:detail", pk=order.pk)
+    return redirect(reverse("orders:detail", args=[order.pk]) + "?new=1")
 
 
 def _build_grid_tiles(q: str) -> list[dict]:
@@ -264,6 +265,17 @@ def variant_picker(request, pk, product_id):
     )
 
 
+def _wizard_mode(request) -> bool:
+    """A brand-new order walks a guided route — товары → срок → оплата →
+    сохранено — while an existing one opens as a free-form edit page. The flag
+    rides in the URL (?new=1) rather than in the DB, because it's a property of
+    *this visit*, not of the order. HTMX posts don't carry the page's query
+    string, so fall back to HX-Current-URL, which htmx always sends."""
+    if request.GET.get("new") == "1":
+        return True
+    return "new=1" in request.headers.get("HX-Current-URL", "")
+
+
 def _is_htmx(request) -> bool:
     """HTMX swaps the order body in place; a plain POST (JS blocked, or a
     test hitting the endpoint directly) still gets the redirect. Every control
@@ -291,6 +303,7 @@ def _body_context(request, order, error=None) -> dict:
         "currencies": CURRENCY_CODES,
         "methods": Payment.METHOD_CHOICES,
         "can_write": request.user.has_perm("orders.add_order"),
+        "wizard": _wizard_mode(request),
         "error": error,
     }
 
@@ -374,6 +387,72 @@ def set_due_date(request, pk):
     if _is_htmx(request):
         # Tell HTMX to navigate instead of swapping — a redirect body would
         # otherwise be pasted into #order-body as a whole page.
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = reverse("orders:index")
+        return response
+    return redirect("orders:index")
+
+
+def _payment_step_context(order) -> dict:
+    """Step 3's numbers. The остаток is what the client will owe — but only
+    once the order is handed over: an open заказ is not a sale, so it carries
+    no debt yet (apps.clients.services.client_debts_by_currency counts
+    CONFIRMED sales only). hand_over relinks these deposits onto the sale it
+    creates, and the remainder becomes the debt from that moment."""
+    paid = order_paid_amount(order)
+    return {
+        "order": order,
+        "paid": paid,
+        "remaining": max(order.total - paid, Decimal("0")),
+        "deposits": list(order.deposits.order_by("-created_at")),
+        "currencies": CURRENCY_CODES,
+        "methods": Payment.METHOD_CHOICES,
+    }
+
+
+@pos_view
+@require_can_sell
+def step_due(request, pk):
+    """Step 2 of creating an order: the срок, in its own dialog. GET opens it;
+    POST saves and hands straight on to step 3 (оплата) by swapping the next
+    dialog into the same slot — so the two steps read as one continuous run."""
+    order = get_object_or_404(Order, pk=pk)
+    if request.method == "POST":
+        raw = request.POST.get("due_date", "").strip()
+        order.due_date = raw or None
+        order.note = request.POST.get("note", "").strip()
+        order.save(update_fields=["due_date", "note"])
+        return render(
+            request, "orders/partials/step_payment.html", _payment_step_context(order)
+        )
+    return render(request, "orders/partials/step_due.html", {"order": order})
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def step_payment(request, pk):
+    """Step 3, and the end of creation: record whatever the client paid up
+    front (optional — «в долг» is a real answer), then finish. The order is
+    saved either way; this dialog only decides how much of it is prepaid."""
+    order = get_object_or_404(Order, pk=pk)
+    amount = _parse_decimal(request.POST.get("amount"))
+    if amount and amount > 0:
+        try:
+            record_deposit(
+                order,
+                amount,
+                user=request.user,
+                method=request.POST.get("method") or Payment.CASH,
+                currency=request.POST.get("currency") or order.currency,
+            )
+        except ValidationError as exc:
+            context = _payment_step_context(order)
+            context["error"] = "; ".join(exc.messages)
+            return render(request, "orders/partials/step_payment.html", context)
+
+    messages.success(request, _("Заказ №%(n)s сохранён.") % {"n": order.pk})
+    if _is_htmx(request):
         response = HttpResponse(status=204)
         response["HX-Redirect"] = reverse("orders:index")
         return response

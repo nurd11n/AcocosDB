@@ -3694,6 +3694,112 @@ def test_empty_order_hides_money_sections_until_it_has_items(
     assert "Аванс внесён" in body
 
 
+def test_guided_creation_walks_items_then_due_then_payment_then_saves(
+    client, django_user_model, variant, settings
+):
+    """A new order takes the guided route: товары → срок → оплата → сохранено,
+    the last two in dialogs, ending back on the list with a success flash."""
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("wiz_owner", "w@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Wizard", phone="+996700002311")
+
+    resp = client.post("/orders/new/", {"client": cust.pk})
+    order_id = int(re.search(r"/orders/(\d+)/", resp.url).group(1))
+    assert "new=1" in resp.url  # a new order starts on the guided route
+
+    # HTMX posts don't carry the page's query string; htmx sends the current
+    # URL instead, which is how the swapped body stays in wizard mode.
+    hx = {"HTTP_HX_REQUEST": "true", "HTTP_HX_CURRENT_URL": f"http://t/orders/{order_id}/?new=1"}
+
+    body = client.get(f"/orders/{order_id}/?new=1").content.decode()
+    assert "Далее: срок и оплата" in body
+    assert "Внести аванс" not in body  # аванс is step 3, not an inline card
+    assert "Завершение" not in body  # can't hand over an order being created
+
+    client.post(f"/orders/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 5}, **hx)
+
+    body = client.get(f"/orders/{order_id}/step/due/", **hx).content.decode()
+    assert "Шаг 2 из 3" in body
+    # Saving the срок hands straight on to step 3 in the same slot.
+    body = client.post(
+        f"/orders/{order_id}/step/due/", {"due_date": "2026-09-15", "note": "к свадьбе"}, **hx
+    ).content.decode()
+    assert "Шаг 3 из 3" in body
+    assert "станет долгом клиента после выдачи" in body
+
+    resp = client.post(
+        f"/orders/{order_id}/step/payment/",
+        {"amount": "2000", "currency": "KGS", "method": "cash"},
+        **hx,
+    )
+    assert resp.status_code == 204
+    assert resp["HX-Redirect"] == "/orders/"
+
+    from apps.orders.models import Order
+
+    order = Order.objects.get(pk=order_id)
+    assert str(order.due_date) == "2026-09-15"
+    assert order.note == "к свадьбе"
+    assert order.deposits.count() == 1
+
+    body = client.get("/orders/").content.decode()
+    assert f"Заказ №{order_id} сохранён." in body
+    assert "flash--ok" in body  # a success reads as success, not as an error
+
+
+def test_handover_moves_money_stock_and_debt_exactly_once(
+    client, django_user_model, variant, settings
+):
+    """The whole chain the order flow promises, asserted end to end: an open
+    order owes nothing, handover deducts stock once and turns the remainder
+    into real client debt, the deposit carries over, and paying the rest
+    clears the debt while both payments stay on the sale as history."""
+    from apps.clients.services import client_debt
+    from apps.inventory.services import available_for
+    from apps.orders.models import Order
+    from apps.orders.services import create_order, hand_over, record_deposit
+    from apps.sales.models import SaleOrder
+
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("chain_owner", "c@e.com", "x" * 12)
+    cust = Client.objects.create(first_name="ChainFlow", phone="+996700002312")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 5, "unit_price": Decimal("1000")}], user=owner
+    )
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+
+    # An open заказ is NOT a sale: it owes nothing and reserves its stock.
+    assert client_debt(cust) == {}
+    assert available_for(variant) == 0  # reserved, unsellable to a walk-in
+    record_deposit(order, Decimal("2000"), user=owner)
+    assert client_debt(cust) == {}  # a deposit on an order is still not debt
+
+    sale = hand_over(order, user=owner)
+    variant.refresh_from_db()
+    assert variant.stock == 0  # deducted exactly once, by confirm_sale
+    assert sale.total == Decimal("5000.00")
+    assert sale.paid_amount == Decimal("2000.00")  # the deposit carried over
+    assert sale.balance == Decimal("3000.00")
+    assert client_debt(cust) == {"KGS": Decimal("3000.00")}  # remainder IS the debt
+
+    order.refresh_from_db()
+    assert order.status == Order.DELIVERED
+    assert order.sale_order_id == sale.pk  # linked both ways
+    assert sale.production_order.pk == order.pk
+
+    record_payment(sale, Decimal("3000"), user=owner, method=Payment.CASH)
+    sale.refresh_from_db()
+    assert sale.balance == 0
+    assert sale.payment_status == SaleOrder.PAID
+    assert client_debt(cust) == {}  # debt cleared
+    # Both the deposit and the final payment live on the sale as history.
+    assert sorted(sale.payments.values_list("amount", flat=True)) == [
+        Decimal("2000.00"),
+        Decimal("3000.00"),
+    ]
+
+
 def test_order_line_progress_reports_real_stock_and_other_orders_claims(variant, settings):
     """Per-line the order page must show real numbers: this line's own
     production progress, the variant's actual stock, and how much of that
@@ -4115,7 +4221,9 @@ def test_done_when_scenario_order_deposit_queue_produce_handover(
     # orders) — the client-picker row is a CSRF-protected form.
     resp = client.post("/orders/new/", {"client": cust.pk})
     assert resp.status_code == 302
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    # /orders/<id>/?new=1 — a new order lands on the guided creation route.
+    order_id = int(re.search(r"/orders/(\d+)/", resp.url).group(1))
+    assert "new=1" in resp.url
 
     # No cap on ordering unproduced goods.
     resp = client.post(f"/orders/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 5})

@@ -90,7 +90,29 @@ order is a question with no meaning.
  {% endfor %}
 </div>
 
-{% if can_write and order.is_open %}
+{% if wizard %}
+{% comment %}
+Creation mode: the срок and оплата are steps 2 and 3, taken in dialogs, so
+their inline cards stay out of the way here. Everything below (аванс list,
+totals, завершение) belongs to an order that already exists.
+{% endcomment %}
+<div class="card order-actions">
+ {% if items %}
+ <div class="money-bar__row money-bar__row--total">
+  <span class="money-bar__label">{% trans "Итого" %}</span>
+  <span class="money-bar__amount num">{{ order.total|money:order.currency }}</span>
+ </div>
+ {% endif %}
+ <button type="button" class="btn btn-primary" {% if not items %}disabled{% endif %}
+   hx-get="{% url 'orders:step_due' order.pk %}" hx-target="#order-modal" hx-swap="innerHTML">
+   {% trans "Далее: срок и оплата" %}</button>
+ {% if not items %}
+ <p class="hint">{% trans "Добавьте хотя бы один товар, чтобы продолжить." %}</p>
+ {% endif %}
+ <a class="btn btn-ghost" href="{% url 'orders:index' %}">{% trans "Отменить создание" %}</a>
+</div>
+
+{% elif can_write and order.is_open %}
 <div class="card">
  <h2>{% trans "Срок и заметка" %}</h2>
  <form hx-post="{% url 'orders:set_due_date' order.pk %}" hx-target="#order-body" hx-swap="innerHTML">
@@ -120,7 +142,7 @@ order is a question with no meaning.
  {% endif %}
 {% endif %}
 
-{% if items %}
+{% if items and not wizard %}
 <div class="card">
  <h2>{% trans "Аванс" %}</h2>
  {% for d in deposits %}
@@ -174,12 +196,14 @@ order is a question with no meaning.
 </div>
 {% endif %}
 
+{% if not wizard %}
 <div class="card order-actions">
  <a class="btn btn-ghost" href="{% url 'orders:index' %}">{% trans "К заказам" %}</a>
  {% if order.sale_order_id %}
  <a class="btn btn-ghost" href="{% url 'pos:sale_result' order.sale_order_id %}">{% trans "Открыть продажу" %}</a>
  {% endif %}
 </div>
+{% endif %}
 
 {% comment %}
 Handover lives in its own block at the very bottom, after every edit control,
@@ -188,7 +212,7 @@ summary dialog rather than firing straight away, and only reads as the primary
 action once the order is готов — which it becomes on its own, inside this same
 swapped body, the moment the last item is taken into stock.
 {% endcomment %}
-{% if can_write and order.is_open %}
+{% if can_write and order.is_open and not wizard %}
 <div class="card order-finish">
  <h2>{% trans "Завершение" %}</h2>
  {% if items and not progress.complete %}

@@ -1,6 +1,6 @@
 {
   "hashes": {
-    "/static/pos/app.css": "ce682f10e2e4c4539759888cefa801cf6b03c88de78d16b659bafb6a754b9b3d",
+    "/static/pos/app.css": "8d5b85664f3f4eff71240f370ca00815f53eea201e5a13bc367027d1a60cfbba",
     "/static/pos/fonts/InterVariable.woff2": "693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3",
     "/static/pos/icons/icon-192.png": "ef858b3e52575143c5e85685c3ca2f8844fe7844a5edb7a48379ce2364e882d4",
     "/static/pos/icons/icon-512-maskable.png": "1359b350717033bf246b6373b450424d289fcfc2bc67f1bdc988eaf9aea1874d",
@@ -10,5 +10,5 @@
     "/static/pos/tokens.css": "25f8bf8615826931a67454285f0f94e03c4495a071f7733dd32cfa14e2c5925b",
     "/static/vendor/htmx/htmx.min.js": "449317ade7881e949510db614991e195c3a099c4c791c24dacec55f9f4a2a452"
   },
-  "version": "27"
+  "version": "28"
 }
