@@ -2,7 +2,24 @@
 <div class="card">
  <h2>{% trans "Курс валют" %}</h2>
  <p class="hint">{% blocktrans %}Сколько сомов стоит 1 единица валюты.{% endblocktrans %}</p>
- <form hx-post="{% url 'pos:rate_save' %}" hx-target="#rates-strip" hx-swap="outerHTML">
+
+ {% comment %}
+ nbkr.kg blocks the production server's IP directly, but the rate now
+ arrives via Frankfurter's API (pinned to its NBKR provider), which
+ isn't blocked — so this button works in prod again. The primary, one-tap
+ action (big + first): pulls the official rate automatically. Manual entry
+ below stays available as the deliberate, Owner-only fallback/override — see
+ CLAUDE.md's rate-permissions section.
+ {% endcomment %}
+ <button type="button" class="btn btn-primary" style="width:100%"
+   hx-post="{% url 'pos:refresh_rates' %}" hx-target="#rates-strip" hx-swap="outerHTML"
+   data-clear-target="rate-modal">{% trans "Обновить автоматически (НБКР)" %}</button>
+ <p class="hint" style="margin-top:var(--space-2)">
+   {% blocktrans %}Подтянет официальный курс НБКР. Значения ниже — на случай, если нужно
+   проверить или задать курс вручную.{% endblocktrans %}
+ </p>
+
+ <form hx-post="{% url 'pos:rate_save' %}" hx-target="#rates-strip" hx-swap="outerHTML" style="margin-top:var(--space-3)">
   {% csrf_token %}
   {% for r in rate_rows %}
   <label>1 {{ r.symbol }} = ? {{ base_symbol }}</label>
@@ -10,16 +27,8 @@
     value="{{ r.value }}" placeholder="{% trans "напр. 87.45" %}">
   {% endfor %}
   <div class="row" style="margin-top:var(--space-3)">
-   <button type="submit" class="btn btn-primary">{% trans "Сохранить" %}</button>
+   <button type="submit" class="btn btn-ghost">{% trans "Сохранить вручную" %}</button>
    <button type="button" class="btn btn-ghost" data-clear-target="rate-modal">{% trans "Отмена" %}</button>
   </div>
  </form>
- {% comment %}
- nbkr.kg blocks the production server's IP directly, but the rate now
- arrives via Frankfurter's API (pinned to its NBKR provider), which
- isn't blocked — so this button works in prod again.
- {% endcomment %}
- <button type="button" class="btn btn-ghost btn-sm" style="margin-top:var(--space-2)"
-   hx-post="{% url 'pos:refresh_rates' %}" hx-target="#rates-strip" hx-swap="outerHTML"
-   data-clear-target="rate-modal">{% trans "Обновить из НБКР" %}</button>
 </div>
