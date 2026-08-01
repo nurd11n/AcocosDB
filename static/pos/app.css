@@ -853,6 +853,23 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
    and for whom — so a row is a header (name + the one number that matters),
    a meta line (the arithmetic behind it), and a breakdown list. Grouping by
    product adds a second breakdown (the per-size split) above the client one. */
+/* The way back out of a detail page. Sits above the first card so it's the
+   first thing under the header — an order screen ends in «Выдать заказ»,
+   which is final, so leaving must never require going near that button. */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  margin-bottom: var(--space-2);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .back-link:hover { text-decoration: underline; }
+}
+
 .order-flow {
   margin-top: var(--space-3);
   padding: var(--space-3);

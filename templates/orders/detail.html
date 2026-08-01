@@ -3,6 +3,7 @@
 {% block title %}{% trans "Заказ" %} №{{ order.pk }}{% endblock %}
 {% block content %}
 {% with is_open=order.is_open %}
+<a class="back-link" href="{% url 'orders:index' %}">← {% trans "Все заказы" %}</a>
 <div class="card">
  <h2>
    {% trans "Заказ" %} №{{ order.pk }}
@@ -136,16 +137,31 @@ tile → variant modal → added. Previously this was two extra full page loads
   <span class="money-bar__amount num">{{ remaining|money:order.currency }}</span>
  </div>
 
+ {% comment %}
+ «Выдать заказ» is final — it converts the order into a confirmed sale and
+ deducts stock. It only LOOKS like the default action once the order is
+ готов; before that it's a ghost button sitting under the plain «К заказам»
+ exit, so finishing up and leaving can't be confused with handing over.
+ {% endcomment %}
  {% if can_write and is_open %}
  <form method="post" action="{% url 'orders:deliver' order.pk %}"
    data-network-safe data-confirm="{% trans "Выдать заказ? Остаток товара спишется со склада." %}" data-error-target="deliver-error">
   {% csrf_token %}
-  <button type="submit" class="btn btn-primary" {% if not items %}disabled{% endif %}>{% trans "Выдать заказ" %}</button>
+  <button type="submit" class="btn {% if order.status == 'ready' %}btn-primary{% else %}btn-ghost{% endif %}"
+    {% if not items %}disabled{% endif %}>{% trans "Выдать заказ" %}</button>
  </form>
  <p id="deliver-error" class="error" hidden></p>
+ {% if items and order.status != "ready" %}
+ <p class="hint">{{ order.produced_summary }} — {% trans "выдача спишет остаток со склада." %}</p>
+ {% endif %}
+ <a class="btn {% if order.status == 'ready' %}btn-ghost{% else %}btn-primary{% endif %}"
+   href="{% url 'orders:index' %}">{% trans "К заказам" %}</a>
  {% endif %}
  {% if order.sale_order_id %}
  <a class="btn btn-ghost" href="{% url 'pos:sale_result' order.sale_order_id %}" style="margin-top:var(--space-2)">{% trans "Открыть продажу" %}</a>
+ {% endif %}
+ {% if not is_open %}
+ <a class="btn btn-ghost" href="{% url 'orders:index' %}">{% trans "К заказам" %}</a>
  {% endif %}
  {% if request.user.is_superuser and is_open %}
  <form method="post" action="{% url 'orders:cancel' order.pk %}"
