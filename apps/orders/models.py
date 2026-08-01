@@ -14,6 +14,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import pgettext_lazy
 from simple_history.models import HistoricalRecords
 
 from apps.core.currency import CURRENCY_CHOICES
@@ -30,7 +31,7 @@ class Order(models.Model):
         (IN_PRODUCTION, _("In production")),
         (READY, _("Ready")),
         (DELIVERED, _("Delivered")),
-        (CANCELLED, _("Cancelled")),
+        (CANCELLED, pgettext_lazy("production order status", "Cancelled")),
     ]
     # Statuses that still hold a reservation on their items — a delivered
     # order has become a sale (stock already left), a cancelled one never

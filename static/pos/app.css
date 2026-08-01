@@ -870,6 +870,61 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .back-link:hover { text-decoration: underline; }
 }
 
+/* Order builder: a fixed identity header, then everything mutable below it in
+   #order-body. The header is the only part that never swaps, so the client
+   and order number stay put while lines/totals update underneath. */
+.order-head__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.order-head__row h2 { margin: 0; }
+.order-head__client {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: var(--space-2);
+  text-decoration: none;
+  color: inherit;
+}
+.order-head__client .muted { font-size: 13px; }
+@media (hover: hover) {
+  .order-head__client:hover strong { text-decoration: underline; }
+}
+
+/* One order line = name + qty×price on the left, line total right, remove at
+   the end; the «произвести» control sits on its own row beneath so the line
+   itself stays readable at a glance while scanning a long order. */
+.oline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 0.5px solid var(--border);
+}
+.oline__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.oline__name { font-weight: 500; }
+.oline__meta { font-size: 12px; }
+.oline__total { flex: none; white-space: nowrap; }
+.oline__remove { flex: none; }
+.oline__produce {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 0 var(--space-3);
+  border-bottom: 0.5px solid var(--border);
+}
+.oline__produce input { width: 88px; margin: 0; }
+.oline__produce .btn { flex: none; }
+
+/* Actions stack in their own card so «Выдать заказ» is never adjacent to an
+   edit control that could be mis-tapped for it. */
+.order-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.order-actions form { margin: 0; }
+.order-actions .btn { margin: 0; }
+.order-actions .hint { margin: 0; }
+
 .order-flow {
   margin-top: var(--space-3);
   padding: var(--space-3);
