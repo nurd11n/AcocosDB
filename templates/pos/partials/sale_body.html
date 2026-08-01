@@ -59,25 +59,6 @@
      {% trans "В долг" %}</button>
   </div>
 
-  {# DENOMINATION SHORTCUTS — common notes per currency, plus the exact balance. #}
-  <div class="row denom-row">
-   {% if payment_currency == "KGS" %}
-     <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="200">200</button>
-     <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="500">500</button>
-     <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="1000">1000</button>
-     <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="5000">5000</button>
-   {% elif payment_currency == "USD" %}
-     <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="20">20 $</button>
-     <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="50">50 $</button>
-     <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="100">100 $</button>
-   {% elif payment_currency == "RUB" %}
-     <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="1000">1000 ₽</button>
-     <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="5000">5000 ₽</button>
-   {% endif %}
-   <button type="button" class="btn btn-ghost btn-sm" data-pay-amount="{{ balance|stringformat:'s' }}">
-     {% trans "Без сдачи" %}</button>
-  </div>
-
   {% if can_override_rate and not conv.same_currency %}
   <details class="rate-override">
    <summary>{% trans "Свой курс (Владелец)" %}</summary>

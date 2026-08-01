@@ -577,7 +577,7 @@ def test_foreign_payment_preview_converts_balance_and_shows_note(
         f"/pos/sale/{order_id}/recalc/", {"amount": "10", "currency": "USD", "method": "cash"}
     )
     body = resp.content.decode()
-    assert "2330" in body  # converted balance, not the untouched 3200
+    assert "2\xa0330" in body  # converted balance, not the untouched 3200
     assert "НБКР" in body  # the verify-manually note is shown
 
 
