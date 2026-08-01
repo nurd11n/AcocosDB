@@ -22,6 +22,7 @@ urlpatterns = [
     path("<int:pk>/items/<int:item_id>/remove/", views.item_remove, name="item_remove"),
     path("<int:pk>/items/<int:item_id>/produce/", views.produce, name="produce"),
     path("<int:pk>/deposit/", views.deposit_add, name="deposit_add"),
+    path("<int:pk>/deliver/confirm/", views.deliver_confirm, name="deliver_confirm"),
     path("<int:pk>/deliver/", views.deliver, name="deliver"),
     path("<int:pk>/cancel/", views.cancel, name="cancel"),
 ]
