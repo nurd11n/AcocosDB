@@ -18,9 +18,11 @@
    <h1 class="login-wordmark">ACOCOS</h1>
    <p class="login-sub">{% trans "Sign in to continue" %}</p>
    {% if form.non_field_errors or form.errors %}
-    {# One message for every failure — never reveal which factor was wrong.
-       Rendered from the form itself (not duplicated here) so it always
-       matches GENERIC_LOGIN_ERROR, whichever form is active. #}
+    {% comment %}
+    One message for every failure — never reveal which factor was wrong.
+    Rendered from the form itself (not duplicated here) so it always
+    matches GENERIC_LOGIN_ERROR, whichever form is active.
+    {% endcomment %}
     <div class="login-error" role="alert">{{ form.non_field_errors.0 }}</div>
    {% endif %}
    <form method="post" novalidate>
