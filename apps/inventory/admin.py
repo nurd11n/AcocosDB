@@ -12,7 +12,7 @@ from simple_history.admin import SimpleHistoryAdmin
 
 from apps.core.permissions import can_see_costs
 
-from .models import Category, Product, ProductVariant, StockMovement
+from .models import Category, Product, ProductImage, ProductVariant, StockMovement
 from .resources import (
     ProductVariantImportResource,
     ProductVariantResource,
@@ -32,6 +32,14 @@ class CategoryAdmin(admin.ModelAdmin):
     @admin.display(description=_("products"), ordering="_product_count")
     def product_count(self, obj):
         return obj._product_count
+
+
+class ProductImageInline(admin.TabularInline):
+    model = ProductImage
+    extra = 1
+    # thumbnail is derived on save (ProductImage.save -> _make_thumbnail), never
+    # hand-uploaded — same discipline the old single `photo` field had.
+    fields = ["image", "position"]
 
 
 class VariantInline(admin.TabularInline):
@@ -60,7 +68,7 @@ class ProductAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     list_display = ["name", "category", "current_stock", "is_active", "created_at"]
     list_filter = ["category", "is_active"]
     search_fields = ["name"]
-    inlines = [VariantInline]
+    inlines = [ProductImageInline, VariantInline]
     list_select_related = ["category"]
 
     def get_queryset(self, request):

@@ -5,7 +5,7 @@ from django.db.models import F, Sum
 from django.db.models.functions import Coalesce
 from django.utils.translation import gettext as _
 
-from .models import ProductVariant, StockMovement
+from .models import ProductImage, ProductVariant, StockMovement
 
 
 def reserved_by_variant(variant_ids=None) -> dict[int, int]:
@@ -127,3 +127,25 @@ def variants_with_stock():
         .annotate(_stock=Sum("movements__quantity"))
         .order_by("product__name", "size", "color")
     )
+
+
+def cover_image_names(product_ids) -> dict[int, str]:
+    """{product_id: stored file name} for each product's COVER image — the
+    same first-by-position choice Product.grid_image makes, but for callers
+    that already have a bag of product ids from a `.values()`/aggregate query
+    rather than real Product instances (dashboard.py's top-products and
+    dead-stock panels group SaleItem/StockMovement, not Product, so there's
+    no queryset to prefetch_related onto). One query total regardless of how
+    many ids or how many images each product has — never one query per
+    product, which a naive `Product.objects.get(pk).grid_image` per row
+    would be."""
+    covers: dict[int, str] = {}
+    rows = (
+        ProductImage.objects.filter(product_id__in=product_ids)
+        .order_by("product_id", "position", "id")
+        .values_list("product_id", "thumbnail", "image")
+    )
+    for product_id, thumbnail, image in rows:
+        if product_id not in covers:  # first row per product, thanks to the ordering above
+            covers[product_id] = thumbnail or image
+    return covers

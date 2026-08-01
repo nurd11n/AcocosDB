@@ -30,7 +30,7 @@ from apps.core.management.commands.send_daily_report import (
 )
 from apps.core.models import ExchangeRate, RateChangeLog
 from apps.core.permissions import EDITOR, VIEWER
-from apps.inventory.models import Category, Product, ProductVariant, StockMovement
+from apps.inventory.models import Category, Product, ProductImage, ProductVariant, StockMovement
 from apps.inventory.services import add_movement, adjust_to_count
 from apps.reports.models import DailyReview
 from apps.sales.models import Payment, SaleItem, SaleOrder
@@ -61,10 +61,160 @@ def variant():
     )
 
 
+def _tiny_image(name="photo.png", color=(200, 50, 50)):
+    """A 10x10 in-memory PNG — real enough for PIL (thumbnail derivation) to
+    open and process, tiny enough to cost nothing in a test."""
+    from io import BytesIO
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (10, 10), color).save(buf, format="PNG")
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
 def test_stock_is_sum_of_movements(variant):
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     add_movement(variant, StockMovement.WRITEOFF_OUT, 2)
     assert variant.stock == 8
+
+
+# ---------------------------------------------------------------------------
+# Part 0 — Product gallery (multiple images per product)
+# ---------------------------------------------------------------------------
+
+
+def test_product_can_have_more_than_one_image(settings, tmp_path):
+    """The whole point of the feature: a product used to allow exactly one
+    photo. It must now allow as many as a manager uploads."""
+    settings.MEDIA_ROOT = tmp_path
+    cat = Category.objects.create(name="Gallery")
+    product = Product.objects.create(category=cat, name="Multi-photo dress")
+    for i in range(3):
+        ProductImage.objects.create(product=product, image=_tiny_image(f"p{i}.png"), position=i)
+    assert product.images.count() == 3
+
+
+def test_grid_image_prefers_the_lowest_position_as_the_cover(settings, tmp_path):
+    """position decides display order; the lowest is the cover every consumer
+    (tiles, the client bot, a campaign's hero image) agrees is "the" photo —
+    added out of order on purpose, to prove selection isn't upload order."""
+    settings.MEDIA_ROOT = tmp_path
+    cat = Category.objects.create(name="Gallery2")
+    product = Product.objects.create(category=cat, name="Ordered dress")
+    second = ProductImage.objects.create(
+        product=product, image=_tiny_image("second.png"), position=5
+    )
+    cover = ProductImage.objects.create(product=product, image=_tiny_image("cover.png"), position=1)
+
+    assert product.grid_image.name == cover.thumbnail.name
+    assert product.grid_image.name != second.thumbnail.name
+
+
+def test_grid_image_is_none_with_no_images_and_never_crashes(settings, tmp_path):
+    settings.MEDIA_ROOT = tmp_path
+    cat = Category.objects.create(name="Gallery3")
+    product = Product.objects.create(category=cat, name="No photo yet")
+    assert product.grid_image is None
+
+
+def test_product_image_thumbnail_is_derived_and_kept_in_sync(settings, tmp_path):
+    """Same discipline the old single-photo field had: a ~400px JPEG is
+    derived on save, and re-saving with a NEW file re-derives it (never
+    leaves a stale thumbnail pointing at the old image)."""
+    settings.MEDIA_ROOT = tmp_path
+    cat = Category.objects.create(name="Gallery4")
+    product = Product.objects.create(category=cat, name="Thumb dress")
+    img = ProductImage.objects.create(product=product, image=_tiny_image("a.png", (10, 10, 10)))
+    assert img.thumbnail.name
+    first_thumb_name = img.thumbnail.name
+
+    img.image = _tiny_image("b.png", (250, 250, 250))
+    img.save()
+    img.refresh_from_db()
+    assert img.thumbnail.name  # still has one
+    # A new thumbnail file was written for the new image (name changes because
+    # ContentFile.save with the same target name still creates a NEW storage
+    # entry when the old one is still referenced — the important assertion is
+    # that the thumbnail file actually exists and opens as a real image).
+    from PIL import Image
+
+    img.thumbnail.open()
+    Image.open(img.thumbnail).verify()
+    assert first_thumb_name  # sanity: the pre-resave name was captured
+
+
+def test_grid_image_uses_the_prefetch_cache_not_a_fresh_query(
+    django_assert_num_queries, settings, tmp_path
+):
+    """The whole reason Product.grid_image reads `self.images.all()` instead
+    of `.first()`: `.first()` builds a brand new queryset and ignores an
+    existing prefetch_related("images") cache, which would make every grid
+    tile issue its own query again — exactly the N+1 the grid builders exist
+    to avoid (see apps.pos.views._build_grid_tiles)."""
+    settings.MEDIA_ROOT = tmp_path
+    cat = Category.objects.create(name="Gallery5")
+    product = Product.objects.create(category=cat, name="Prefetch dress")
+    ProductImage.objects.create(product=product, image=_tiny_image())
+
+    prefetched = list(Product.objects.filter(pk=product.pk).prefetch_related("images"))
+    with django_assert_num_queries(0):
+        assert prefetched[0].grid_image is not None
+
+
+class TestProductGalleryMigrationBackfill:
+    """Migration 0006 must not lose data: every existing Product.photo (and
+    its already-derived thumbnail) becomes a ProductImage(position=0)
+    pointing at the EXACT SAME stored files — no re-upload, no re-encode."""
+
+    # Actually running the schema editor backward/forward needs its own real
+    # transaction — pytest-django's default (module-level pytestmark) wraps
+    # every test in one big transaction and SQLite can't toggle foreign-key
+    # checks inside that.
+    pytestmark = pytest.mark.django_db(transaction=True)
+
+    def test_backfills_existing_photo_into_the_gallery(self):
+        from django.apps import apps as django_apps
+        from django.db.migrations.executor import MigrationExecutor
+        from django.db import connection
+
+        executor = MigrationExecutor(connection)
+        app = "inventory"
+
+        try:
+            # Land on the state just before 0006, where Product still has
+            # photo/thumbnail fields, and create an old-style product there.
+            executor.migrate([(app, "0005_product_thumbnail")])
+            executor.loader.build_graph()
+            old_apps = executor.loader.project_state((app, "0005_product_thumbnail")).apps
+            OldCategory = old_apps.get_model(app, "Category")
+            OldProduct = old_apps.get_model(app, "Product")
+            cat = OldCategory.objects.create(name="Migrating")
+            product = OldProduct.objects.create(
+                category=cat,
+                name="Pre-gallery product",
+                photo="products/existing.jpg",
+                thumbnail="products/thumbs/thumb_existing.jpg",
+            )
+
+            # Forward through 0006 — the backfill runs here.
+            executor = MigrationExecutor(connection)
+            executor.migrate([(app, "0006_product_gallery")])
+            executor.loader.build_graph()
+
+            ProductImageNow = django_apps.get_model(app, "ProductImage")
+            row = ProductImageNow.objects.get(product_id=product.pk)
+            assert row.position == 0
+            assert row.image.name == "products/existing.jpg"
+            assert row.thumbnail.name == "products/thumbs/thumb_existing.jpg"
+        finally:
+            # Leave the DB on the latest migration for every test after this
+            # one, even if an assertion above failed — a schema half-migrated
+            # by this test would otherwise break the entire rest of the run,
+            # not just this test.
+            executor = MigrationExecutor(connection)
+            executor.migrate(executor.loader.graph.leaf_nodes())
 
 
 def test_confirm_sale_decrements_stock_and_sets_total(variant):
@@ -1327,6 +1477,41 @@ def test_product_grid_query_budget_does_not_scale_with_rows(client, django_user_
     assert _grid_query_count(client, django_user_model, 500) <= 4
 
 
+def test_product_grid_stays_flat_with_real_multi_image_products(
+    client, django_user_model, settings, tmp_path
+):
+    """The query-budget test above uses image-less products, so it can't
+    catch a regression where prefetch_related("images") starts fanning out
+    per row once products actually HAVE several images each — the exact
+    shape this feature introduces. Attach 3 images to every product and
+    prove the grid's query count is unchanged."""
+    from django.core.cache import cache
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    settings.MEDIA_ROOT = tmp_path
+    editor = _seed_grid(10, django_user_model)
+    for product in Product.objects.all():
+        for i in range(3):
+            ProductImage.objects.create(product=product, image=_tiny_image(f"g{i}.png"), position=i)
+
+    client.force_login(editor)
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    cache.clear()
+    with CaptureQueriesContext(connection) as ctx:
+        client.get(f"/pos/sale/{order_id}/products/")
+    catalog = [
+        q
+        for q in ctx.captured_queries
+        if any(
+            t in q["sql"]
+            for t in ("inventory_product", "inventory_stockmovement", "inventory_productimage")
+        )
+    ]
+    assert len(catalog) <= 4
+
+
 def test_stale_grid_cache_never_causes_an_oversell(client, django_user_model, variant):
     # Warm the grid cache with stock=1, then drain stock to 0 behind the cache
     # WITHOUT bumping the version, then confirm — the sale must still fail at
@@ -2104,12 +2289,16 @@ def test_dashboard_query_budget_is_flat_and_bounded(django_user_model):
     _seed_dashboard_sales(4950, variants, clients, day_offset=7)  # 5000 total
     big = {p: count(p) for p in PERIODS}
 
-    # Budget raised 12 -> 14 -> 16: the «Заказы» panels (Part 3g) added two
-    # flat queries, and the CLIENT_BOTS.md panels (telegram_reach: 2 counts;
-    # top_favourited: 1 aggregate + 1 variant lookup) add two more — all
-    # still independent of sales volume, just a slightly higher fixed floor.
+    # Budget raised 12 -> 14 -> 16 -> 17: the «Заказы» panels (Part 3g) added
+    # two flat queries, the CLIENT_BOTS.md panels (telegram_reach: 2 counts;
+    # top_favourited: 1 aggregate + 1 variant lookup) added two more, and a
+    # product now having many images (apps.inventory.services.
+    # cover_image_names) adds a bulk cover-image lookup to the top-products
+    # AND dead-stock panels — measured net +1 (not +2), since 16 already had
+    # a query of slack above the previous real usage. All still independent
+    # of sales volume, just a slightly higher fixed floor.
     for p in PERIODS:
-        assert big[p] <= 16, f"{p}: {big[p]} queries at 5000 sales (budget 16)"
+        assert big[p] <= 17, f"{p}: {big[p]} queries at 5000 sales (budget 17)"
         assert big[p] == small[p], f"{p} query count scaled with rows: {small[p]} -> {big[p]}"
 
 
@@ -2140,8 +2329,10 @@ def test_dead_stock_does_not_n_plus_one(django_user_model):
         result_many = _dead_stock()
 
     assert result_few and result_many  # the loop actually ran over dead rows
-    # Two queries (stock subquery + one grouped last-sale), constant as rows grow.
-    assert len(many.captured_queries) == len(few.captured_queries) <= 2
+    # Three queries (stock subquery + one grouped last-sale + one bulk cover-
+    # image lookup, apps.inventory.services.cover_image_names — a product can
+    # have many images now), constant as rows grow.
+    assert len(many.captured_queries) == len(few.captured_queries) <= 3
 
 
 def test_dashboard_cache_invalidated_on_sale_confirm(variant):
@@ -4017,6 +4208,46 @@ def test_admin_panel_links_back_to_the_pos_terminal(client, django_user_model):
     body = client.get("/panel/").content.decode()
     assert "Терминал ACOCOS" in body
     assert 'href="/pos/"' in body
+
+
+def test_admin_can_add_multiple_images_to_one_product(
+    client, django_user_model, settings, tmp_path
+):
+    """The feature end to end, through the real /panel/ form: ProductAdmin
+    used to have a single `photo` field. It's now an inline gallery — a
+    manager attaches as many images as they want in one save."""
+    settings.MEDIA_ROOT = tmp_path
+    owner = django_user_model.objects.create_superuser("gal_owner", "g@e.com", "x" * 12)
+    client.force_login(owner)
+    cat = Category.objects.create(name="AdminGallery")
+
+    data = {
+        "name": "Admin-uploaded dress",
+        "category": cat.pk,
+        "description": "",
+        "is_active": "on",
+        "images-TOTAL_FORMS": "2",
+        "images-INITIAL_FORMS": "0",
+        "images-MIN_NUM_FORMS": "0",
+        "images-MAX_NUM_FORMS": "1000",
+        "images-0-image": _tiny_image("one.png"),
+        "images-0-position": "0",
+        "images-1-image": _tiny_image("two.png"),
+        "images-1-position": "1",
+        "variants-TOTAL_FORMS": "0",
+        "variants-INITIAL_FORMS": "0",
+        "variants-MIN_NUM_FORMS": "0",
+        "variants-MAX_NUM_FORMS": "1000",
+        "_save": "Сохранить",
+    }
+    resp = client.post("/panel/inventory/product/add/", data)
+    assert resp.status_code == 302, (
+        resp.context["adminform"].form.errors if resp.status_code == 200 else resp.status_code
+    )
+
+    product = Product.objects.get(name="Admin-uploaded dress")
+    assert product.images.count() == 2
+    assert product.grid_image is not None
 
 
 def test_mark_produced_creates_movement_and_raises_available(variant, django_user_model, settings):

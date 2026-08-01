@@ -662,7 +662,14 @@ def _build_grid_tiles(q: str) -> list[dict]:
         .values("r"),
         output_field=IntegerField(),
     )
-    products = Product.objects.filter(is_active=True).select_related("category")
+    # prefetch_related("images"), not select_related — a product can have many
+    # now, so this is ONE extra query for the whole grid (Meta.ordering on
+    # ProductImage already sorts it cover-first), not N. Product.grid_image
+    # reads from this cache via `self.images.all()` rather than `.first()` —
+    # see its docstring for why that distinction is what keeps this O(1).
+    products = (
+        Product.objects.filter(is_active=True).select_related("category").prefetch_related("images")
+    )
     if q:
         products = products.filter(Q(name__icontains=q) | Q(variants__sku__icontains=q)).distinct()
     products = list(

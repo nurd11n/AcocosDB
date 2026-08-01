@@ -196,7 +196,13 @@ def _build_grid_tiles(q: str) -> list[dict]:
     is the point)."""
     from apps.inventory.models import StockMovement
 
-    products = Product.objects.filter(is_active=True).select_related("category")
+    # prefetch_related, not select_related — a product can have many images
+    # now; ONE extra query for the whole grid, not N (see the same comment in
+    # apps.pos.views._build_grid_tiles for why Product.grid_image reads it
+    # safely as a cache).
+    products = (
+        Product.objects.filter(is_active=True).select_related("category").prefetch_related("images")
+    )
     if q:
         products = products.filter(Q(name__icontains=q) | Q(variants__sku__icontains=q)).distinct()
     products = list(products.order_by("name")[:PRODUCT_GRID_LIMIT])
