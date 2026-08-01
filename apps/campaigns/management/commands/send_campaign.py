@@ -195,7 +195,11 @@ class Command(BaseCommand):
         if not token:
             raise CommandError("TELEGRAM_CLIENT_TOKEN is empty — cannot send.")
 
-        photo_paths = [p.photo.path for p in campaign.products.all() if p.photo and p.photo.name]
+        # prefetch_related so Product.grid_image (a product can have several
+        # images now) reads the cache instead of issuing one query per
+        # selected product — see its docstring.
+        products = list(campaign.products.prefetch_related("images"))
+        photo_paths = [img.path for p in products if (img := p.grid_image)]
 
         campaign.status = Campaign.SENDING
         campaign.save(update_fields=["status"])
@@ -250,15 +254,16 @@ class Command(BaseCommand):
             )
 
         # Meta fetches the template's hero image from a public absolute https
-        # URL — photo.url is relative (/media/…), so prefix it with
+        # URL — grid_image.url is relative (/media/…), so prefix it with
         # PUBLIC_BASE_URL. Without that configured, send the template text-only
         # rather than a broken link Meta can't resolve.
-        hero = next((p for p in campaign.products.all() if p.photo and p.photo.name), None)
+        products = list(campaign.products.prefetch_related("images"))
+        hero_image = next((img for p in products if (img := p.grid_image)), None)
         hero_url = None
-        if hero:
+        if hero_image:
             base = settings.PUBLIC_BASE_URL.rstrip("/")
             if base:
-                hero_url = f"{base}/{hero.photo.url.lstrip('/')}"
+                hero_url = f"{base}/{hero_image.url.lstrip('/')}"
             else:
                 logger.warning(
                     "PUBLIC_BASE_URL is unset — sending WhatsApp template '%s' without its "

@@ -38,6 +38,7 @@ from django.db.models.functions import (
 from django.utils import timezone
 
 from apps.inventory.models import ProductVariant, StockMovement
+from apps.inventory.services import cover_image_names
 from apps.sales.models import Payment, SaleItem, SaleOrder
 
 # period key -> (label, trailing days, chart granularity)
@@ -259,16 +260,11 @@ def _thumb_url(name):
 
 
 def _top_products(start, end, limit=8):
-    rows = (
+    rows = list(
         SaleItem.objects.filter(
             order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__range=(start, end)
         )
-        .values(
-            "variant__product__id",
-            "variant__product__name",
-            "variant__product__thumbnail",
-            "variant__product__photo",
-        )
+        .values("variant__product__id", "variant__product__name")
         .annotate(
             revenue=Coalesce(
                 Sum(_LINE_KGS, output_field=_MONEY), Value(Decimal("0")), output_field=_MONEY
@@ -280,10 +276,15 @@ def _top_products(start, end, limit=8):
         )
         .order_by("-revenue")[:limit]
     )
+    # One extra bulk query for every row's cover image, not one per row — a
+    # product can have many images now (see apps.inventory.services.
+    # cover_image_names), and this is a grouped SaleItem aggregate, not a
+    # Product queryset, so there's nothing to prefetch_related onto.
+    covers = cover_image_names([r["variant__product__id"] for r in rows])
     return [
         {
             "name": r["variant__product__name"],
-            "thumb": _thumb_url(r["variant__product__thumbnail"] or r["variant__product__photo"]),
+            "thumb": _thumb_url(covers.get(r["variant__product__id"], "")),
             "revenue": r["revenue"],
             "units": r["units"],
             "profit": r["revenue"] - r["cogs"],
@@ -315,6 +316,11 @@ def _dead_stock(limit=8):
         .values("variant_id")
         .annotate(last=Max("order__confirmed_at"))
     }
+    # One bulk query for every candidate's cover image up front, keyed by
+    # product id — cheaper than filtering to just the ones that turn out to
+    # be dead-stock (a handful of extra ids costs nothing; a second query
+    # per row would not).
+    covers = cover_image_names([v.product_id for v in variants])
     dead = []
     for v in variants:
         sold_at = last_sale.get(v.pk)
@@ -323,11 +329,10 @@ def _dead_stock(limit=8):
         else:
             days_idle = (today - timezone.localtime(v.product.created_at).date()).days
         if days_idle >= DEAD_STOCK_DAYS:
-            p = v.product
             dead.append(
                 {
                     "name": str(v),
-                    "thumb": _thumb_url((p.thumbnail.name or p.photo.name) or ""),
+                    "thumb": _thumb_url(covers.get(v.product_id, "")),
                     "units": v._stock,
                     "days_idle": days_idle,
                     "capital": (v.cost_price * v._stock),

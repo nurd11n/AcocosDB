@@ -32,39 +32,79 @@ class Product(models.Model):
     )
     name = models.CharField(_("name"), max_length=200)
     description = models.TextField(_("description"), blank=True)
-    photo = models.ImageField(_("photo"), upload_to="products/", blank=True)
-    # A ~400px JPEG derived from `photo` on save — the grid tile ships this, not
-    # the original (a 4MB phone photo × dozens of tiles would wreck load time).
-    thumbnail = models.ImageField(
-        _("thumbnail"), upload_to="products/thumbs/", blank=True, editable=False
-    )
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
-    history = HistoricalRecords(excluded_fields=["thumbnail"])
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = _("product")
         verbose_name_plural = _("products")
         ordering = ["name"]
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._orig_photo_name = self.photo.name if self.photo else None
-
     def __str__(self):
         return self.name
 
+    @property
+    def grid_image(self):
+        """The small image a tile/catalog reply should show — the COVER
+        (first-by-position ProductImage's thumbnail, or its original before a
+        thumbnail exists), or None with nothing uploaded. `self.images.all()`
+        rather than `.first()` on purpose: `.first()` builds a fresh queryset
+        and ignores an existing prefetch_related("images") cache, which is
+        exactly what the grid/catalog builders rely on to stay O(1) queries
+        regardless of row count (see apps.pos.views._build_grid_tiles and its
+        query-budget test) — a single-product caller with no prefetch (the
+        Telegram bot, one product per message) still gets a normal lazy
+        query, just not a cached one."""
+        cover = next(iter(self.images.all()), None)
+        if cover is None:
+            return None
+        return cover.thumbnail or cover.image
+
+
+class ProductImage(models.Model):
+    """One photo in a product's gallery — a product can have as many as a
+    manager wants (CLAUDE.md previously only allowed one; this is the fix).
+    `position` decides display order; the lowest position (ties broken by
+    insertion order via `id`) is the COVER shown on tiles, in the client bot,
+    and as a campaign's hero image — see Product.grid_image, the one place
+    that decision is made, so every consumer agrees on what "the" photo is."""
+
+    product = models.ForeignKey(
+        Product, verbose_name=_("product"), on_delete=models.CASCADE, related_name="images"
+    )
+    image = models.ImageField(_("image"), upload_to="products/")
+    # A ~400px JPEG derived from `image` on save — a grid tile ships this, not
+    # the original (a 4MB phone photo × dozens of tiles would wreck load time).
+    thumbnail = models.ImageField(
+        _("thumbnail"), upload_to="products/thumbs/", blank=True, editable=False
+    )
+    position = models.PositiveIntegerField(
+        _("position"),
+        default=0,
+        help_text=_("Lower numbers show first. The first image is the cover shown in tiles."),
+    )
+    created_at = models.DateTimeField(_("uploaded at"), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("product image")
+        verbose_name_plural = _("product images")
+        ordering = ["position", "id"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._orig_image_name = self.image.name if self.image else None
+
+    def __str__(self):
+        return f"{self.product} · {self.position}"
+
     def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)  # write the photo to disk first
-        current = self.photo.name if self.photo else None
-        if self.photo and (current != self._orig_photo_name or not self.thumbnail):
+        super().save(*args, **kwargs)  # write the image to disk first (need a pk for the filename)
+        current = self.image.name if self.image else None
+        if current != self._orig_image_name or not self.thumbnail:
             self._make_thumbnail()
             super().save(update_fields=["thumbnail"])
-        elif not self.photo and self.thumbnail:
-            self.thumbnail.delete(save=False)
-            self.thumbnail = ""
-            super().save(update_fields=["thumbnail"])
-        self._orig_photo_name = current
+        self._orig_image_name = current
 
     def _make_thumbnail(self):
         from io import BytesIO
@@ -72,18 +112,12 @@ class Product(models.Model):
         from django.core.files.base import ContentFile
         from PIL import Image
 
-        self.photo.open()
-        img = Image.open(self.photo).convert("RGB")
+        self.image.open()
+        img = Image.open(self.image).convert("RGB")
         img.thumbnail((400, 400))  # max box, aspect preserved
         buf = BytesIO()
         img.save(buf, format="JPEG", quality=82, optimize=True)
         self.thumbnail.save(f"thumb_{self.pk}.jpg", ContentFile(buf.getvalue()), save=False)
-
-    @property
-    def grid_image(self):
-        """The small image a tile should show — thumbnail if we have it, else
-        the original (which only happens before the first thumbnail is built)."""
-        return self.thumbnail or self.photo
 
 
 class ProductVariant(models.Model):
