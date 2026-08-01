@@ -3,6 +3,7 @@
 {% block title %}{% trans "Заметки" %}{% endblock %}
 {% block content %}
 
+{% if can_write %}
 <div class="card">
  <h2><svg class="ic"><use href="#i-notes"/></svg>{% trans "Новая заметка" %}</h2>
  <form method="post" action="{% url 'notes:index' %}">
@@ -12,22 +13,28 @@
   <button type="submit" class="btn btn-primary">{% trans "Добавить" %}</button>
  </form>
 </div>
+{% endif %}
 
 <p class="list-count">{% blocktrans count n=active_count %}{{ n }} активная{% plural %}{{ n }} активных{% endblocktrans %}</p>
 
 {% for n in notes %}
 <div class="note{% if n.done %} note--done{% endif %}{% if n.pinned %} note--pinned{% endif %}">
+ {% if can_edit %}
  <form method="post" action="{% url 'notes:toggle' n.pk %}" class="note__toggle">
   {% csrf_token %}
   <button type="submit" class="note__check" aria-label="{% trans 'Готово' %}" aria-pressed="{{ n.done|yesno:'true,false' }}">
    <svg class="ic"><use href="#i-check"/></svg>
   </button>
  </form>
+ {% else %}
+ <span class="note__toggle"><span class="note__check" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span></span>
+ {% endif %}
  <div class="note__body">
   {% if n.title %}<div class="note__title">{{ n.title }}</div>{% endif %}
   {% if n.body %}<div class="note__text">{{ n.body }}</div>{% endif %}
   <div class="note__meta">{{ n.updated_at|date:"d.m.Y H:i" }}{% if n.created_by %} · {{ n.created_by }}{% endif %}</div>
  </div>
+ {% if can_edit %}
  <div class="note__actions">
   <form method="post" action="{% url 'notes:pin' n.pk %}">
    {% csrf_token %}
@@ -37,6 +44,7 @@
   </form>
   <a class="note__act" href="{% url 'notes:edit' n.pk %}" aria-label="{% trans 'Изменить' %}"><svg class="ic"><use href="#i-edit"/></svg></a>
  </div>
+ {% endif %}
 </div>
 {% empty %}
 <div class="empty"><svg class="ic"><use href="#i-notes"/></svg><p>{% trans "Пока нет заметок. Добавьте первую выше." %}</p></div>

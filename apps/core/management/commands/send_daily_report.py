@@ -229,9 +229,13 @@ def _debts_sheet() -> export.Sheet:
     # Unpaid-order count + oldest unpaid date per (client, currency), from the
     # confirmed sales themselves — one query, no per-debtor lookup.
     spans: dict[tuple, list] = {}
-    for order in SaleOrder.objects.filter(
-        status=SaleOrder.CONFIRMED, client__isnull=False
-    ).select_related("client"):
+    for order in (
+        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, client__isnull=False)
+        .select_related("client")
+        # order.balance walks payments AND items; without both prefetched this
+        # loop is 2 queries per confirmed sale in the nightly report.
+        .prefetch_related("payments", "items")
+    ):
         if order.balance <= 0:
             continue
         key = (order.client_id, order.currency)
