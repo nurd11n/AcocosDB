@@ -17,8 +17,16 @@ class InteractionInline(admin.TabularInline):
 
 @admin.register(Client)
 class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
-    list_display = ["first_name", "last_name", "phone", "source", "debt", "is_active", "created_at"]
-    search_fields = ["first_name", "last_name", "phone"]
+    list_display = [
+        "first_name",
+        "descriptor",
+        "phone",
+        "source",
+        "debt",
+        "is_active",
+        "created_at",
+    ]
+    search_fields = ["first_name", "descriptor", "phone"]
     list_filter = ["source", "is_active"]
     readonly_fields = ["unpaid_orders"]
     inlines = [InteractionInline]
@@ -71,7 +79,7 @@ class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
 class InteractionAdmin(admin.ModelAdmin):
     list_display = ["created_at", "client", "kind", "note", "created_by"]
     list_filter = ["kind"]
-    search_fields = ["client__first_name", "client__last_name", "client__phone", "note"]
+    search_fields = ["client__first_name", "client__descriptor", "client__phone", "note"]
     list_select_related = ["client", "created_by"]
     autocomplete_fields = ["client"]
 

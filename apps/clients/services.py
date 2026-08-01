@@ -126,7 +126,9 @@ def lapsed_clients(days: int = 60) -> list[Client]:
     )
     lapsed_ids = [row["client_id"] for row in last if row["last"] and row["last"] < cutoff]
     return list(
-        Client.objects.filter(pk__in=lapsed_ids, is_active=True).order_by("first_name", "last_name")
+        Client.objects.filter(pk__in=lapsed_ids, is_active=True).order_by(
+            "first_name", "descriptor"
+        )
     )
 
 

@@ -68,7 +68,14 @@ class ProductImage(models.Model):
     `position` decides display order; the lowest position (ties broken by
     insertion order via `id`) is the COVER shown on tiles, in the client bot,
     and as a campaign's hero image — see Product.grid_image, the one place
-    that decision is made, so every consumer agrees on what "the" photo is."""
+    that decision is made, so every consumer agrees on what "the" photo is.
+
+    position is NOT part of the admin form (see ProductImageInline) — a
+    manager just uploads photos, in the order they want them to show, and
+    ProductAdmin.save_formset assigns sequentially increasing positions to
+    each new row automatically. It stays an editable model field for
+    programmatic use (the gallery-backfill migration, tests) rather than a
+    fixed/derived value, in case reordering ever gets its own UI later."""
 
     product = models.ForeignKey(
         Product, verbose_name=_("product"), on_delete=models.CASCADE, related_name="images"
@@ -79,11 +86,7 @@ class ProductImage(models.Model):
     thumbnail = models.ImageField(
         _("thumbnail"), upload_to="products/thumbs/", blank=True, editable=False
     )
-    position = models.PositiveIntegerField(
-        _("position"),
-        default=0,
-        help_text=_("Lower numbers show first. The first image is the cover shown in tiles."),
-    )
+    position = models.PositiveIntegerField(_("position"), default=0)
     created_at = models.DateTimeField(_("uploaded at"), auto_now_add=True)
 
     class Meta:

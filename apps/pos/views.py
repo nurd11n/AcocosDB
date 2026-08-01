@@ -552,7 +552,7 @@ def client_search(request, pk):
     q = request.GET.get("q", "").strip()
     if q:
         clients = Client.objects.filter(
-            Q(phone__icontains=q) | Q(first_name__icontains=q) | Q(last_name__icontains=q)
+            Q(phone__icontains=q) | Q(first_name__icontains=q) | Q(descriptor__icontains=q)
         ).order_by("first_name")[:RECENT_CLIENTS_LIMIT]
     else:
         clients = Client.objects.order_by("-created_at")[:RECENT_CLIENTS_LIMIT]
@@ -596,7 +596,7 @@ def client_new_form(request, pk):
 def client_create(request, pk):
     order = _own_draft_or_404(request, pk)
     first_name = request.POST.get("first_name", "").strip()
-    last_name = request.POST.get("last_name", "").strip()
+    descriptor = request.POST.get("descriptor", "").strip()
     phone = request.POST.get("phone", "").strip()
 
     error = None
@@ -614,14 +614,14 @@ def client_create(request, pk):
                 "new_client_error": error,
                 "new_client_values": {
                     "first_name": first_name,
-                    "last_name": last_name,
+                    "descriptor": descriptor,
                     "phone": phone,
                 },
             },
         )
 
     client = Client.objects.create(
-        first_name=first_name, last_name=last_name, phone=phone, source=Client.SHOP
+        first_name=first_name, descriptor=descriptor, phone=phone, source=Client.SHOP
     )
     order.client = client
     order.save(update_fields=["client"])
@@ -1216,7 +1216,7 @@ def clients(request):
     qs = Client.objects.filter(is_active=True)
     if q:
         qs = qs.filter(
-            Q(phone__icontains=q) | Q(first_name__icontains=q) | Q(last_name__icontains=q)
+            Q(phone__icontains=q) | Q(first_name__icontains=q) | Q(descriptor__icontains=q)
         )
     if flt == "consent":
         qs = qs.filter(marketing_consent=True)
@@ -1236,7 +1236,7 @@ def clients(request):
         people.sort(key=lambda c: c.created_at, reverse=True)
     else:
         sort = "name"
-        people.sort(key=lambda c: (c.first_name.lower(), c.last_name.lower()))
+        people.sort(key=lambda c: (c.first_name.lower(), c.descriptor.lower()))
 
     return render(
         request,

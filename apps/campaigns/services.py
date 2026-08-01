@@ -80,7 +80,7 @@ def campaign_audience(campaign) -> list[Client]:
             qs = qs.filter(pk__in=lapsed)
 
     qs = qs.exclude(pk__in=_over_frequency_cap())
-    return list(qs.order_by("first_name", "last_name"))
+    return list(qs.order_by("first_name", "descriptor"))
 
 
 def campaign_preview_count(campaign) -> int:

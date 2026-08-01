@@ -147,7 +147,7 @@ def client_search(request):
     q = request.GET.get("q", "").strip()
     if q:
         clients = Client.objects.filter(
-            Q(phone__icontains=q) | Q(first_name__icontains=q) | Q(last_name__icontains=q)
+            Q(phone__icontains=q) | Q(first_name__icontains=q) | Q(descriptor__icontains=q)
         ).order_by("first_name")[:10]
     else:
         clients = Client.objects.order_by("-created_at")[:10]
@@ -159,7 +159,7 @@ def client_search(request):
 @require_POST
 def client_create(request):
     first_name = request.POST.get("first_name", "").strip()
-    last_name = request.POST.get("last_name", "").strip()
+    descriptor = request.POST.get("descriptor", "").strip()
     phone = request.POST.get("phone", "").strip()
     error = None
     if not first_name or not phone:
@@ -174,14 +174,14 @@ def client_create(request):
                 "new_client_error": error,
                 "new_client_values": {
                     "first_name": first_name,
-                    "last_name": last_name,
+                    "descriptor": descriptor,
                     "phone": phone,
                 },
                 "active": "orders",
             },
         )
     client = Client.objects.create(
-        first_name=first_name, last_name=last_name, phone=phone, source=Client.SHOP
+        first_name=first_name, descriptor=descriptor, phone=phone, source=Client.SHOP
     )
     # This POST just created the client — start their order here and go to the
     # builder, rather than redirecting to a GET that creates the order (which

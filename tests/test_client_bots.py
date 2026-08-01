@@ -457,3 +457,60 @@ def test_inbox_reply_triggers_handoff(client, django_user_model):
     client.post(f"/inbox/{c.pk}/reply/", {"text": "Отвечаю вручную"})
     c.refresh_from_db()
     assert is_handed_off(c) is True
+
+
+def test_telegram_welcome_greeting_uses_first_name_only(wa_client, monkeypatch):
+    """The Telegram client bot's welcome message must never show the
+    staff-only descriptor about the client to that same client — same rule
+    as the WhatsApp debt reminder, different channel.
+
+    subscribe_telegram (a real DB write) is stubbed out via monkeypatch,
+    matching the existing async-handler test pattern in tests/test_bots.py
+    (AllowlistMiddleware) — running a real query through sync_to_async inside
+    an asyncio.run() loop deadlocks SQLite's single-writer lock against the
+    still-open pytest-django test transaction; this test is about the
+    GREETING TEXT on_contact builds, not subscribe_telegram itself (which
+    has its own direct, synchronous coverage elsewhere)."""
+    import asyncio
+
+    from bot import client_bot
+
+    wa_client.first_name = "Айгуль"
+    wa_client.descriptor = "постоянная клиентка, разбирается в тканях"
+    # A plain sync stub — on_contact does its OWN sync_to_async(...) wrapping
+    # around whatever `subscribe_telegram` resolves to at call time.
+    monkeypatch.setattr(client_bot, "subscribe_telegram", lambda phone, chat_id: wa_client)
+
+    class FakeContact:
+        phone_number = wa_client.phone
+
+    class FakeChat:
+        id = 555111222
+
+    class FakeMessage:
+        contact = FakeContact()
+        chat = FakeChat()
+        answered = []
+
+        async def answer(self, text, **kwargs):
+            self.answered.append(text)
+
+    class FakeState:
+        async def clear(self):
+            pass
+
+        async def set_state(self, *a, **k):
+            pass
+
+        async def update_data(self, **k):
+            pass
+
+    async def _run():
+        msg = FakeMessage()
+        await client_bot.on_contact(msg, FakeState())
+        return msg.answered
+
+    answered = asyncio.run(_run())
+    assert any("Айгуль" in t for t in answered)
+    assert not any("постоянная клиентка" in t for t in answered)
+    assert not any("(" in t for t in answered if "Добро пожаловать" in t)
