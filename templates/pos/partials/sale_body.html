@@ -30,7 +30,7 @@
 <div class="card payment-card">
  <h2>{% trans "Оплата" %}</h2>
  <form id="payment-form" hx-post="{% url 'pos:recalc' order.pk %}" hx-target="#sale-body" hx-swap="innerHTML"
-   hx-trigger="change, keyup changed delay:400ms">
+   hx-trigger="change, keyup changed delay:400ms, submit">
   <label>{% trans "Сумма" %}</label>
   <input type="text" name="amount" inputmode="decimal" id="pay-amount"
     value="{% if payment_amount is not None %}{{ payment_amount }}{% endif %}">
