@@ -2,32 +2,139 @@
 {% load i18n pos_extras %}
 {% block title %}{% trans "К производству" %}{% endblock %}
 {% block content %}
-<div class="card">
- <h2><svg class="ic"><use href="#i-orders"/></svg>{% trans "Что производить" %}</h2>
- <p class="hint">{% trans "Отсортировано по ближайшему сроку. Считается автоматически — нигде не хранится вручную." %}</p>
-</div>
 
 <div class="card">
- {% for row in rows %}
- <div class="line-row{% if row.covered %} muted{% endif %}">
-   <div class="line-row__label">
-     <strong>{{ row.variant }}</strong><br>
-     <span class="muted">
-       {% trans "заказано" %} {{ row.ordered }} · {% trans "на складе" %} {{ row.in_stock }}
-       {% if row.due_date %} · {% trans "срок" %} {{ row.due_date|date:"d.m.Y" }}{% endif %}
-       · {{ row.orders_count }} {% trans "заказ(ов)" %}
-     </span>
-   </div>
-   <div class="line-row__total num">
-     {% if row.covered %}
-       <span class="badge badge--paid">{% trans "есть на складе" %}</span>
-     {% else %}
-       <span class="badge badge--debt">{% trans "к производству" %} {{ row.to_produce }}</span>
-     {% endif %}
-   </div>
+ <h2><svg class="ic"><use href="#i-orders"/></svg>{% trans "Что производить" %}</h2>
+ <p class="hint">
+   {% trans "Считается автоматически из открытых заказов — нигде не хранится вручную. Сначала ближайший срок." %}
+ </p>
+
+ <div class="queue-summary">
+  <div class="queue-summary__cell">
+   <span class="queue-summary__num num">{{ summary.units }}</span>
+   <span class="queue-summary__label">
+     {% if group == "client" %}{% trans "шт осталось" %}{% else %}{% trans "шт сшить" %}{% endif %}</span>
+  </div>
+  <div class="queue-summary__cell">
+   <span class="queue-summary__num num">{{ summary.rows }}</span>
+   <span class="queue-summary__label">
+     {% if group == "product" %}{% trans "товаров" %}{% elif group == "client" %}{% trans "клиентов" %}{% else %}{% trans "позиций" %}{% endif %}</span>
+  </div>
+  <div class="queue-summary__cell">
+   <span class="queue-summary__num num{% if summary.overdue %} is-overdue{% endif %}">{{ summary.overdue }}</span>
+   <span class="queue-summary__label">{% trans "просрочено" %}</span>
+  </div>
+  <div class="queue-summary__cell">
+   <span class="queue-summary__num num">
+     {% if summary.next_due %}{{ summary.next_due|date:"d.m" }}{% else %}—{% endif %}</span>
+   <span class="queue-summary__label">{% trans "ближайший срок" %}</span>
+  </div>
  </div>
- {% empty %}
- <p class="muted">{% trans "Нет открытых заказов — производить пока нечего." %}</p>
- {% endfor %}
+
+ <div class="filters">
+  <div class="filters__set">
+   <span class="filters__label">{% trans "Группировать" %}</span>
+   <div class="filters__group" role="group" aria-label="{% trans 'Группировать' %}">
+    <a class="fpill{% if group == 'variant' %} is-on{% endif %}" href="?group=variant">{% trans "По размеру" %}</a>
+    <a class="fpill{% if group == 'product' %} is-on{% endif %}" href="?group=product">{% trans "По товару" %}</a>
+    <a class="fpill{% if group == 'client' %} is-on{% endif %}" href="?group=client">{% trans "По клиенту" %}</a>
+   </div>
+  </div>
+ </div>
+ <a class="btn btn-ghost" href="{% url 'orders:index' %}" style="margin-top:var(--space-3)">
+   {% trans "← Все заказы" %}</a>
 </div>
+
+{% for row in rows %}
+<div class="card q-row{% if row.covered %} q-row--covered{% endif %}{% if row.overdue %} q-row--overdue{% endif %}">
+ <div class="q-row__head">
+  <div class="q-row__title">
+   <strong>{{ row.label }}</strong>
+   {% if row.kind == "client" %}
+     <span class="muted">{{ row.client.phone }}</span>
+   {% elif row.kind == "product" %}
+     <span class="muted">{{ row.variants|length }} {% trans "разм." %} · {{ row.clients_count }} {% trans "клиент(ов)" %}</span>
+   {% else %}
+     <span class="muted">{{ row.clients_count }} {% trans "клиент(ов)" %} · {{ row.orders_count }} {% trans "заказ(ов)" %}</span>
+   {% endif %}
+  </div>
+  <div class="q-row__badge">
+   {% if row.kind == "client" %}
+     {% if row.remaining %}
+       <span class="badge badge--debt">{% trans "сшить" %} {{ row.remaining }}</span>
+     {% else %}
+       <span class="badge badge--paid">{% trans "всё готово" %}</span>
+     {% endif %}
+   {% elif row.covered %}
+     <span class="badge badge--paid">{% trans "есть на складе" %}</span>
+   {% else %}
+     <span class="badge badge--debt">{% trans "сшить" %} {{ row.to_produce }}</span>
+   {% endif %}
+  </div>
+ </div>
+
+ <div class="q-row__meta">
+  {% if row.kind == "client" %}
+    {% trans "заказано" %} {{ row.ordered }} · {% trans "готово" %} {{ row.produced }}
+  {% else %}
+    {% trans "заказано" %} {{ row.ordered }} · {% trans "на складе" %} {{ row.in_stock }} · {% trans "готово" %} {{ row.produced }}
+  {% endif %}
+  {% if row.due_date %}
+   · <span class="{% if row.overdue %}q-due--overdue{% endif %}">
+     {% trans "срок" %} {{ row.due_date|date:"d.m.Y" }}{% if row.overdue %} · {% trans "просрочен" %}{% endif %}</span>
+  {% else %}
+   · <span class="muted">{% trans "без срока" %}</span>
+  {% endif %}
+ </div>
+
+ {% if row.kind == "product" %}
+ <div class="q-sub">
+  <div class="q-sub__label">{% trans "По размерам" %}</div>
+  {% for v in row.variants %}
+  <div class="q-sub__row">
+   <span>{{ v.size_label }}</span>
+   <span class="muted num">{% trans "заказ." %} {{ v.ordered }} · {% trans "скл." %} {{ v.in_stock }}</span>
+   <span class="num">
+     {% if v.covered %}<span class="badge badge--paid">{% trans "есть" %}</span>
+     {% else %}<span class="badge badge--debt">{{ v.to_produce }}</span>{% endif %}</span>
+  </div>
+  {% endfor %}
+ </div>
+ {% endif %}
+
+ <div class="q-sub">
+  <div class="q-sub__label">
+    {% if row.kind == "client" %}{% trans "Что шить" %}{% else %}{% trans "Для кого" %}{% endif %}</div>
+  {% for line in row.lines %}
+  <a class="q-sub__row q-sub__row--link" href="{% url 'orders:detail' line.order_id %}">
+   <span>
+     {% if row.kind == "client" %}{{ line.variant }}
+     {% elif row.kind == "product" %}{{ line.client.name }} <span class="muted">· {{ line.size_label }}</span>
+     {% else %}{{ line.client.name }}{% endif %}
+     <span class="muted">№{{ line.order_id }}</span>
+   </span>
+   <span class="muted num">
+     {% comment %}
+     Nothing made yet is the common case — «3 шт» reads cleaner than «3 из 3».
+     Once part of the line is done, spell the remainder out: «осталось 2 из 3»
+     can't be misread as "2 already made" the way a bare «2 / 3» can.
+     {% endcomment %}
+     {% if line.produced %}{% blocktrans with left=line.remaining total=line.quantity %}осталось {{ left }} из {{ total }}{% endblocktrans %}
+     {% else %}{{ line.quantity }} {% trans "шт" %}{% endif %}
+     {% if line.due_date %} · <span class="{% if line.overdue %}q-due--overdue{% endif %}">{{ line.due_date|date:"d.m" }}</span>
+     {% else %} · —{% endif %}
+   </span>
+  </a>
+  {% endfor %}
+ </div>
+</div>
+{% empty %}
+<div class="card">
+ <p class="muted">{% trans "Нет открытых заказов — производить пока нечего." %}</p>
+ {% if perms.orders.add_order %}
+ <a class="btn btn-primary" href="{% url 'orders:create' %}" style="margin-top:var(--space-3)">
+   {% trans "+ Новый заказ" %}</a>
+ {% endif %}
+</div>
+{% endfor %}
 {% endblock %}
