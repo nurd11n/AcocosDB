@@ -1,0 +1,29 @@
+{% load i18n pos_extras %}
+{% comment %}
+Opens as a modal over the order builder (#variant-picker:not(:empty) in
+app.css). The form is a PLAIN post, not HTMX: item_add redirects back to the
+order page, which reloads and clears this overlay for free — no partial to
+keep in sync, and no stock cap anywhere in sight (that's the point of a заказ).
+{% endcomment %}
+<div class="card">
+ <h2>{{ product.name }}</h2>
+ <form method="post" action="{% url 'orders:item_add' order.pk %}">
+  {% csrf_token %}
+  <label>{% trans "Вариант" %}</label>
+  <select name="variant_id" required>
+   {% for v in variants %}
+     <option value="{{ v.pk }}">
+       {{ v.size }} / {{ v.color }} — {{ v.sale_price|money:v.currency }}
+       ({{ v.stock_qty|default:0 }} {% trans "на складе" %})
+     </option>
+   {% endfor %}
+  </select>
+  <label>{% trans "Количество" %}</label>
+  <input type="number" name="quantity" inputmode="numeric" value="1" min="1" required>
+  <p class="hint">{% trans "Остаток — только справка. Заказ оформляется и на непроизведённый товар." %}</p>
+  <div class="row" style="margin-top:var(--space-3)">
+   <button type="submit" class="btn btn-primary">{% trans "Добавить в заказ" %}</button>
+   <button type="button" class="btn btn-ghost" data-clear-target="variant-picker">{% trans "Отмена" %}</button>
+  </div>
+ </form>
+</div>

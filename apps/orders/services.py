@@ -4,6 +4,7 @@ in a view). An Order never deducts stock; only hand_over (via
 apps.sales.services.confirm_sale) does that, exactly once.
 """
 
+from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
@@ -76,17 +77,31 @@ def order_paid_amount(order: Order) -> Decimal:
     the resulting SaleOrder, which uses THAT order's own frozen rate)."""
     today = timezone.localdate()
     total = Decimal("0")
-    for amount, currency in order.deposits.values_list("amount", "currency"):
-        converted = convert(amount, currency, order.currency, today)
+    # Iterates .all() rather than .values_list() on purpose: values_list always
+    # issues its own query, which would defeat the prefetch_related("deposits")
+    # the order list relies on to stay flat instead of N+1 across 200 rows.
+    for deposit in order.deposits.all():
+        converted = convert(deposit.amount, deposit.currency, order.currency, today)
         if converted is not None:
             total += converted
     return total
 
 
-def production_queue() -> list[dict]:
-    """«Что производить» — DERIVED, never stored (CLAUDE.md Part 3b). Rows,
-    one per variant with any open demand (новый/в производстве), sorted by
-    nearest due_date first:
+GROUP_VARIANT = "variant"
+GROUP_PRODUCT = "product"
+GROUP_CLIENT = "client"
+GROUP_CHOICES = (GROUP_VARIANT, GROUP_PRODUCT, GROUP_CLIENT)
+
+
+def _due_sort_key(due):
+    """Nearest deadline first, undated rows last — never compares None against
+    a date (which would raise), unlike a bare tuple of the two."""
+    return (due is None, due or date.max)
+
+
+def production_queue(group_by: str = GROUP_VARIANT) -> list[dict]:
+    """«Что производить» — DERIVED, never stored (CLAUDE.md Part 3b). The base
+    unit is always the VARIANT row, sorted by nearest due_date first:
       need = SUM(ordered qty across open orders) − on_hand stock
 
     Deliberately against raw on_hand, not the reservation-adjusted `available`
@@ -94,10 +109,30 @@ def production_queue() -> list[dict]:
     movements written by mark_produced), so subtracting `available` too would
     double-count the very reservation this queue exists to satisfy. Rows
     where need <= 0 are kept (not hidden — she still must not sell those to a
-    walk-in) and flagged `covered` for de-emphasis."""
+    walk-in) and flagged `covered` for de-emphasis.
+
+    Every row also carries a `lines` breakdown — which client ordered how many,
+    due when, how much of their line is already made — so «кому это шить»
+    is answerable without opening each order one by one. group_by rolls those
+    same rows up differently for display; the arithmetic never changes:
+      variant  — one row per SKU (the default, and what mark_produced acts on)
+      product  — one row per product, per-size split underneath
+      client   — one row per client, everything still owed to them
+    """
+    rows = _variant_rows()
+    if group_by == GROUP_PRODUCT:
+        return _rollup_by_product(rows)
+    if group_by == GROUP_CLIENT:
+        return _rollup_by_client(rows)
+    return rows
+
+
+def _variant_rows() -> list[dict]:
+    """The canonical queue rows — one per variant with open demand. Two
+    queries total regardless of order count (lines + one stock aggregate)."""
     open_items = list(
         OrderItem.objects.filter(order__status__in=[Order.NEW, Order.IN_PRODUCTION]).select_related(
-            "order", "variant__product"
+            "order__client", "variant__product"
         )
     )
     if not open_items:
@@ -110,35 +145,205 @@ def production_queue() -> list[dict]:
         .values("variant_id")
         .annotate(s=Sum("quantity"))
     }
+    today = timezone.localdate()
 
     by_variant: dict[int, dict] = {}
     for item in open_items:
         bucket = by_variant.setdefault(
             item.variant_id,
-            {"variant": item.variant, "ordered": 0, "due_dates": [], "order_ids": set()},
+            {
+                "variant": item.variant,
+                "ordered": 0,
+                "produced": 0,
+                "due_dates": [],
+                "order_ids": set(),
+                "lines": [],
+            },
         )
         bucket["ordered"] += item.quantity
+        bucket["produced"] += min(item.produced_qty, item.quantity)
         bucket["order_ids"].add(item.order_id)
         if item.order.due_date:
             bucket["due_dates"].append(item.order.due_date)
+        bucket["lines"].append(_line_row(item, today))
 
     rows = []
     for variant_id, bucket in by_variant.items():
         stock = on_hand.get(variant_id, 0)
         need = max(bucket["ordered"] - stock, 0)
+        due = min(bucket["due_dates"]) if bucket["due_dates"] else None
+        bucket["lines"].sort(key=lambda line: _due_sort_key(line["due_date"]))
         rows.append(
             {
+                "kind": GROUP_VARIANT,
+                "key": f"v{variant_id}",
                 "variant": bucket["variant"],
+                "product": bucket["variant"].product,
+                "label": str(bucket["variant"]),
+                "size_label": _size_label(bucket["variant"]),
                 "ordered": bucket["ordered"],
+                "produced": bucket["produced"],
+                "remaining": sum(line["remaining"] for line in bucket["lines"]),
                 "in_stock": stock,
                 "to_produce": need,
                 "covered": need <= 0,
-                "due_date": min(bucket["due_dates"]) if bucket["due_dates"] else None,
+                "due_date": due,
+                "overdue": bool(due and due < today),
                 "orders_count": len(bucket["order_ids"]),
+                "clients_count": len({line["client"].pk for line in bucket["lines"]}),
+                "lines": bucket["lines"],
             }
         )
-    rows.sort(key=lambda r: (r["due_date"] is None, r["due_date"]))
+    rows.sort(key=lambda r: _due_sort_key(r["due_date"]))
     return rows
+
+
+def _size_label(variant) -> str:
+    """«M / красный» — the variant WITHOUT its product name, for rows already
+    grouped under that product. Falls back to the SKU so a variant with no
+    size and no colour never renders as a bare « / »."""
+    return " / ".join(part for part in (variant.size, variant.color) if part) or variant.sku
+
+
+def _line_row(item: OrderItem, today) -> dict:
+    """One order line as the queue shows it — who it's for and what's left of
+    it. `remaining` is this LINE's own shortfall (quantity − produced_qty),
+    which is not the same number as a variant row's stock-adjusted
+    `to_produce`: stock is shared across every client waiting on that SKU."""
+    due = item.order.due_date
+    return {
+        "order_id": item.order_id,
+        "order_status": item.order.status,
+        "client": item.order.client,
+        "variant": item.variant,
+        "size_label": _size_label(item.variant),
+        "quantity": item.quantity,
+        "produced": min(item.produced_qty, item.quantity),
+        "remaining": item.remaining_to_produce,
+        "due_date": due,
+        "overdue": bool(due and due < today),
+    }
+
+
+def _rollup_by_product(variant_rows: list[dict]) -> list[dict]:
+    """Same arithmetic, one row per PRODUCT — «Платье Аиша: сшить 12» with the
+    per-size split kept underneath, for thinking in products rather than SKUs."""
+    today = timezone.localdate()
+    by_product: dict[int, dict] = {}
+    for row in variant_rows:
+        product = row["product"]
+        bucket = by_product.setdefault(
+            product.pk,
+            {
+                "kind": GROUP_PRODUCT,
+                "key": f"p{product.pk}",
+                "product": product,
+                "variant": None,
+                "label": product.name,
+                "ordered": 0,
+                "produced": 0,
+                "remaining": 0,
+                "in_stock": 0,
+                "to_produce": 0,
+                "due_dates": [],
+                "order_ids": set(),
+                "client_ids": set(),
+                "variants": [],
+                "lines": [],
+            },
+        )
+        for field in ("ordered", "produced", "remaining", "in_stock", "to_produce"):
+            bucket[field] += row[field]
+        if row["due_date"]:
+            bucket["due_dates"].append(row["due_date"])
+        bucket["variants"].append(row)
+        bucket["lines"].extend(row["lines"])
+        for line in row["lines"]:
+            bucket["order_ids"].add(line["order_id"])
+            bucket["client_ids"].add(line["client"].pk)
+
+    rows = []
+    for bucket in by_product.values():
+        due = min(bucket["due_dates"]) if bucket["due_dates"] else None
+        bucket["due_date"] = due
+        bucket["overdue"] = bool(due and due < today)
+        bucket["covered"] = bucket["to_produce"] <= 0
+        bucket["orders_count"] = len(bucket.pop("order_ids"))
+        bucket["clients_count"] = len(bucket.pop("client_ids"))
+        bucket["variants"].sort(key=lambda r: _due_sort_key(r["due_date"]))
+        bucket["lines"].sort(key=lambda line: _due_sort_key(line["due_date"]))
+        bucket.pop("due_dates")
+        rows.append(bucket)
+    rows.sort(key=lambda r: _due_sort_key(r["due_date"]))
+    return rows
+
+
+def _rollup_by_client(variant_rows: list[dict]) -> list[dict]:
+    """One row per CLIENT — «для Айгуль: 3 шт к 12.08» — answers «что я шью
+    для этого человека» in one glance. Counts here are per-line `remaining`
+    (what that client is still owed), never the stock-adjusted variant need:
+    on-hand stock belongs to whoever is handed it first, so it can't be
+    attributed to one client up front."""
+    today = timezone.localdate()
+    by_client: dict[int, dict] = {}
+    for row in variant_rows:
+        for line in row["lines"]:
+            client = line["client"]
+            bucket = by_client.setdefault(
+                client.pk,
+                {
+                    "kind": GROUP_CLIENT,
+                    "key": f"c{client.pk}",
+                    "client": client,
+                    "variant": None,
+                    "product": None,
+                    "label": client.name,
+                    "ordered": 0,
+                    "produced": 0,
+                    "remaining": 0,
+                    "due_dates": [],
+                    "order_ids": set(),
+                    "lines": [],
+                },
+            )
+            bucket["ordered"] += line["quantity"]
+            bucket["produced"] += line["produced"]
+            bucket["remaining"] += line["remaining"]
+            bucket["order_ids"].add(line["order_id"])
+            if line["due_date"]:
+                bucket["due_dates"].append(line["due_date"])
+            bucket["lines"].append(line)
+
+    rows = []
+    for bucket in by_client.values():
+        due = min(bucket["due_dates"]) if bucket["due_dates"] else None
+        bucket["due_date"] = due
+        bucket["overdue"] = bool(due and due < today)
+        bucket["covered"] = bucket["remaining"] <= 0
+        bucket["orders_count"] = len(bucket.pop("order_ids"))
+        bucket["clients_count"] = 1
+        bucket["lines"].sort(key=lambda line: _due_sort_key(line["due_date"]))
+        bucket.pop("due_dates")
+        rows.append(bucket)
+    rows.sort(key=lambda r: _due_sort_key(r["due_date"]))
+    return rows
+
+
+def queue_summary(rows: list[dict]) -> dict:
+    """Header numbers for /orders/queue/ — computed from the rows already in
+    hand, so the page never re-queries just to count. `units` sums the mode's
+    own headline number (stock-adjusted need for variant/product rows, what's
+    still owed for client rows — see _rollup_by_client)."""
+    if not rows:
+        return {"units": 0, "rows": 0, "overdue": 0, "next_due": None}
+    key = "remaining" if rows[0]["kind"] == GROUP_CLIENT else "to_produce"
+    due_dates = [r["due_date"] for r in rows if r["due_date"]]
+    return {
+        "units": sum(r[key] for r in rows),
+        "rows": len(rows),
+        "overdue": sum(1 for r in rows if r["overdue"]),
+        "next_due": min(due_dates) if due_dates else None,
+    }
 
 
 @transaction.atomic

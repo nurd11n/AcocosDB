@@ -848,6 +848,88 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
    below it. */
 .money-summary .btn { margin-top: var(--space-3); }
 
+/* --- Заказы: production queue + order flow ---
+   The queue answers three questions per row: what to make, how many, by when,
+   and for whom — so a row is a header (name + the one number that matters),
+   a meta line (the arithmetic behind it), and a breakdown list. Grouping by
+   product adds a second breakdown (the per-size split) above the client one. */
+.order-flow {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.order-flow a { margin-left: var(--space-2); white-space: nowrap; }
+
+.queue-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+}
+.queue-summary__cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.queue-summary__num { font-size: 20px; font-weight: 600; line-height: 1.1; }
+.queue-summary__num.is-overdue { color: var(--debt); }
+.queue-summary__label {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* A covered row still shows (she must not sell reserved stock to a walk-in),
+   just de-emphasised; an overdue one gets a left rule so it reads at a glance
+   while scanning a long queue. */
+.q-row--covered { opacity: 0.62; }
+.q-row--overdue { border-color: var(--debt); }
+.q-row__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.q-row__title { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.q-row__title .muted { font-size: 12px; }
+.q-row__badge { flex: none; }
+.q-row__meta {
+  margin-top: var(--space-2);
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.q-due--overdue { color: var(--debt); font-weight: 500; }
+
+.q-sub { margin-top: var(--space-3); }
+.q-sub__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+.q-sub__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 7px 0;
+  border-bottom: 0.5px solid var(--border);
+  font-size: 13px;
+}
+.q-sub__row:last-child { border-bottom: 0; }
+.q-sub__row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.q-sub__row .muted { font-size: 12px; }
+.q-sub__row--link { color: inherit; text-decoration: none; }
+@media (hover: hover) {
+  .q-sub__row--link:hover { background: var(--surface-sunken); }
+}
+
 /* --- login: split layout, the one place with room for character ---
    The whole page renders with the database down: the photo is a static file,
    nothing here queries. On mobile the photo collapses to a short header band. */

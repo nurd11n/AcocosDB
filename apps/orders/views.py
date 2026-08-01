@@ -21,11 +21,14 @@ from apps.sales.models import Payment
 
 from .models import Order, OrderItem
 from .services import (
+    GROUP_CHOICES,
+    GROUP_VARIANT,
     cancel_order,
     hand_over,
     mark_produced,
     order_paid_amount,
     production_queue,
+    queue_summary,
     record_deposit,
 )
 
@@ -52,27 +55,71 @@ def _parse_decimal(raw):
     return value if value is not None and value >= 0 else None
 
 
+"""Order-list filters. «Активные» is the default because that's the working
+set — a delivered order is history, and burying today's work under months of
+it is exactly the "where did my order go?" problem this page has to answer."""
+STATUS_FILTERS = {
+    "open": Order.OPEN_STATUSES,
+    "new": [Order.NEW],
+    "in_production": [Order.IN_PRODUCTION],
+    "ready": [Order.READY],
+    "delivered": [Order.DELIVERED],
+    "cancelled": [Order.CANCELLED],
+}
+
+
 @pos_view
 def index(request):
-    orders = Order.objects.select_related("client").order_by("status", "due_date", "-created_at")[
-        :200
-    ]
+    status = request.GET.get("status", "open")
+    if status not in STATUS_FILTERS and status != "all":
+        status = "open"
+
+    # prefetch items+deposits: order.total and order_paid_amount both walk
+    # those relations per row, so without this the page is 3 queries × N.
+    base = Order.objects.select_related("client").prefetch_related("items", "deposits")
+    counts = {
+        key: Order.objects.filter(status__in=statuses).count()
+        for key, statuses in STATUS_FILTERS.items()
+    }
+    counts["all"] = Order.objects.count()
+
+    orders = base if status == "all" else base.filter(status__in=STATUS_FILTERS[status])
+    orders = orders.order_by("status", "due_date", "-created_at")[:200]
+
     rows = []
     for order in orders:
+        paid = order_paid_amount(order)
         rows.append(
             {
                 "order": order,
-                "paid": order_paid_amount(order),
-                "remaining": max(order.total - order_paid_amount(order), Decimal("0")),
+                "paid": paid,
+                "remaining": max(order.total - paid, Decimal("0")),
+                "items_count": len(order.items.all()),
             }
         )
-    return render(request, "orders/index.html", {"rows": rows, "active": "orders"})
+    return render(
+        request,
+        "orders/index.html",
+        {"rows": rows, "status": status, "counts": counts, "active": "orders"},
+    )
 
 
 @pos_view
 def queue(request):
-    rows = production_queue()
-    return render(request, "orders/queue.html", {"rows": rows, "active": "orders"})
+    group = request.GET.get("group", GROUP_VARIANT)
+    if group not in GROUP_CHOICES:
+        group = GROUP_VARIANT
+    rows = production_queue(group)
+    return render(
+        request,
+        "orders/queue.html",
+        {
+            "rows": rows,
+            "group": group,
+            "summary": queue_summary(rows),
+            "active": "orders",
+        },
+    )
 
 
 @pos_view
@@ -193,8 +240,8 @@ def product_grid(request, pk):
     tiles = _build_grid_tiles(q)
     return render(
         request,
-        "orders/product_grid.html",
-        {"order": order, "tiles": tiles, "q": q, "active": "orders"},
+        "orders/partials/product_grid.html",
+        {"order": order, "tiles": tiles, "q": q},
     )
 
 
@@ -208,8 +255,8 @@ def variant_picker(request, pk, product_id):
     )
     return render(
         request,
-        "orders/variant_picker.html",
-        {"order": order, "product": product, "variants": variants, "active": "orders"},
+        "orders/partials/variant_picker.html",
+        {"order": order, "product": product, "variants": variants},
     )
 
 

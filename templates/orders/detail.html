@@ -2,6 +2,7 @@
 {% load i18n pos_extras %}
 {% block title %}{% trans "Заказ" %} №{{ order.pk }}{% endblock %}
 {% block content %}
+{% with is_open=order.is_open %}
 <div class="card">
  <h2>
    {% trans "Заказ" %} №{{ order.pk }}
@@ -10,7 +11,23 @@
    </span>
  </h2>
  <p><a href="{% url 'pos:client_detail' order.client.pk %}">{{ order.client.name }}</a> · {{ order.client.phone }}</p>
- {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
+
+ {% comment %}
+ The «where did my order go?» answer, stated on the order itself: an open
+ order is already counted in «Что производить» — nothing else to submit.
+ {% endcomment %}
+ {% if is_open %}
+ <p class="order-flow">
+   {% if items %}
+     {% blocktrans count n=items|length %}{{ n }} позиция уже в очереди на производство.{% plural %}{{ n }} позиции уже в очереди на производство.{% endblocktrans %}
+   {% else %}
+     {% trans "Добавьте товары ниже — заказ сразу попадёт в очередь на производство." %}
+   {% endif %}
+   <a href="{% url 'orders:queue' %}">{% trans "Открыть очередь →" %}</a>
+ </p>
+ {% endif %}
+
+ {% if can_write and is_open %}
  <form method="post" action="{% url 'orders:set_due_date' order.pk %}">
   {% csrf_token %}
   <label>{% trans "Срок" %}</label>
@@ -19,13 +36,14 @@
   <input type="text" name="note" value="{{ order.note }}" maxlength="255">
   <button type="submit" class="btn btn-ghost" style="margin-top:var(--space-3)">{% trans "Сохранить" %}</button>
  </form>
- {% elif order.due_date %}
- <p class="muted">{% trans "Срок" %}: {{ order.due_date|date:"d.m.Y" }}</p>
+ {% else %}
+   {% if order.due_date %}<p class="muted">{% trans "Срок" %}: {{ order.due_date|date:"d.m.Y" }}</p>{% endif %}
+   {% if order.note %}<p class="muted">{{ order.note }}</p>{% endif %}
  {% endif %}
 </div>
 
 <div class="card">
- <h2>{% trans "Позиции" %} · {{ items|length }}</h2>
+ <h2>{% trans "Позиции" %} · {{ items|length }}{% if items %} · {{ order.produced_summary }}{% endif %}</h2>
  {% for item in items %}
  <div class="line-row">
    <div class="line-row__label">
@@ -33,7 +51,7 @@
      <span class="muted">{{ item.quantity }} {% trans "шт" %} × {{ item.unit_price|money:item.currency }} · {{ item.produced_qty }}/{{ item.quantity }} {% trans "произведено" %}</span>
    </div>
    <div class="line-row__total num">{{ item.line_total|money:item.currency }}</div>
-   {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
+   {% if can_write and is_open %}
    <form method="post" action="{% url 'orders:item_remove' order.pk item.pk %}">
      {% csrf_token %}
      <button type="submit" class="btn btn-ghost btn-icon" aria-label="{% trans "Удалить" %}">✕</button>
@@ -50,10 +68,23 @@
  {% empty %}
  <p class="muted">{% trans "Пока нет позиций" %}</p>
  {% endfor %}
- {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
- <a class="btn btn-ghost" href="{% url 'orders:product_grid' order.pk %}" style="margin-top:var(--space-2)">{% trans "+ Добавить товар" %}</a>
- {% endif %}
 </div>
+
+{% comment %}
+The builder, inline on the order itself (same pattern as /pos/): search →
+tile → variant modal → added. Previously this was two extra full page loads
+(a products page, then a variant page) before you got back here.
+{% endcomment %}
+{% if can_write and is_open %}
+<div class="card">
+ <h2>{% trans "Добавить товар" %}</h2>
+ <input type="search" name="q" placeholder="{% trans "Поиск по названию или артикулу" %}"
+   hx-get="{% url 'orders:product_grid' order.pk %}" hx-trigger="keyup changed delay:300ms, load"
+   hx-target="#order-grid" hx-swap="innerHTML">
+ <div id="order-grid" class="grid" style="margin-top:var(--space-3)"></div>
+</div>
+<div id="variant-picker"></div>
+{% endif %}
 
 <div class="card">
  <h2>{% trans "Аванс" %}</h2>
@@ -67,7 +98,7 @@
  {% empty %}
  <p class="muted">{% trans "Аванс не внесён" %}</p>
  {% endfor %}
- {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
+ {% if can_write and is_open %}
  <form method="post" action="{% url 'orders:deposit_add' order.pk %}" style="margin-top:var(--space-3)">
   {% csrf_token %}
   <label>{% trans "Сумма аванса" %}</label>
@@ -105,7 +136,7 @@
   <span class="money-bar__amount num">{{ remaining|money:order.currency }}</span>
  </div>
 
- {% if can_write and order.status != "delivered" and order.status != "cancelled" %}
+ {% if can_write and is_open %}
  <form method="post" action="{% url 'orders:deliver' order.pk %}"
    data-network-safe data-confirm="{% trans "Выдать заказ? Остаток товара спишется со склада." %}" data-error-target="deliver-error">
   {% csrf_token %}
@@ -116,7 +147,7 @@
  {% if order.sale_order_id %}
  <a class="btn btn-ghost" href="{% url 'pos:sale_result' order.sale_order_id %}" style="margin-top:var(--space-2)">{% trans "Открыть продажу" %}</a>
  {% endif %}
- {% if request.user.is_superuser and order.status != "delivered" and order.status != "cancelled" %}
+ {% if request.user.is_superuser and is_open %}
  <form method="post" action="{% url 'orders:cancel' order.pk %}"
    data-network-safe data-confirm="{% trans "Отменить заказ? Резерв товара снимется." %}" data-error-target="cancel-error"
    style="margin-top:var(--space-2)">
@@ -126,4 +157,5 @@
  <p id="cancel-error" class="error" hidden></p>
  {% endif %}
 </div>
+{% endwith %}
 {% endblock %}

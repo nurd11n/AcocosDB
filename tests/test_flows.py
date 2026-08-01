@@ -3445,6 +3445,171 @@ def test_queue_aggregates_the_same_variant_across_two_orders(variant, settings):
     assert row["orders_count"] == 2
 
 
+def test_queue_row_breaks_down_who_ordered_what(variant, settings):
+    """«Для кого» — the queue must answer which client is waiting on how many
+    without opening each order, and each line's `remaining` is that LINE's own
+    shortfall, not the variant's stock-adjusted need."""
+    from apps.orders.services import create_order, production_queue
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 2)
+    c1 = Client.objects.create(first_name="Breakdown1", phone="+996700002251")
+    c2 = Client.objects.create(first_name="Breakdown2", phone="+996700002252")
+    create_order(c1, [{"variant": variant, "quantity": 4, "unit_price": variant.sale_price}])
+    create_order(c2, [{"variant": variant, "quantity": 6, "unit_price": variant.sale_price}])
+
+    row = next(r for r in production_queue() if r["variant"].pk == variant.pk)
+    assert row["clients_count"] == 2
+    assert len(row["lines"]) == 2
+    by_client = {line["client"].first_name: line for line in row["lines"]}
+    assert by_client["Breakdown1"]["quantity"] == 4
+    assert by_client["Breakdown1"]["remaining"] == 4  # nothing produced on that line yet
+    assert by_client["Breakdown2"]["quantity"] == 6
+    # The 2 already in stock reduce the VARIANT's need, never a client's line.
+    assert row["to_produce"] == 8
+
+
+def test_queue_groups_by_product_and_by_client(variant, settings):
+    """Same arithmetic, three views of it. Grouping never invents or loses
+    units: the per-size split sums back to the product row."""
+    from apps.orders.services import create_order, production_queue
+
+    settings.CURRENCY = "KGS"
+    other_size = ProductVariant.objects.create(
+        product=variant.product,
+        sku="EVD-L-RED",
+        size="L",
+        color="red",
+        cost_price=Decimal("1500.00"),
+        sale_price=Decimal("3200.00"),
+    )
+    cust = Client.objects.create(first_name="Grouped", phone="+996700002253")
+    create_order(
+        cust,
+        [
+            {"variant": variant, "quantity": 3, "unit_price": variant.sale_price},
+            {"variant": other_size, "quantity": 2, "unit_price": other_size.sale_price},
+        ],
+    )
+
+    # Two SKUs -> two variant rows, but ONE product row holding both.
+    assert len({r["key"] for r in production_queue("variant")}) == 2
+    product_rows = production_queue("product")
+    assert len(product_rows) == 1
+    prow = product_rows[0]
+    assert prow["to_produce"] == 5  # 3 + 2, nothing in stock
+    assert len(prow["variants"]) == 2
+    assert sum(v["to_produce"] for v in prow["variants"]) == prow["to_produce"]
+
+    # One client -> one client row listing both sizes they're waiting on.
+    client_rows = production_queue("client")
+    assert len(client_rows) == 1
+    crow = client_rows[0]
+    assert crow["client"].pk == cust.pk
+    assert crow["remaining"] == 5
+    assert len(crow["lines"]) == 2
+
+
+def test_queue_sorts_by_nearest_due_date_and_flags_overdue(variant, settings):
+    """Nearest deadline first, undated last, overdue flagged against the
+    Asia/Bishkek LOCAL date (never UTC) — same rule as Order.is_overdue."""
+    from datetime import timedelta
+
+    from apps.orders.services import create_order, production_queue
+
+    settings.CURRENCY = "KGS"
+    today = timezone.localdate()
+    sizes = {}
+    for label, due in (("late", today - timedelta(days=2)), ("soon", today + timedelta(days=3))):
+        sizes[label] = ProductVariant.objects.create(
+            product=variant.product,
+            sku=f"EVD-{label}",
+            size=label,
+            color="red",
+            cost_price=Decimal("1500.00"),
+            sale_price=Decimal("3200.00"),
+        )
+        cust = Client.objects.create(first_name=label, phone=f"+99670000226{len(sizes)}")
+        create_order(
+            cust,
+            [{"variant": sizes[label], "quantity": 1, "unit_price": Decimal("3200.00")}],
+            due_date=due,
+        )
+    # A third order with no due date at all must sink below both.
+    undated = Client.objects.create(first_name="undated", phone="+996700002269")
+    create_order(undated, [{"variant": variant, "quantity": 1, "unit_price": variant.sale_price}])
+
+    rows = production_queue()
+    assert [r["variant"].size for r in rows] == ["late", "soon", "M"]
+    assert rows[0]["overdue"] is True
+    assert rows[1]["overdue"] is False
+    assert rows[2]["due_date"] is None and rows[2]["overdue"] is False
+
+
+def test_queue_view_accepts_group_param_and_ignores_garbage(
+    client, django_user_model, variant, settings
+):
+    settings.CURRENCY = "KGS"
+    client.force_login(
+        django_user_model.objects.create_superuser("queue_owner", "q@e.com", "x" * 12)
+    )
+    cust = Client.objects.create(first_name="ViewGroup", phone="+996700002270")
+    from apps.orders.services import create_order
+
+    create_order(cust, [{"variant": variant, "quantity": 2, "unit_price": variant.sale_price}])
+
+    for group in ("variant", "product", "client"):
+        resp = client.get(f"/orders/queue/?group={group}")
+        assert resp.status_code == 200
+        assert resp.context["group"] == group
+        assert "ViewGroup" in resp.content.decode()
+    # An unknown grouping falls back to the default rather than 500ing.
+    resp = client.get("/orders/queue/?group=../etc/passwd")
+    assert resp.status_code == 200
+    assert resp.context["group"] == "variant"
+
+
+def test_orders_index_status_filter_separates_open_from_delivered(
+    client, variant, django_user_model, settings
+):
+    """The «where did my order go?» fix: the list defaults to the working set,
+    and a delivered order moves out of it instead of burying today's work."""
+    from apps.orders.models import Order
+    from apps.orders.services import create_order, hand_over
+
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("orders_owner", "oo@e.com", "x" * 12)
+    client.force_login(owner)
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Filtered", phone="+996700002271")
+    open_order = create_order(
+        cust, [{"variant": variant, "quantity": 1, "unit_price": variant.sale_price}]
+    )
+    done = create_order(
+        cust, [{"variant": variant, "quantity": 1, "unit_price": variant.sale_price}]
+    )
+    hand_over(done, user=owner)
+
+    resp = client.get("/orders/")  # default = активные
+    assert resp.context["status"] == "open"
+    ids = [r["order"].pk for r in resp.context["rows"]]
+    assert open_order.pk in ids and done.pk not in ids
+    assert resp.context["counts"]["open"] == 1
+    assert resp.context["counts"]["delivered"] == 1
+
+    resp = client.get("/orders/?status=delivered")
+    ids = [r["order"].pk for r in resp.context["rows"]]
+    assert ids == [done.pk]
+
+    resp = client.get("/orders/?status=all")
+    ids = [r["order"].pk for r in resp.context["rows"]]
+    assert open_order.pk in ids and done.pk in ids
+
+    # Garbage falls back to the default instead of erroring.
+    assert client.get("/orders/?status=nonsense").context["status"] == "open"
+    assert Order.objects.count() == 2
+
+
 def test_mark_produced_creates_movement_and_raises_available(variant, django_user_model, settings):
     from apps.inventory.services import available_for
     from apps.orders.models import Order
@@ -3662,10 +3827,11 @@ def test_done_when_scenario_order_deposit_queue_produce_handover(
     order = Order.objects.get(pk=order_id)
     assert order.deposits.count() == 1
 
-    # Shows up in the aggregated queue.
+    # Shows up in the aggregated queue, with the client it's being made for.
     resp = client.get("/orders/queue/")
     body = resp.content.decode()
-    assert "к производству" in body
+    assert "сшить" in body  # the row's headline number
+    assert "DoneWhen" in body  # ...and who it's for
 
     # Mark produced.
     item = order.items.get()

@@ -88,6 +88,13 @@ class Order(models.Model):
         return sum((i.line_total for i in self.items.all()), Decimal("0"))
 
     @property
+    def is_open(self) -> bool:
+        """Still editable and still reserving stock — i.e. not delivered and
+        not cancelled. Templates gate every write control on this rather than
+        repeating the two-status comparison at each one."""
+        return self.status in self.OPEN_STATUSES
+
+    @property
     def is_overdue(self) -> bool:
         """due_date is a plain date (no timezone) compared against Asia/
         Bishkek LOCAL today, never UTC — an order due "today" must not read
