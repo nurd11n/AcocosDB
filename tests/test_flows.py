@@ -74,6 +74,43 @@ def _tiny_image(name="photo.png", color=(200, 50, 50)):
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
+# ---------------------------------------------------------------------------
+# Part 0b — Client descriptor (last_name -> a staff-only differentiator)
+# ---------------------------------------------------------------------------
+
+
+def test_client_name_shows_the_descriptor_parenthesised_for_staff():
+    """Client.name is STAFF-facing (client lists, admin, internal reports) —
+    it's allowed to show the descriptor, formatted as a parenthesised note
+    rather than concatenated like a real surname, so it can't be misread as
+    one."""
+    with_tag = Client.objects.create(
+        first_name="Айгуль", descriptor="сестра Розы", phone="+996700003001"
+    )
+    assert with_tag.name == "Айгуль (сестра Розы)"
+
+    without_tag = Client.objects.create(first_name="Роза", phone="+996700003002")
+    assert without_tag.name == "Роза"  # no dangling "()" when there's no descriptor
+
+
+def test_debt_reminder_text_never_leaks_the_descriptor(variant, django_user_model, settings):
+    """The whole point of splitting descriptor out from a real name: it must
+    never reach the client it's ABOUT. debt_reminder_text is the actual
+    outbound WhatsApp text — check the string itself, not just which field
+    was passed in."""
+    from apps.pos.messaging import debt_reminder_text
+
+    settings.CURRENCY = "KGS"
+    client_obj = Client.objects.create(
+        first_name="Айгуль", descriptor="должница, не путать с сестрой", phone="+996700003003"
+    )
+    text = debt_reminder_text(client_obj, {"KGS": Decimal("500")})
+    assert "Айгуль" in text
+    assert "должница" not in text
+    assert "сестрой" not in text
+    assert "(" not in text  # no leftover parenthesised note at all
+
+
 def test_stock_is_sum_of_movements(variant):
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     add_movement(variant, StockMovement.WRITEOFF_OUT, 2)
@@ -4210,12 +4247,22 @@ def test_admin_panel_links_back_to_the_pos_terminal(client, django_user_model):
     assert 'href="/pos/"' in body
 
 
+def _empty_variant_formset():
+    return {
+        "variants-TOTAL_FORMS": "0",
+        "variants-INITIAL_FORMS": "0",
+        "variants-MIN_NUM_FORMS": "0",
+        "variants-MAX_NUM_FORMS": "1000",
+    }
+
+
 def test_admin_can_add_multiple_images_to_one_product(
     client, django_user_model, settings, tmp_path
 ):
     """The feature end to end, through the real /panel/ form: ProductAdmin
     used to have a single `photo` field. It's now an inline gallery — a
-    manager attaches as many images as they want in one save."""
+    manager attaches as many images as they want in one save, with no
+    position field to fill in — order follows upload order automatically."""
     settings.MEDIA_ROOT = tmp_path
     owner = django_user_model.objects.create_superuser("gal_owner", "g@e.com", "x" * 12)
     client.force_login(owner)
@@ -4226,18 +4273,14 @@ def test_admin_can_add_multiple_images_to_one_product(
         "category": cat.pk,
         "description": "",
         "is_active": "on",
-        "images-TOTAL_FORMS": "2",
+        "images-TOTAL_FORMS": "3",
         "images-INITIAL_FORMS": "0",
         "images-MIN_NUM_FORMS": "0",
         "images-MAX_NUM_FORMS": "1000",
-        "images-0-image": _tiny_image("one.png"),
-        "images-0-position": "0",
-        "images-1-image": _tiny_image("two.png"),
-        "images-1-position": "1",
-        "variants-TOTAL_FORMS": "0",
-        "variants-INITIAL_FORMS": "0",
-        "variants-MIN_NUM_FORMS": "0",
-        "variants-MAX_NUM_FORMS": "1000",
+        "images-0-image": _tiny_image("first.png"),
+        "images-1-image": _tiny_image("second.png"),
+        "images-2-image": _tiny_image("third.png"),
+        **_empty_variant_formset(),
         "_save": "Сохранить",
     }
     resp = client.post("/panel/inventory/product/add/", data)
@@ -4246,8 +4289,56 @@ def test_admin_can_add_multiple_images_to_one_product(
     )
 
     product = Product.objects.get(name="Admin-uploaded dress")
-    assert product.images.count() == 2
-    assert product.grid_image is not None
+    rows = list(product.images.order_by("position"))
+    assert [r.position for r in rows] == [0, 1, 2]  # sequential, assigned automatically
+    assert [r.image.name for r in rows] == [
+        "products/first.png",
+        "products/second.png",
+        "products/third.png",
+    ]  # upload order preserved, not reordered
+    assert product.grid_image.name == rows[0].thumbnail.name  # the FIRST one is the cover
+
+
+def test_admin_new_images_continue_after_existing_positions(
+    client, django_user_model, settings, tmp_path
+):
+    """Adding more photos to a product that already has some must not reset
+    or collide with the existing ones' positions — the new ones continue
+    after whatever the highest existing position already is."""
+    settings.MEDIA_ROOT = tmp_path
+    owner = django_user_model.objects.create_superuser("gal_owner2", "g2@e.com", "x" * 12)
+    client.force_login(owner)
+    cat = Category.objects.create(name="AdminGallery2")
+    product = Product.objects.create(category=cat, name="Existing gallery product")
+    first = ProductImage.objects.create(product=product, image=_tiny_image("a.png"), position=0)
+    second = ProductImage.objects.create(product=product, image=_tiny_image("b.png"), position=1)
+
+    data = {
+        "name": product.name,
+        "category": cat.pk,
+        "description": "",
+        "is_active": "on",
+        "images-TOTAL_FORMS": "3",
+        "images-INITIAL_FORMS": "2",
+        "images-MIN_NUM_FORMS": "0",
+        "images-MAX_NUM_FORMS": "1000",
+        "images-0-id": first.pk,
+        "images-0-product": product.pk,
+        "images-1-id": second.pk,
+        "images-1-product": product.pk,
+        "images-2-image": _tiny_image("c.png"),  # the new one, no id — a fresh row
+        **_empty_variant_formset(),
+        "_save": "Сохранить",
+    }
+    resp = client.post(f"/panel/inventory/product/{product.pk}/change/", data)
+    assert resp.status_code == 302, (
+        resp.context["adminform"].form.errors if resp.status_code == 200 else resp.status_code
+    )
+
+    rows = list(product.images.order_by("position"))
+    assert [r.position for r in rows] == [0, 1, 2]
+    assert rows[0].pk == first.pk and rows[1].pk == second.pk  # untouched
+    assert rows[2].image.name == "products/c.png"  # the new one, continuing at 2
 
 
 def test_mark_produced_creates_movement_and_raises_available(variant, django_user_model, settings):

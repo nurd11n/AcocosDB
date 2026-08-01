@@ -221,9 +221,9 @@ msgstr "Опт"
 msgid "first name"
 msgstr "имя"
 
-#: apps/clients/models.py:20
-msgid "last name"
-msgstr "фамилия"
+#: apps/clients/models.py:26
+msgid "descriptor"
+msgstr "уточнение"
 
 #: apps/clients/models.py:21
 msgid "phone"

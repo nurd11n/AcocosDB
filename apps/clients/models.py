@@ -17,7 +17,13 @@ class Client(models.Model):
     ]
 
     first_name = models.CharField(_("first name"), max_length=100, default="")
-    last_name = models.CharField(_("last name"), max_length=100, blank=True)
+    # NOT a surname — a short free-text tag so staff can tell apart two
+    # clients who share a first name ("сестра Розы", "из Instagram", a real
+    # surname if that's what's actually distinctive). Never sent to the
+    # client: WhatsApp/Telegram messages use first_name alone (see
+    # apps.pos.messaging.debt_reminder_text, bot.client_bot's welcome
+    # message) — this is for STAFF, reading a list, not client-facing text.
+    descriptor = models.CharField(_("descriptor"), max_length=100, blank=True)
     phone = models.CharField(_("phone"), max_length=32, unique=True)
     source = models.CharField(_("source"), max_length=16, choices=SOURCE_CHOICES, blank=True)
     note = models.TextField(_("note"), blank=True)
@@ -47,17 +53,22 @@ class Client(models.Model):
     class Meta:
         verbose_name = _("client")
         verbose_name_plural = _("clients")
-        ordering = ["first_name", "last_name"]
+        ordering = ["first_name", "descriptor"]
 
     def __str__(self):
-        return f"{self.name} ({self.phone})"
+        return f"{self.name} · {self.phone}"
 
     @property
     def name(self) -> str:
-        """Combined display name — kept as a read property so reports, bot
-        replies, and the WhatsApp CRM-linking code didn't need to change when
-        the field split into first_name/last_name."""
-        return f"{self.first_name} {self.last_name}".strip()
+        """STAFF-facing display name — "Айгуль (сестра Розы)" when a
+        descriptor is set, else just "Айгуль". Parenthesised on purpose: it
+        reads as a note, not as though `descriptor` were a real surname.
+        Client-facing text (WhatsApp, the Telegram bot's welcome message)
+        must use `first_name` directly instead of this property — see the
+        field's docstring."""
+        if self.descriptor:
+            return f"{self.first_name} ({self.descriptor})"
+        return self.first_name
 
 
 class Interaction(models.Model):

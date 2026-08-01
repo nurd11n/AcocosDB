@@ -28,7 +28,13 @@ def receipt_text(order) -> str:
 
 
 def debt_reminder_text(client, debts: dict[str, Decimal]) -> str:
+    # first_name ONLY — never client.name, which parenthesises the staff-only
+    # descriptor ("Айгуль (сестра Розы)") onto it. The descriptor exists so
+    # STAFF can tell clients apart in a list; a client must never see it about
+    # themselves. Fall back to phone, not .name, on the practically-never-
+    # empty-first_name edge case (see apps.clients.services: a client created
+    # from just a phone number gets first_name=phone as its placeholder).
     amounts = ", ".join(f"{amt} {cur}" for cur, amt in debts.items())
     return _(
         "Здравствуйте, %(name)s! Напоминаем о задолженности %(amounts)s. Спасибо! — ACOCOS"
-    ) % {"name": client.first_name or client.name, "amounts": amounts}
+    ) % {"name": client.first_name or client.phone, "amounts": amounts}

@@ -309,7 +309,10 @@ async def on_contact(message: Message, state: FSMContext):
             reply_markup=MAIN_MENU_KB,
         )
         return
-    await message.answer(f"Добро пожаловать, {client.name}!", reply_markup=MAIN_MENU_KB)
+    # first_name ONLY — client.name would parenthesise the staff-only
+    # descriptor ("Айгуль (сестра Розы)") onto a message the client themselves
+    # reads, which is the exact thing that field exists to never do.
+    await message.answer(f"Добро пожаловать, {client.first_name}!", reply_markup=MAIN_MENU_KB)
     # Sharing a phone only makes the bot able to reach this chat — consent to
     # actually message with news/promos is a separate, explicit question
     # (CLIENT_BOTS.md §3.1: "never assume consent from /start alone").

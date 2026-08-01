@@ -18,8 +18,9 @@
   {% csrf_token %}
   <label>{% trans "Имя" %}</label>
   <input name="first_name" value="{{ new_client_values.first_name|default:'' }}" required>
-  <label>{% trans "Фамилия" %}</label>
-  <input name="last_name" value="{{ new_client_values.last_name|default:'' }}">
+  <label>{% trans "Уточнение" %}</label>
+  <input name="descriptor" value="{{ new_client_values.descriptor|default:'' }}"
+    placeholder="{% trans "напр. сестра Розы — если есть тёзки" %}">
   <label>{% trans "Телефон" %}</label>
   <input name="phone" type="tel" inputmode="tel" value="{{ new_client_values.phone|default:'' }}" required>
   <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Создать и продолжить" %}</button>

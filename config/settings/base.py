@@ -411,6 +411,11 @@ JAZZMIN_SETTINGS = {
     # browser-default size in a corner of an otherwise-empty modal (see
     # static/core/jazzmin-overrides.css for the diff that proves it).
     "custom_css": "core/jazzmin-overrides.css",
+    # Fixes the "add related object" popup (+ next to a select) silently
+    # failing to close/update after a successful save — jazzmin's own JS
+    # never wires up the iframe's `.opener`, so Django's own close/update
+    # callback throws unreachable. See the file for the full diagnosis.
+    "custom_js": "core/jazzmin-overrides.js",
     "order_with_respect_to": [
         "sales",
         "sales.SaleOrder",

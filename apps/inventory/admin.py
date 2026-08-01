@@ -2,7 +2,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Count, Sum
+from django.db.models import Count, Max, Sum
 from django.http import Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -37,9 +37,11 @@ class CategoryAdmin(admin.ModelAdmin):
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
-    # thumbnail is derived on save (ProductImage.save -> _make_thumbnail), never
-    # hand-uploaded — same discipline the old single `photo` field had.
-    fields = ["image", "position"]
+    # Just the image — no position field to fill in. Order is automatic (the
+    # order you upload in, see ProductAdmin.save_formset); thumbnail is
+    # derived on save (ProductImage.save -> _make_thumbnail), never hand-
+    # uploaded — same discipline the old single `photo` field had.
+    fields = ["image"]
 
 
 class VariantInline(admin.TabularInline):
@@ -78,6 +80,32 @@ class ProductAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     @admin.display(description=_("stock"), ordering="_stock")
     def current_stock(self, obj):
         return obj._stock or 0
+
+    def save_formset(self, request, form, formset, change):
+        """ProductImageInline has no position field to fill in — newly added
+        rows get sequentially increasing positions here, in the order they
+        appear in the formset (upload order), continuing after whatever this
+        product's highest existing position already is. Deliberately NOT in
+        ProductImage.save() itself: that would also clobber an explicit
+        position passed by the migration backfill or a test, which must stay
+        controllable. Existing rows are left exactly as saved — this only
+        ever assigns a position to a row that doesn't have one yet."""
+        if formset.model is not ProductImage:
+            formset.save()
+            return
+        instances = formset.save(commit=False)
+        next_position = ProductImage.objects.filter(product=form.instance).aggregate(
+            m=Max("position")
+        )["m"]
+        next_position = 0 if next_position is None else next_position + 1
+        for obj in instances:
+            if obj.pk is None:
+                obj.position = next_position
+                next_position += 1
+            obj.save()
+        for obj in formset.deleted_objects:
+            obj.delete()
+        formset.save_m2m()
 
 
 def _parse_qty(raw: str) -> int | None:
