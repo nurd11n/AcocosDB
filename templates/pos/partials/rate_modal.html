@@ -14,8 +14,10 @@
    <button type="button" class="btn btn-ghost" data-clear-target="rate-modal">{% trans "Отмена" %}</button>
   </div>
  </form>
- {# Still available where NBKR is reachable; a no-op (kept last rate) where it isn't. #}
- <button type="button" class="btn btn-ghost btn-sm" style="margin-top:var(--space-2)"
-   hx-post="{% url 'pos:refresh_rates' %}" hx-target="#rates-strip" hx-swap="outerHTML"
-   data-clear-target="rate-modal">{% trans "Обновить из НБКР" %}</button>
+ {# «Обновить из НБКР» button removed for now — nbkr.kg blocks the production
+    server's IP, so it would silently do nothing there. The endpoint
+    (pos:refresh_rates) and the fetch logic (fetch_nbkr_rates) are untouched
+    and confirmed working from a local dev machine; re-add a button pointing
+    at pos:refresh_rates here if that ever changes (a proxied fetch via
+    settings.NBKR_PROXY, or NBKR unblocking the server IP). #}
 </div>
