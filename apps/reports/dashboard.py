@@ -39,6 +39,7 @@ from django.utils import timezone
 
 from apps.inventory.models import ProductVariant, StockMovement
 from apps.inventory.services import cover_image_names
+from apps.reports import export
 from apps.sales.models import Payment, SaleItem, SaleOrder
 
 # period key -> (label, trailing days, chart granularity)
@@ -455,49 +456,101 @@ def _num(value) -> float:
     return float(Decimal(value).quantize(Decimal("0.01"))) if value is not None else 0.0
 
 
-def dashboard_sheets(data: dict) -> dict[str, list[list]]:
+def dashboard_sheets(data: dict) -> dict[str, export.Sheet]:
     m = data["metrics"]
     margin = m["profit"]["margin"]
-    svodka = [
-        ["Показатель", "Значение"],
-        ["Период", data["period_label"]],
-        ["Выручка, сом", _num(m["revenue"]["value"])],
-        ["Прибыль, сом", _num(m["profit"]["value"])],
-        ["Маржа, %", margin if margin is not None else ""],
-        ["Продано, шт", int(m["units"]["value"])],
-        ["Долг (текущий), сом", _num(m["debt"]["value"])],
-        ["Должников", int(m["debt"]["clients"])],
-    ]
-    vyruchka = [["Дата", "Выручка, сом", "Продаж", "Продано, шт"]]
-    vyruchka += [
-        [d.strftime("%d.%m.%Y"), _num(info["revenue"]), int(info["orders"]), int(info["units"])]
-        for d, info in sorted(data["day_data"].items())
-    ]
 
-    kanaly = [["Канал", "Выручка, сом"]]
-    kanaly += [[c["label"], _num(c["value"])] for c in data["channels"]]
+    # Сводка is a label/value pair list rather than a table, so its "value"
+    # column deliberately mixes a period label, money, and counts — it stays
+    # TEXT-typed and each figure is pre-rounded, since one number format
+    # can't serve all three.
+    svodka = export.Sheet(
+        [export.Column("Показатель"), export.Column("Значение")],
+        [
+            ["Период", data["period_label"]],
+            ["Выручка, сом", _num(m["revenue"]["value"])],
+            ["Прибыль, сом", _num(m["profit"]["value"])],
+            ["Маржа, %", margin if margin is not None else ""],
+            ["Продано, шт", int(m["units"]["value"])],
+            ["Долг (текущий), сом", _num(m["debt"]["value"])],
+            ["Должников", int(m["debt"]["clients"])],
+        ],
+    )
 
-    oplaty = [["Способ оплаты", "Сумма, сом"]]
-    oplaty += [[x["label"], _num(x["value"])] for x in data["methods"]]
+    days = sorted(data["day_data"].items())
+    vyruchka = export.Sheet(
+        [
+            export.Column("Дата", export.DATE),
+            export.Column("Выручка, сом", export.MONEY),
+            export.Column("Продаж", export.INT),
+            export.Column("Продано, шт", export.INT),
+        ],
+        [[d, _num(i["revenue"]), int(i["orders"]), int(i["units"])] for d, i in days],
+        [
+            "ИТОГО",
+            sum(_num(i["revenue"]) for _, i in days),
+            sum(int(i["orders"]) for _, i in days),
+            sum(int(i["units"]) for _, i in days),
+        ],
+    )
 
-    tovary = [["Товар", "Продано, шт", "Выручка, сом", "Прибыль, сом"]]
-    tovary += [
-        [t["name"], int(t["units"]), _num(t["revenue"]), _num(t["profit"])]
-        for t in data["top_products"]
-    ]
+    kanaly = export.Sheet(
+        [export.Column("Канал"), export.Column("Выручка, сом", export.MONEY)],
+        [[c["label"], _num(c["value"])] for c in data["channels"]],
+        ["ИТОГО", sum(_num(c["value"]) for c in data["channels"])],
+    )
+
+    oplaty = export.Sheet(
+        [export.Column("Способ оплаты"), export.Column("Сумма, сом", export.MONEY)],
+        [[x["label"], _num(x["value"])] for x in data["methods"]],
+        ["ИТОГО", sum(_num(x["value"]) for x in data["methods"])],
+    )
+
+    tovary = export.Sheet(
+        [
+            export.Column("Товар"),
+            export.Column("Продано, шт", export.INT),
+            export.Column("Выручка, сом", export.MONEY),
+            export.Column("Прибыль, сом", export.MONEY),
+        ],
+        [
+            [t["name"], int(t["units"]), _num(t["revenue"]), _num(t["profit"])]
+            for t in data["top_products"]
+        ],
+    )
 
     aging = m["debt"]["aging"]
-    dolgi = [
-        ["Срок", "Сумма, сом"],
-        ["0–30 дней", _num(aging["d0_30"])],
-        ["31–60 дней", _num(aging["d31_60"])],
-        ["60+ дней", _num(aging["d60_plus"])],
-    ]
+    dolgi = export.Sheet(
+        [export.Column("Срок"), export.Column("Сумма, сом", export.MONEY)],
+        [
+            ["0–30 дней", _num(aging["d0_30"])],
+            ["31–60 дней", _num(aging["d31_60"])],
+            ["60+ дней", _num(aging["d60_plus"])],
+        ],
+        [
+            "ВСЕГО",
+            _num(aging["d0_30"]) + _num(aging["d31_60"]) + _num(aging["d60_plus"]),
+        ],
+    )
 
-    zalezh = [["Товар", "На складе, шт", "Дней без продаж", "Заморожено, сом"]]
-    for d in data["dead_stock"]:
-        idle = "не продавалось" if d["never_sold"] else int(d["days_idle"])
-        zalezh.append([d["name"], int(d["units"]), idle, _num(d["capital"])])
+    zalezh = export.Sheet(
+        [
+            export.Column("Товар"),
+            export.Column("На складе, шт", export.INT),
+            export.Column("Дней без продаж", export.TEXT),
+            export.Column("Заморожено, сом", export.MONEY),
+        ],
+        [
+            [
+                d["name"],
+                int(d["units"]),
+                "не продавалось" if d["never_sold"] else int(d["days_idle"]),
+                _num(d["capital"]),
+            ]
+            for d in data["dead_stock"]
+        ],
+        ["ИТОГО", None, None, sum(_num(d["capital"]) for d in data["dead_stock"])],
+    )
 
     return {
         "Сводка": svodka,

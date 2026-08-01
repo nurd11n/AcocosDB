@@ -2995,3 +2995,11 @@ msgstr "мало"
 msgctxt "production order status"
 msgid "Cancelled"
 msgstr "Отменён"
+
+#: apps/clients/admin.py:29
+msgid "Owes money"
+msgstr "С долгом"
+
+#: apps/clients/admin.py:29
+msgid "Nothing owed"
+msgstr "Без долга"

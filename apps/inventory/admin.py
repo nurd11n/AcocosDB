@@ -132,6 +132,7 @@ class ProductVariantAdmin(
     ]
     list_filter = ["is_active", "product__category"]
     search_fields = ["sku", "product__name", "color"]
+    search_help_text = "Артикул, название товара или цвет"
     actions = [
         "receive_stock_selected",
         "writeoff_selected",

@@ -23,10 +23,10 @@ from apps.clients.services import (
 )
 from apps.core.currency import from_base, get_rate, to_base
 from apps.core.management.commands.send_daily_report import (
-    _debts_rows,
-    _sales_rows,
-    _stock_rows,
-    _unreviewed_rows,
+    _debts_sheet,
+    _sales_sheet,
+    _stock_sheet,
+    _unreviewed_sheet,
 )
 from apps.core.models import ExchangeRate, RateChangeLog
 from apps.core.permissions import EDITOR, VIEWER
@@ -468,6 +468,13 @@ def test_whatsapp_message_auto_creates_client_and_interaction():
     assert client.interactions.count() == 2
 
 
+def _by_header(sheet):
+    """[{header: value}] per body row — report tests assert on MEANING rather
+    than a column index that shifts whenever a sheet is reordered."""
+    headers = [c.header for c in sheet.columns]
+    return [dict(zip(headers, row)) for row in sheet.rows]
+
+
 def test_daily_report_rows_are_russian_and_reflect_current_data(variant):
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     client = Client.objects.create(first_name="Aiperi", phone="+996700000003")
@@ -476,17 +483,19 @@ def test_daily_report_rows_are_russian_and_reflect_current_data(variant):
     confirm_sale(order)
     Payment.objects.create(client=client, order=order, amount=Decimal("1000"))
 
-    sales = _sales_rows()
-    assert sales[0][0] == "Время"
-    assert any(row[1] == "Aiperi" for row in sales[1:-1])
+    sales = _by_header(_sales_sheet())
+    assert any(r["Клиент"] == "Aiperi" for r in sales)
 
-    stock = _stock_rows()
-    assert stock[0][0] == "Артикул"
-    assert any(row[0] == variant.sku and row[4] == 8 for row in stock[1:])
+    stock = _by_header(_stock_sheet())
+    assert any(r["Артикул"] == variant.sku and r["Остаток"] == 8 for r in stock)
 
-    debts = _debts_rows()
-    assert debts[0][0] == "Имя"
-    assert any(row[0] == "Aiperi" and row[2] == "5400.00" and row[3] == "KGS" for row in debts[1:])
+    debts = _by_header(_debts_sheet())
+    # Money is a real Decimal now, not a pre-formatted string — that's what
+    # makes the column summable/sortable in Excel.
+    assert any(
+        r["Клиент"] == "Aiperi" and r["Долг"] == Decimal("5400.00") and r["Валюта"] == "KGS"
+        for r in debts
+    )
 
 
 def test_unreviewed_rows_lists_todays_unreviewed_payments(variant):
@@ -497,9 +506,8 @@ def test_unreviewed_rows_lists_todays_unreviewed_payments(variant):
     confirm_sale(order)
     Payment.objects.create(client=client, order=order, amount=Decimal("3200"))
 
-    rows = _unreviewed_rows()
-    assert rows[0][0] == "Время"
-    assert any(row[1] == "Nurgul" for row in rows[1:])
+    rows = _by_header(_unreviewed_sheet())
+    assert any(r["Клиент"] == "Nurgul" for r in rows)
 
 
 def test_send_daily_report_command_skips_network_when_unconfigured(capsys):
@@ -2157,7 +2165,7 @@ def test_dashboard_export_matches_the_page_numbers(variant):
 
     data = dashboard_data("today")
     sheets = dashboard_sheets(data)
-    svodka = dict(sheets["Сводка"][1:])  # {label: value}
+    svodka = dict(sheets["Сводка"].rows)  # {label: value}
     assert svodka["Выручка, сом"] == float(data["metrics"]["revenue"]["value"])
     assert svodka["Продано, шт"] == 3
 
@@ -2895,25 +2903,16 @@ def test_daily_report_sales_sheet_includes_currency_rate_source_columns(variant,
     confirm_sale(order)
     record_payment(order, Decimal("10"), currency="USD")  # 10 × 87 = 870
 
-    rows = _sales_rows()
-    header = rows[0]
-    assert header[-5:] == [
-        "Валюта оплаты",
-        "Курс",
-        "Источник курса",
-        "Сдача",
-        "Округление",
-    ]
-    data_row = rows[1]
-    assert data_row[-5] == "USD"
-    assert data_row[-4] == "87.0000"
-    assert data_row[-3] == "НБКР"
-    assert data_row[-2] == "—"  # no change given on this payment
-    assert data_row[-1] == "—"  # no rounding residue either
-    # Оплачено/Остаток use the CONVERTED paid amount, not a raw
+    row = _by_header(_sales_sheet())[0]
+    assert row["Валюта оплаты"] == "USD"
+    assert row["Курс"] == "87.0000"
+    assert row["Источник курса"] == "НБКР"
+    assert row["Сдача"] is None  # no change given on this payment
+    assert row["Округление"] is None  # no rounding residue either
+    # Оплачено/Долг по продаже use the CONVERTED paid amount, not a raw
     # same-currency-only sum (the bug this hardening pass fixed).
-    assert data_row[9] == "870.00"  # Оплачено
-    assert data_row[10] == "2330.00"  # Остаток
+    assert row["Оплачено"] == Decimal("870.00")
+    assert row["Долг по продаже"] == Decimal("2330.00")
 
 
 def test_client_admin_unpaid_orders_counts_converted_foreign_payment(variant, settings):
@@ -3398,15 +3397,14 @@ def test_daily_report_change_and_rounding_columns_and_till_drift_total(variant, 
         order, Decimal("1000"), currency="KGS", excess_disposition=Payment.DISPOSITION_CHANGE
     )
 
-    rows = _sales_rows()
-    header = rows[0]
-    assert header[-2:] == ["Сдача", "Округление"]
-    data_row = rows[1]
-    assert data_row[-2] == "125.00"
-    assert data_row[-1] == "0.50"
-    summary_row = rows[-1]
-    assert "Округление за день" in summary_row[-1]
-    assert "0.50" in summary_row[-1]
+    sheet = _sales_sheet()
+    row = _by_header(sheet)[0]
+    assert row["Сдача"] == Decimal("125.00")
+    assert row["Округление"] == Decimal("0.50")
+    # The day's till-drift lands in the bold totals row, as a real number in
+    # the Округление column — not buried in a sentence in the last cell.
+    rounding_col = [c.header for c in sheet.columns].index("Округление")
+    assert sheet.totals[rounding_col] == Decimal("0.50")
 
 
 def test_balance_kgs_before_payment_matches_order_balance_after_confirm(variant, settings):
@@ -4581,3 +4579,223 @@ def test_done_when_scenario_order_deposit_queue_produce_handover(
     assert order.status == Order.DELIVERED
     assert order.sale_order is not None
     assert order.sale_order.status == SaleOrder.CONFIRMED
+
+
+# ---------------------------------------------------------------------------
+# Part 0c — Spreadsheet formatting + debt visibility
+# ---------------------------------------------------------------------------
+
+
+def _load_sheet(xlsx_bytes, name):
+    import io
+
+    from openpyxl import load_workbook
+
+    return load_workbook(io.BytesIO(xlsx_bytes))[name]
+
+
+def test_report_money_cells_are_real_numbers_not_text(variant):
+    """The core of the spreadsheet rework: money and counts used to be written
+    with str(), so Excel stored the sheet as TEXT — a column couldn't be
+    summed, and sorting put 1000 before 900. They must be numeric cells with a
+    display format instead."""
+    from apps.core.management.commands.send_daily_report import _build_xlsx
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="Fmt", phone="+996700004001")
+    order = SaleOrder.objects.create(client=cust, channel=SaleOrder.SHOP)
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    ws = _load_sheet(_build_xlsx(), "Продажи")
+    headers = [c.value for c in ws[1]]
+    total_col = headers.index("Итого") + 1
+    qty_col = headers.index("Кол-во") + 1
+    time_col = headers.index("Время") + 1
+
+    total_cell = ws.cell(row=2, column=total_col)
+    assert isinstance(total_cell.value, (int, float)), "money must be a NUMBER, not text"
+    assert total_cell.value == 6400
+    assert total_cell.number_format == "# ##0.00"
+
+    qty_cell = ws.cell(row=2, column=qty_col)
+    assert isinstance(qty_cell.value, int) and qty_cell.value == 2
+    assert qty_cell.number_format == "# ##0"
+
+    # A datetime underneath, shown as clock time — sorts chronologically.
+    import datetime as _dt
+
+    assert isinstance(ws.cell(row=2, column=time_col).value, _dt.datetime)
+    assert ws.cell(row=2, column=time_col).number_format == "HH:MM"
+
+
+def test_every_report_sheet_is_navigable(variant):
+    """Frozen header + autofilter + a styled header row on every sheet of
+    every export — what makes a downloaded file usable rather than a dump."""
+    from apps.core.management.commands.send_daily_report import _build_xlsx
+    from apps.reports.dashboard import dashboard_data, dashboard_sheets
+    from apps.reports.export import to_xlsx
+    from apps.reports.storage import build_xlsx as storage_xlsx
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    workbooks = [
+        _build_xlsx(),
+        storage_xlsx(),
+        to_xlsx(dashboard_sheets(dashboard_data("month"))),
+    ]
+    import io
+
+    from openpyxl import load_workbook
+
+    for data in workbooks:
+        wb = load_workbook(io.BytesIO(data))
+        for name in wb.sheetnames:
+            ws = wb[name]
+            assert ws.freeze_panes == "A2", f"{name}: header not frozen"
+            assert ws.auto_filter.ref, f"{name}: no autofilter"
+            assert ws["A1"].font.bold, f"{name}: header not styled"
+            # Columns sized — the default 8.43 leaves Cyrillic headers clipped.
+            assert ws.column_dimensions["A"].width >= 9
+
+
+def test_receipt_shows_paid_and_outstanding_balance(variant, settings):
+    """A receipt that stops at «Итого» leaves the client no record of the
+    balance they're carrying — the number they ask about later."""
+    from apps.pos.messaging import receipt_text
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Receipt", phone="+996700004002")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    record_payment(order, Decimal("1200"))
+
+    text = receipt_text(order)
+    assert "Итого: 3200.00" in text
+    assert "Оплачено: 1200.00" in text
+    assert "Остаток к оплате: 2000.00" in text
+
+    # Paying the rest flips it to a settled receipt with no debt lines at all.
+    record_payment(order, Decimal("2000"))
+    order.refresh_from_db()
+    settled = receipt_text(order)
+    assert "Остаток к оплате" not in settled
+    assert "Оплачено полностью" in settled
+
+
+def test_purchase_history_shows_the_debt_on_each_sale(client, django_user_model, variant, settings):
+    """«Откуда долг» answered in place: the client page lists each sale with
+    what's still owed ON THAT SALE, not just one total at the top."""
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("hist_owner", "h@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Hist", phone="+996700004003")
+
+    unpaid = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=unpaid, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(unpaid)
+    record_payment(unpaid, Decimal("1000"))  # 2200 still owed
+
+    settled = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=settled, variant=variant, quantity=1, unit_price=Decimal("500"))
+    confirm_sale(settled)
+    record_payment(settled, Decimal("500"))  # fully paid
+
+    resp = client.get(f"/pos/clients/{cust.pk}/")
+    assert resp.status_code == 200
+    rows = {r["order"].pk: r for r in resp.context["order_rows"]}
+    assert rows[unpaid.pk]["balance"] == Decimal("2200.00")
+    assert rows[settled.pk]["balance"] == Decimal("0")
+    body = resp.content.decode()
+    assert "2\xa0200\xa0сом" in body  # the per-sale debt is actually rendered
+    assert "оплачено полностью" in body
+
+
+def test_sales_sheet_carries_each_buyers_total_outstanding_debt(variant, settings):
+    """Debt shown everywhere, per the ask: the Sales sheet gains a per-buyer
+    running balance next to the sale, so the spreadsheet answers "how much
+    does this person owe overall" without cross-referencing another tab."""
+    from apps.core.management.commands.send_daily_report import _sales_sheet
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="Running", phone="+996700004004")
+    first = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=first, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(first)  # wholly unpaid -> 1000
+    second = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=second, variant=variant, quantity=1, unit_price=Decimal("500"))
+    confirm_sale(second)  # unpaid -> 500; client total 1500
+
+    rows = {r["№"]: r for r in _by_header(_sales_sheet())}
+    assert rows[first.pk]["Долг по продаже"] == Decimal("1000.00")
+    assert rows[second.pk]["Долг по продаже"] == Decimal("500.00")
+    # Both rows show the SAME client-wide figure — it's a balance, not a
+    # per-sale number repeated.
+    assert rows[first.pk]["Долг клиента всего"] == Decimal("1500.00")
+    assert rows[second.pk]["Долг клиента всего"] == Decimal("1500.00")
+
+
+def test_debts_sheet_reports_debt_age_and_spread(variant, settings):
+    """The Debts sheet gains how many sales a debt spans and how long it's
+    been outstanding, so the oldest can be chased first rather than only the
+    largest."""
+    from apps.core.management.commands.send_daily_report import _debts_sheet
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="Aging", phone="+996700004005")
+    for price in (Decimal("1000"), Decimal("2000")):
+        o = SaleOrder.objects.create(client=cust, currency="KGS")
+        SaleItem.objects.create(order=o, variant=variant, quantity=1, unit_price=price)
+        confirm_sale(o)
+
+    row = next(r for r in _by_header(_debts_sheet()) if r["Клиент"] == "Aging")
+    assert row["Долг"] == Decimal("3000.00")
+    assert row["Неоплаченных продаж"] == 2
+    assert row["Долг с"] == timezone.localdate()
+
+
+def test_admin_search_boxes_do_not_crash(client, django_user_model, variant):
+    """Regression: SaleOrder/Payment/DailyReview searched on `client__name` —
+    a PROPERTY, not a column — so every one of these 500'd with FieldError the
+    moment anyone typed in the box. The search box is the main way a
+    non-technical owner finds anything in the panel."""
+    owner = django_user_model.objects.create_superuser("srch_owner", "s@e.com", "x" * 12)
+    client.force_login(owner)
+    for url in [
+        "/panel/sales/saleorder/?q=Айгуль",
+        "/panel/sales/payment/?q=Айгуль",
+        "/panel/reports/dailyreview/?q=Айгуль",
+        "/panel/clients/client/?q=Айгуль",
+        "/panel/orders/order/?q=Айгуль",
+        "/panel/inventory/productvariant/?q=EVD",
+    ]:
+        assert client.get(url).status_code == 200, f"{url} crashed"
+
+
+def test_admin_has_debt_filter_selects_only_debtors(client, django_user_model, variant, settings):
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("dbt_owner", "d@e.com", "x" * 12)
+    client.force_login(owner)
+
+    debtor = Client.objects.create(first_name="Debtor", phone="+996700004006")
+    o = SaleOrder.objects.create(client=debtor, currency="KGS")
+    SaleItem.objects.create(order=o, variant=variant, quantity=1, unit_price=Decimal("900"))
+    confirm_sale(o)  # unpaid
+    clear = Client.objects.create(first_name="Clear", phone="+996700004007")
+
+    owing = client.get("/panel/clients/client/?has_debt=yes")
+    ids = {c.pk for c in owing.context["cl"].result_list}
+    assert debtor.pk in ids and clear.pk not in ids
+
+    settled = client.get("/panel/clients/client/?has_debt=no")
+    ids = {c.pk for c in settled.context["cl"].result_list}
+    assert clear.pk in ids and debtor.pk not in ids

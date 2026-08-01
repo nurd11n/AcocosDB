@@ -15,6 +15,34 @@ class InteractionInline(admin.TabularInline):
     readonly_fields = ["created_by", "created_at"]
 
 
+class HasDebtFilter(admin.SimpleListFilter):
+    """«Кто должен» in one click. Debt is derived (confirmed sales minus
+    payments, each converted at its own frozen rate — see
+    clients.services.client_debts_by_currency), so it can't be a plain
+    field filter; this resolves the same helper to a client-id set and
+    filters on that."""
+
+    title = _("debt")
+    parameter_name = "has_debt"
+
+    def lookups(self, request, model_admin):
+        return [("yes", _("Owes money")), ("no", _("Nothing owed"))]
+
+    def queryset(self, request, queryset):
+        if self.value() not in ("yes", "no"):
+            return queryset
+        debtors = [
+            cid
+            for cid, currs in client_debts_by_currency().items()
+            if any(amount > 0 for amount in currs.values())
+        ]
+        return (
+            queryset.filter(pk__in=debtors)
+            if self.value() == "yes"
+            else queryset.exclude(pk__in=debtors)
+        )
+
+
 @admin.register(Client)
 class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     list_display = [
@@ -27,7 +55,8 @@ class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         "created_at",
     ]
     search_fields = ["first_name", "descriptor", "phone"]
-    list_filter = ["source", "is_active"]
+    search_help_text = "Имя, уточнение или телефон"
+    list_filter = [HasDebtFilter, "source", "is_active"]
     readonly_fields = ["unpaid_orders"]
     inlines = [InteractionInline]
 
@@ -80,6 +109,7 @@ class InteractionAdmin(admin.ModelAdmin):
     list_display = ["created_at", "client", "kind", "note", "created_by"]
     list_filter = ["kind"]
     search_fields = ["client__first_name", "client__descriptor", "client__phone", "note"]
+    search_help_text = "Имя клиента, телефон или текст записи"
     list_select_related = ["client", "created_by"]
     autocomplete_fields = ["client"]
 

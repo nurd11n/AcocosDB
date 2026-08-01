@@ -29,6 +29,8 @@ class OrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     ]
     list_filter = ["status", "currency"]
     search_fields = ["id", "client__first_name", "client__descriptor", "client__phone"]
+    search_help_text = "Номер заказа, имя клиента, уточнение или телефон"
+    date_hierarchy = "created_at"
     list_select_related = ["client"]
     autocomplete_fields = ["client"]
     readonly_fields = ["sale_order", "delivered_at", "created_by"]

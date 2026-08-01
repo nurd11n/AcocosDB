@@ -141,43 +141,52 @@ def storage_data() -> dict:
 
 # --- Spreadsheet builders — Russian headers, same rows for xlsx and csv --------
 
-_ITEM_HEADERS = [
-    "Категория",
-    "Артикул",
-    "Товар",
-    "Размер",
-    "Цвет",
-    "Поступление",
-    "Продано",
-    "Возвраты",
-    "Брак/списание",
-    "Корректировки",
-    "Остаток",
-    "Валюта",
-    "Себестоимость остатка",
-    "≈ Стоимость, " + settings.CURRENCY,
-    "Низкий остаток",
+_ITEM_COLUMNS = [
+    export.Column("Категория", export.TEXT),
+    export.Column("Артикул", export.TEXT),
+    export.Column("Товар", export.TEXT),
+    export.Column("Размер", export.TEXT),
+    export.Column("Цвет", export.TEXT),
+    export.Column("Поступление", export.INT),
+    export.Column("Продано", export.INT),
+    export.Column("Возвраты", export.INT),
+    export.Column("Брак/списание", export.INT),
+    export.Column("Корректировки", export.INT),
+    export.Column("Остаток", export.INT),
+    export.Column("Валюта", export.TEXT),
+    export.Column("Себестоимость остатка", export.MONEY),
+    export.Column(f"Стоимость, {settings.CURRENCY}", export.MONEY),
+    export.Column("Низкий остаток", export.TEXT),
 ]
-_CATEGORY_HEADERS = [
-    "Категория",
-    "Позиций",
-    "Поступление",
-    "Продано",
-    "Возвраты",
-    "Брак/списание",
-    "Остаток",
-    "≈ Стоимость, " + settings.CURRENCY,
+_CATEGORY_COLUMNS = [
+    export.Column("Категория", export.TEXT),
+    export.Column("Позиций", export.INT),
+    export.Column("Поступление", export.INT),
+    export.Column("Продано", export.INT),
+    export.Column("Возвраты", export.INT),
+    export.Column("Брак/списание", export.INT),
+    export.Column("Остаток", export.INT),
+    export.Column(f"Стоимость, {settings.CURRENCY}", export.MONEY),
 ]
 
 
-def _fmt_base(value) -> str:
-    return str(value.quantize(CENTS)) if value is not None else "н/д"
+def _base(value):
+    """Rounded сом figure, or the "н/д" placeholder when no rate was on record
+    — kept as text on purpose so a missing conversion never reads as 0.00."""
+    return value.quantize(CENTS) if value is not None else "н/д"
 
 
-def storage_sheets() -> dict[str, list[list]]:
+def storage_sheets() -> dict[str, export.Sheet]:
     data = storage_data()
-    items = [_ITEM_HEADERS]
+    items, categories = [], []
+    stock_units = 0
+    stock_value_base = Decimal("0")
+
     for it in data["items"]:
+        base = _base(it["value_base"])
+        stock_units += it["stock"] or 0
+        if it["value_base"] is not None:
+            stock_value_base += it["value_base"]
         items.append(
             [
                 it["category"],
@@ -192,13 +201,22 @@ def storage_sheets() -> dict[str, list[list]]:
                 it["adjust"],
                 it["stock"],
                 it["currency"],
-                str(it["value"]),
-                _fmt_base(it["value_base"]),
+                it["value"],
+                base,
                 "да" if it["low"] else "",
             ]
         )
-    categories = [_CATEGORY_HEADERS]
+    item_totals = [None] * len(_ITEM_COLUMNS)
+    item_totals[0] = "ИТОГО"
+    item_totals[10] = stock_units
+    item_totals[13] = stock_value_base
+
+    cat_units = 0
+    cat_value_base = Decimal("0")
     for c in data["categories"]:
+        cat_units += c["units"] or 0
+        if c["value_base"] is not None:
+            cat_value_base += c["value_base"]
         categories.append(
             [
                 c["name"],
@@ -208,10 +226,18 @@ def storage_sheets() -> dict[str, list[list]]:
                 c["returns"],
                 c["writeoff"],
                 c["units"],
-                _fmt_base(c["value_base"]),
+                _base(c["value_base"]),
             ]
         )
-    return {"Товары": items, "Категории": categories}
+    cat_totals = [None] * len(_CATEGORY_COLUMNS)
+    cat_totals[0] = "ИТОГО"
+    cat_totals[6] = cat_units
+    cat_totals[7] = cat_value_base
+
+    return {
+        "Товары": export.Sheet(_ITEM_COLUMNS, items, item_totals),
+        "Категории": export.Sheet(_CATEGORY_COLUMNS, categories, cat_totals),
+    }
 
 
 def build_xlsx() -> bytes:

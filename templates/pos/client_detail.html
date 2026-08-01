@@ -36,10 +36,26 @@
 
 <div class="card">
  <h2>{% trans "История покупок" %}</h2>
- {% for o in orders %}
- <div class="line-row">
-   <div class="line-row__label"><a href="{% url 'pos:sale_result' o.pk %}">{{ o.confirmed_at|date:"d.m.Y H:i" }}</a></div>
-   <div class="line-row__total num">{{ o.total|money:o.currency }}</div>
+ {% comment %}
+ Each sale shows what's still owed ON THAT SALE, so the client's total debt
+ above is traceable to the purchases it came from — «откуда долг» answered
+ in place, rather than only as one number at the top of the page.
+ {% endcomment %}
+ {% for row in order_rows %}
+ <div class="oline">
+   <div class="oline__main">
+     <a class="oline__name" href="{% url 'pos:sale_result' row.order.pk %}">
+       {{ row.order.confirmed_at|date:"d.m.Y H:i" }}</a>
+     <span class="oline__meta muted num">
+       {% if row.balance > 0 %}
+         {% trans "оплачено" %} {{ row.paid|money:row.order.currency }} ·
+         <span class="q-due--overdue">{% trans "долг" %} {{ row.balance|money:row.order.currency }}</span>
+       {% else %}
+         <span class="oline__ok">{% trans "оплачено полностью" %}</span>
+       {% endif %}
+     </span>
+   </div>
+   <span class="oline__total num">{{ row.order.total|money:row.order.currency }}</span>
  </div>
  {% empty %}
  <p class="muted">{% trans "Покупок пока нет" %}</p>

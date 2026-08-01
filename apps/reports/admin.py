@@ -25,7 +25,8 @@ class DailyReviewAdmin(admin.ModelAdmin):
     ]
     list_filter = ["reviewed", "method", "currency"]
     date_hierarchy = "created_at"
-    search_fields = ["client__name", "client__phone"]
+    search_fields = ["client__first_name", "client__descriptor", "client__phone"]
+    search_help_text = "Имя клиента, уточнение или телефон"
     list_select_related = ["client", "order", "reviewed_by"]
     actions = ["mark_reviewed"]
 
