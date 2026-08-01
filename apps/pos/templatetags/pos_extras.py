@@ -47,7 +47,12 @@ def payment_conversion_filter(payment):
 
     if payment.currency == settings.CURRENCY:
         return ""
-    source = _("вручную") if payment.rate_source == payment.RATE_MANUAL else "НБКР"
+    if payment.rate_source == payment.RATE_MANUAL:
+        source = _("вручную")
+    else:
+        # Honest label either way: НБКР when it genuinely is (the pinned
+        # Frankfurter provider today), whatever else it's stored as if not.
+        source = payment.get_rate_source_display()
     return (
         f"{payment.amount} {payment.currency} × {payment.rate_to_kgs:.2f} = "
         f"{payment.amount_kgs} {settings.CURRENCY} · {source} {payment.created_at:%d.%m.%Y}"

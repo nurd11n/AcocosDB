@@ -616,23 +616,92 @@ _NBKR_SAMPLE = (
 
 
 class _FakeResp:
+    """Fake for the plain (non-streaming) nbkr.kg cross-check fetch."""
+
     content = _NBKR_SAMPLE
 
     def raise_for_status(self):
         pass
 
 
-def test_fetch_rates_parses_nbkr_and_skips_unconfigured(monkeypatch, settings):
+class _FakeRaw:
+    """Fake for the streaming `resp.raw` the Frankfurter fetch reads its
+    capped body from."""
+
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def read(self, n, decode_content=True):
+        return self._body[:n]
+
+
+class _FakeFrankfurterResp:
+    def __init__(self, body: bytes, status_code=200):
+        self.status_code = status_code
+        self.raw = _FakeRaw(body)
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(str(self.status_code), response=self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def _frankfurter_get(rates, status_code=200, calls=None):
+    """A fake `requests.get` for the Frankfurter primary fetch. `rates` maps
+    currency -> the JSON `rate` value to return for /v2/rate/{currency}/...;
+    a currency missing from the dict gets a 404. `calls`, if given, collects
+    (url, kwargs) for every call made."""
+
+    def fake_get(url, **kwargs):
+        if "/v2/rate/" not in url:
+            # The best-effort NBKR cross-check hits a different host — treat
+            # it as unreachable by default so tests that don't care about it
+            # don't need to also fake nbkr.kg's XML.
+            raise requests.RequestException("nbkr.kg unreachable (fake)")
+        if calls is not None:
+            calls.append((url, kwargs))
+        currency = url.split("/v2/rate/")[1].split("/")[0]
+        if currency not in rates:
+            return _FakeFrankfurterResp(b'{"rate": null}', status_code=404)
+        body = json.dumps(
+            {"date": "2026-08-01", "base": currency, "quote": "KGS", "rate": rates[currency]}
+        ).encode()
+        return _FakeFrankfurterResp(body, status_code=status_code)
+
+    return fake_get
+
+
+def test_fetch_rates_pulls_from_frankfurter_pinned_to_the_nbkr_provider(monkeypatch, settings):
+    """PRIMARY SOURCE is now Frankfurter — but the pinned NBKR provider is
+    ALWAYS sent explicitly, never Frankfurter's own default blended rate
+    (its docs warn that figure's trailing decimals can shift as more
+    providers report in, which would break every frozen-rate guarantee).
+    Since the pinned provider genuinely is NBKR, the stored rate keeps the
+    honest НБКР label."""
     settings.CURRENCY = "KGS"
+    calls = []
     monkeypatch.setattr(
-        "apps.core.management.commands.fetch_rates.requests.get", lambda *a, **k: _FakeResp()
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 87.45, "RUB": 1.1239}, calls=calls),
     )
     call_command("fetch_rates")
     today = timezone.localdate()
-    assert ExchangeRate.objects.get(currency="USD", date=today).rate == Decimal("87.45")
+    usd = ExchangeRate.objects.get(currency="USD", date=today)
+    assert usd.rate == Decimal("87.45")
+    assert usd.source == ExchangeRate.NBKR  # pinned provider IS NBKR — honest label
     assert ExchangeRate.objects.get(currency="RUB", date=today).rate == Decimal("1.1239")
-    # EUR isn't a configured currency — it must be ignored, not stored.
-    assert not ExchangeRate.objects.filter(currency="EUR").exists()
+
+    assert len(calls) == 2  # one request per configured non-base currency
+    for url, kwargs in calls:
+        assert url.startswith("https://api.frankfurter.dev/v2/rate/")
+        assert "providers=NBKR" in url  # pinned — the blended default is never used
+        assert kwargs["allow_redirects"] is False
+        assert kwargs["verify"] is True
 
 
 def test_fetch_rates_overwrites_existing_row_in_place(monkeypatch, settings):
@@ -640,10 +709,11 @@ def test_fetch_rates_overwrites_existing_row_in_place(monkeypatch, settings):
     # An old rate for USD; a fetch overwrites it in place (one row per currency,
     # no dated pile-up).
     ExchangeRate.objects.create(
-        currency="USD", date=date(2026, 7, 10), rate=Decimal("99.99"), source=ExchangeRate.MANUAL
+        currency="USD", date=date(2026, 7, 10), rate=Decimal("88.00"), source=ExchangeRate.MANUAL
     )
     monkeypatch.setattr(
-        "apps.core.management.commands.fetch_rates.requests.get", lambda *a, **k: _FakeResp()
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 87.45, "RUB": 1.1239}),
     )
     call_command("fetch_rates")
     assert ExchangeRate.objects.filter(currency="USD").count() == 1
@@ -662,28 +732,216 @@ def test_fetch_rates_survives_network_failure(monkeypatch, settings):
     assert not ExchangeRate.objects.exists()  # nothing written, last known kept
 
 
-def test_fetch_rates_routes_through_nbkr_proxy_when_set(monkeypatch, settings):
-    """nbkr.kg blocks some server IPs — when NBKR_PROXY is set, the fetch (and
-    only the fetch) goes through it; unset, the request is direct (proxies=None)."""
+def test_fetch_rates_converts_via_decimal_str_never_a_raw_float(monkeypatch, settings):
+    """87.45 isn't exactly representable in binary float — Decimal(str(v))
+    must be used, never Decimal(v) on the raw float or float() anywhere in
+    the path, or the stored value drags in the float's binary-imprecise
+    expansion instead of staying exactly 87.45."""
+    settings.CURRENCY = "KGS"
+    monkeypatch.setattr(
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 87.45, "RUB": 1.1239}),
+    )
+    call_command("fetch_rates")
+    assert ExchangeRate.objects.get(currency="USD").rate == Decimal("87.45")
+    assert ExchangeRate.objects.get(currency="RUB").rate == Decimal("1.1239")
+
+
+def test_fetch_rates_rejects_non_numeric_negative_null_and_oversized(monkeypatch, settings):
+    """A malformed/implausible response body is a REJECT, not a guess —
+    nothing is ever saved from it."""
+    settings.CURRENCY = "KGS"
+
+    def _get_for_body(body: bytes, status_code=200):
+        def fake_get(url, **kwargs):
+            return _FakeFrankfurterResp(body, status_code=status_code)
+
+        return fake_get
+
+    cases = [
+        b'{"rate": "87.45"}',  # a string, not a number
+        b'{"rate": null}',  # missing/null
+        b'{"rate": -87.45}',  # negative
+        b'{"rate": 0}',  # zero
+        b'{"rate": true}',  # a bool (technically an int subclass — must still be refused)
+    ]
+    for body in cases:
+        monkeypatch.setattr(
+            "apps.core.management.commands.fetch_rates.requests.get", _get_for_body(body)
+        )
+        call_command("fetch_rates")
+        assert not ExchangeRate.objects.filter(currency="USD").exists()
+
+    # Oversized body (>64KB) — refused before JSON is even parsed.
+    huge = b'{"rate": 87.45, "padding": "' + b"x" * (70 * 1024) + b'"}'
+    monkeypatch.setattr(
+        "apps.core.management.commands.fetch_rates.requests.get", _get_for_body(huge)
+    )
+    call_command("fetch_rates")
+    assert not ExchangeRate.objects.filter(currency="USD").exists()
+
+
+def test_fetch_rates_refuses_a_redirect(monkeypatch, settings):
+    """A followed redirect on a server-side fetch is exactly how it becomes
+    SSRF against something like a cloud metadata endpoint or localhost — any
+    30x response must be treated as an outright failure, never followed."""
+    settings.CURRENCY = "KGS"
+
+    def fake_get(url, **kwargs):
+        assert kwargs.get("allow_redirects") is False
+        return _FakeFrankfurterResp(b"", status_code=302)
+
+    monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", fake_get)
+    call_command("fetch_rates")
+    assert not ExchangeRate.objects.exists()
+
+
+def test_fetch_rates_rejects_a_jump_over_10_percent(monkeypatch, settings):
+    settings.CURRENCY = "KGS"
+    ExchangeRate.objects.create(currency="USD", date=date(2026, 7, 30), rate=Decimal("87.00"))
+    monkeypatch.setattr(
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 100.00, "RUB": 1.1239}),  # +14.9% jump
+    )
+    call_command("fetch_rates")
+    row = ExchangeRate.objects.get(currency="USD")
+    assert row.rate == Decimal("87.00")  # unchanged — rejected, nothing saved
+    assert row.date == date(2026, 7, 30)  # not bumped either
+    assert not RateChangeLog.objects.filter(currency="USD").exists()
+    # RUB has no prior rate to deviate from — accepted normally.
+    assert ExchangeRate.objects.get(currency="RUB").rate == Decimal("1.1239")
+
+
+def test_nbkr_proxy_only_affects_the_cross_check_never_the_primary_fetch(monkeypatch, settings):
+    """NBKR_PROXY used to route the old direct-NBKR primary fetch; now the
+    primary fetch is Frankfurter (unaffected by it) and NBKR_PROXY affects
+    ONLY the optional, never-saved nbkr.kg cross-check."""
+    settings.CURRENCY = "KGS"
+    settings.NBKR_PROXY = "socks5://10.0.0.9:1080"
+    frankfurter_calls = []
+    nbkr_calls = []
+
+    def fake_get(url, **kwargs):
+        if url.startswith("https://api.frankfurter.dev"):
+            frankfurter_calls.append((url, kwargs))
+            currency = url.split("/v2/rate/")[1].split("/")[0]
+            value = {"USD": 87.45, "RUB": 1.1239}[currency]
+            body = json.dumps({"rate": value}).encode()
+            return _FakeFrankfurterResp(body)
+        nbkr_calls.append((url, kwargs))
+        raise requests.RequestException("nbkr.kg blocked")
+
+    monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", fake_get)
+    call_command("fetch_rates")
+
+    assert ExchangeRate.objects.get(currency="USD").rate == Decimal("87.45")
+    assert frankfurter_calls  # primary fetch happened
+    for _url, kwargs in frankfurter_calls:
+        assert kwargs.get("proxies") is None  # NBKR_PROXY never leaks into the primary fetch
+    assert nbkr_calls  # the (best-effort) cross-check was attempted too
+    for _url, kwargs in nbkr_calls:
+        assert kwargs.get("proxies") == {
+            "http": "socks5://10.0.0.9:1080",
+            "https": "socks5://10.0.0.9:1080",
+        }
+
+
+def test_nbkr_cross_check_tries_a_browser_user_agent(monkeypatch, settings):
+    """A missing/non-browser User-Agent is the usual reason an automated
+    fetch gets blocked — the cross-check sends one."""
     settings.CURRENCY = "KGS"
     captured = {}
+    monkeypatch.setattr(
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 87.45, "RUB": 1.1239}),
+    )
 
-    def capture_get(url, **kwargs):
-        captured["proxies"] = kwargs.get("proxies")
+    from apps.core.management.commands.fetch_rates import fetch_nbkr_cross_check
+
+    def fake_nbkr_get(url, **kwargs):
+        captured["headers"] = kwargs.get("headers")
         return _FakeResp()
 
-    monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", capture_get)
+    monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", fake_nbkr_get)
+    result = fetch_nbkr_cross_check()
+    assert result == {"USD": Decimal("87.45"), "RUB": Decimal("1.1239")}
+    assert "Mozilla" in captured["headers"]["User-Agent"]
 
-    settings.NBKR_PROXY = ""
-    call_command("fetch_rates")
-    assert captured["proxies"] is None  # direct
 
-    settings.NBKR_PROXY = "socks5://10.0.0.9:1080"
-    call_command("fetch_rates")
-    assert captured["proxies"] == {
-        "http": "socks5://10.0.0.9:1080",
-        "https": "socks5://10.0.0.9:1080",
-    }
+def test_both_rate_sources_down_keeps_last_rate_and_a_sale_still_completes(
+    client, django_user_model, variant, monkeypatch, settings
+):
+    """Total failure of BOTH the Frankfurter primary AND the NBKR cross-check
+    must never block a sale — the last known rate is kept untouched, and
+    confirming a sale still works."""
+    settings.CURRENCY = "KGS"
+    ExchangeRate.objects.create(currency="USD", date=date(2026, 7, 20), rate=Decimal("87.00"))
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+
+    def boom(*a, **k):
+        raise requests.RequestException("everything is down")
+
+    monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", boom)
+    call_command("fetch_rates")  # must not raise
+    row = ExchangeRate.objects.get(currency="USD")
+    assert row.rate == Decimal("87.00")  # last known, untouched
+    assert row.date == date(2026, 7, 20)  # not bumped either
+
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user(
+        "editor_bothdown", password="x" * 12, is_staff=True
+    )
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+    order_id = int(client.get("/pos/").url.rstrip("/").rsplit("/", 1)[-1])
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/", {"amount": "3200", "currency": "KGS", "method": "cash"}
+    )
+    assert resp.status_code == 302
+
+
+def test_ui_never_shows_nbkr_label_for_a_manually_entered_rate(client, django_user_model, variant):
+    """The Курс card and the payment-preview note must show the REAL source —
+    a manually-entered rate never renders as «НБКР» just because nobody
+    typed a per-payment override (the honesty bug record_payment/the
+    templates used to have: they only checked "was THIS payment overridden",
+    never the underlying ExchangeRate row's actual source)."""
+    call_command("setup_roles")
+    ExchangeRate.objects.create(
+        currency="USD", date=timezone.localdate(), rate=Decimal("87"), source=ExchangeRate.MANUAL
+    )
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    editor = django_user_model.objects.create_user(
+        "editor_honest", password="x" * 12, is_staff=True
+    )
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    order_id = int(client.get("/pos/").url.rstrip("/").rsplit("/", 1)[-1])
+    cust = Client.objects.create(first_name="Hon", phone="+996700000831")
+    client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
+    resp = client.get(f"/pos/sale/{order_id}/")
+    body = resp.content.decode()
+    strip = body.split('id="rates-strip"')[1].split("</div>")[0]
+    assert "вручную" in strip
+    assert "НБКР" not in strip  # the page ALSO has a static "Обновить курс НБКР" button — unrelated
+
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+    resp = client.post(
+        f"/pos/sale/{order_id}/recalc/", {"amount": "10", "currency": "USD", "method": "cash"}
+    )
+    body = resp.content.decode()
+    assert "вручную" in body
+    assert "НБКР" not in body
+
+    # And the PERSISTED payment carries the same honest source, not a default.
+    resp = client.post(
+        f"/pos/sale/{order_id}/confirm/", {"amount": "10", "currency": "USD", "method": "cash"}
+    )
+    assert resp.status_code == 302
+    order = SaleOrder.objects.get(pk=order_id)
+    assert order.payments.get().rate_source == Payment.RATE_MANUAL
 
 
 def test_owner_can_set_rate_by_hand_from_the_pos_card(client, django_user_model, settings):
@@ -760,7 +1018,9 @@ def test_foreign_payment_preview_converts_balance_and_shows_note(
     currency, deducts it, and shows the 'verify the rate' note."""
     call_command("setup_roles")
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
-    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87"))
+    ExchangeRate.objects.create(
+        currency="USD", date=timezone.localdate(), rate=Decimal("87"), source=ExchangeRate.NBKR
+    )
     editor = django_user_model.objects.create_user("editor_fx", password="x" * 12, is_staff=True)
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
@@ -786,7 +1046,8 @@ def test_refresh_rates_button_pulls_fresh_and_rerenders(
     client.force_login(editor)
 
     monkeypatch.setattr(
-        "apps.core.management.commands.fetch_rates.requests.get", lambda *a, **k: _FakeResp()
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 87.45, "RUB": 1.1239}),
     )
     assert not ExchangeRate.objects.exists()
     resp = client.post("/pos/rates/refresh/")
@@ -803,7 +1064,7 @@ def test_refresh_rates_survives_nbkr_failure(client, django_user_model, monkeypa
     client.force_login(editor)
 
     def boom(*a, **k):
-        raise requests.RequestException("nbkr down")
+        raise requests.RequestException("everything down")
 
     monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", boom)
     resp = client.post("/pos/rates/refresh/")  # must not 500
@@ -2430,7 +2691,8 @@ def test_manager_can_refresh_rates_but_hand_entering_one_is_403(
     client.force_login(manager)
 
     monkeypatch.setattr(
-        "apps.core.management.commands.fetch_rates.requests.get", lambda *a, **k: _FakeResp()
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 87.45, "RUB": 1.1239}),
     )
     assert client.post("/pos/rates/refresh/").status_code == 200  # allowed
 
@@ -2596,7 +2858,8 @@ def test_refresh_rates_writes_audit_log_and_skips_noop_refresh(
     client.force_login(manager)
 
     monkeypatch.setattr(
-        "apps.core.management.commands.fetch_rates.requests.get", lambda *a, **k: _FakeResp()
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 87.45, "RUB": 1.1239}),
     )
     client.post("/pos/rates/refresh/")
     log = RateChangeLog.objects.get(currency="USD")
@@ -2896,7 +3159,9 @@ def test_payment_conversion_filter_shows_frozen_rate_math():
 def test_daily_report_sales_sheet_includes_currency_rate_source_columns(variant, settings):
     settings.CURRENCY = "KGS"
     add_movement(variant, StockMovement.PRODUCTION_IN, 5)
-    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    ExchangeRate.objects.create(
+        currency="USD", date=timezone.localdate(), rate=Decimal("87.00"), source=ExchangeRate.NBKR
+    )
     cust = Client.objects.create(first_name="Rep", phone="+996700000828")
     order = SaleOrder.objects.create(client=cust, currency="KGS")
     SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))

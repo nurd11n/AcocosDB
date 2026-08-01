@@ -39,6 +39,7 @@ _PAYMENT_STATUS_RU = {
 _RATE_SOURCE_RU = {
     Payment.RATE_NBKR: "НБКР",
     Payment.RATE_MANUAL: "вручную",
+    Payment.RATE_FRANKFURTER: "Frankfurter",
 }
 
 

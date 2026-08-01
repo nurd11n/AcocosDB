@@ -411,26 +411,18 @@ def _today_rates():
 @require_can_sell
 @require_POST
 def refresh_rates(request):
-    """On-demand NBKR pull — the view + fetch logic stay live and reachable at
-    this URL, but nbkr.kg blocks the production server's IP outright (it works
-    fine from a local dev machine, confirmed separately), so no /pos/ button
-    currently calls this — see the removed-button note in sale_detail.html and
-    rate_modal.html. Owner hand-enters rates instead (rate_edit/rate_save).
-    Fetches the latest rates (owner manual overrides still win), then re-renders
-    the rate strip. On a network/parse failure it just keeps the last known
-    rates — same fail-soft contract as the daily fetch, never a 500. Allowed
-    for Editor/Manager AND Owner (require_can_sell) — it only pulls the
-    official number, unlike a manual override which is Owner-only."""
-    from xml.etree import ElementTree
+    """On-demand rate pull behind the «Обновить» button on the Курс card —
+    Frankfurter's API, pinned to the NBKR provider (nbkr.kg itself blocks
+    the production server's IP outright; Frankfurter doesn't). Fetches the
+    latest rates for every currency independently and re-renders the rate
+    strip. A network/validation failure for a currency (or all of them) just
+    keeps its last known rate — same fail-soft contract as the daily fetch,
+    never a 500. Allowed for Editor/Manager AND Owner (require_can_sell) —
+    it only pulls the official number, unlike a manual override which is
+    Owner-only."""
+    from apps.core.management.commands.fetch_rates import fetch_frankfurter_rates
 
-    import requests
-
-    from apps.core.management.commands.fetch_rates import fetch_nbkr_rates
-
-    try:
-        fetch_nbkr_rates(changed_by=request.user)
-    except (requests.RequestException, ElementTree.ParseError):
-        pass  # keep last known rates
+    fetch_frankfurter_rates(changed_by=request.user)
     return render(request, "pos/partials/rates.html", {"rates": _today_rates()})
 
 

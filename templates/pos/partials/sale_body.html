@@ -103,7 +103,7 @@
    {% else %}
    <p class="pay-note num">
      {{ entered_amount|money:entered_currency }} × {{ conv.rate|floatformat:2 }} = {{ conv.converted_kgs|money:base_currency }}
-     · {% if conv.is_manual %}{% trans "курс вручную" %}{% else %}{% trans "НБКР" %} {{ conv.rate_date|date:"d.m.Y" }}{% endif %}
+     · {% if conv.rate_source == "manual" %}{% trans "курс вручную" %}{% elif conv.rate_source == "nbkr" %}{% trans "НБКР" %} {{ conv.rate_date|date:"d.m.Y" }}{% else %}{% trans "Frankfurter" %} {{ conv.rate_date|date:"d.m.Y" }}{% endif %}
    </p>
    {% if conv.deviation_warning %}
    <p class="pay-note pay-note--risk">{{ conv.deviation_warning }}</p>
@@ -134,7 +134,7 @@
  <div class="change-panel">
   <div class="change-panel__row"><span>{% trans "Клиент дал" %}</span><span class="num">{{ entered_amount|money:entered_currency }}</span></div>
   {% if not conv.same_currency and not conv.convert_failed %}
-  <div class="change-panel__row"><span>{% if conv.is_manual %}{% trans "курс вручную" %}{% else %}{% trans "Курс НБКР" %} {{ conv.rate_date|date:"d.m.Y" }}{% endif %}</span><span class="num">{{ conv.rate|floatformat:2 }}</span></div>
+  <div class="change-panel__row"><span>{% if conv.rate_source == "manual" %}{% trans "курс вручную" %}{% elif conv.rate_source == "nbkr" %}{% trans "Курс НБКР" %} {{ conv.rate_date|date:"d.m.Y" }}{% else %}{% trans "Курс Frankfurter" %} {{ conv.rate_date|date:"d.m.Y" }}{% endif %}</span><span class="num">{{ conv.rate|floatformat:2 }}</span></div>
   <div class="change-panel__row"><span>{% trans "Зачтено" %}</span><span class="num">{{ conv.converted_kgs|money:base_currency }}</span></div>
   {% endif %}
   <div class="change-panel__row"><span>{% trans "Сумма к оплате" %}</span><span class="num">{{ change.balance_kgs_before|money:base_currency }}</span></div>

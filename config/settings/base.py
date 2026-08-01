@@ -43,10 +43,13 @@ REPORT_HOUR = env("REPORT_HOUR")  # HH:MM, TIME_ZONE below — used by the sched
 RATES_HOUR = env("RATES_HOUR")  # HH:MM — daily automatic NBKR pull (manual refresh stays too)
 ADMIN_URL = env("ADMIN_URL")  # admin is no longer the front door — /pos/ is
 
-# Optional forward proxy for the NBKR rate feed ONLY. nbkr.kg blocks many
-# foreign/cloud IP ranges (a DigitalOcean droplet can't reach it at all), so
-# the exchange-rate fetch — and only that one request — can be routed through a
-# proxy located somewhere NBKR allows (a KG box, an SSH SOCKS tunnel, etc.).
+# Optional forward proxy for the direct nbkr.kg CROSS-CHECK fetch ONLY.
+# nbkr.kg blocks many foreign/cloud IP ranges (a DigitalOcean droplet can't
+# reach it directly), which is why the PRIMARY rate pull now goes through
+# Frankfurter's API instead (pinned to its NBKR provider — not blocked). This
+# proxy only affects the optional, never-saved nbkr.kg cross-check
+# (apps.core.management.commands.fetch_rates.fetch_nbkr_cross_check) — routed
+# through somewhere NBKR allows (a KG box, an SSH SOCKS tunnel, etc.) if set.
 # http://, https:// or socks5://[user:pass@]host:port. Empty = fetch directly.
 # Everything else in the app always goes direct; this never touches other traffic.
 NBKR_PROXY = env("NBKR_PROXY", default="")
