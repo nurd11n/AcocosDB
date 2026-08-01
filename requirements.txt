@@ -1,4 +1,6 @@
 Django>=5.1,<5.2
+django-otp>=1.5  # TOTP + static-backup-code 2FA, shared by /pos/ and /panel/
+qrcode>=7.4  # renders the TOTP enrollment QR (apps.core.otp_views)
 django-environ>=0.11
 django-jazzmin>=3.0
 django-axes>=7.0

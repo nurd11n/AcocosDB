@@ -1,0 +1,10 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Двухфакторный вход" %}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2><svg class="ic"><use href="#i-check"/></svg>{% trans "Готово" %}</h2>
+ <p class="hint">{% trans "Устройство подключено — со следующего входа оно понадобится вместе с паролем." %}</p>
+ <a class="btn btn-primary" href="{% url 'pos:index' %}">{% trans "К продажам" %}</a>
+</div>
+{% endblock %}

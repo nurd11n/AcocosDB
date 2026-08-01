@@ -6,6 +6,7 @@ from django.urls import include, path
 
 from apps.core.auth_views import RedirectToSharedLoginMixin, UnifiedLoginView
 from apps.core.errors import healthz
+from apps.core.otp_views import otp_enroll, otp_enroll_done
 from apps.core.views import report_download, root_redirect, set_theme, stats_view
 from apps.reports.views import dashboard, dashboard_export, storage_export, storage_view
 
@@ -13,7 +14,15 @@ from apps.reports.views import dashboard, dashboard_export, storage_export, stor
 # /panel/ shares the one /login/ page — the mixin redirects unauthenticated or
 # unauthorized admin hits there instead of Django's separate admin login form.
 class _AdminSite(RedirectToSharedLoginMixin, admin.AdminSite):
-    pass
+    def has_permission(self, request):
+        """On top of Django's own is_active/is_staff check, require 2FA
+        verification when OTP_ENABLED — same as every other surface (see
+        apps.core.otp.verified). Mirrors django_otp.admin.OTPAdminSite's own
+        has_permission, without pulling in its separate login form/name — this
+        site still shares the one /login/ page via RedirectToSharedLoginMixin."""
+        return super().has_permission(request) and (
+            not settings.OTP_ENABLED or request.user.is_verified()
+        )
 
 
 admin.site.__class__ = _AdminSite
@@ -23,6 +32,8 @@ urlpatterns = [
     path("login/", UnifiedLoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("theme/", set_theme, name="set-theme"),
+    path("otp/enroll/", otp_enroll, name="otp-enroll"),
+    path("otp/enroll/done/", otp_enroll_done, name="otp-enroll-done"),
     path("pos/", include("apps.pos.urls")),
     path("orders/", include("apps.orders.urls")),
     path("inbox/", include("apps.inbox.urls")),
