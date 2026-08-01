@@ -21,7 +21,7 @@
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 {% include "_icons.svg" %}
 <header class="top">
- <span class="top__brand">ACOCOS</span>
+ <a class="top__brand" href="{% url 'pos:index' %}" aria-label="{% trans 'К продажам' %}">ACOCOS</a>
  <div class="top__actions">
   {% if request.user.is_superuser %}
    <a class="top__link" href="{% url 'dashboard' %}" aria-label="{% trans 'Дашборд' %}"><svg class="ic"><use href="#i-revenue"/></svg><span class="lbl">{% trans "Дашборд" %}</span></a>
