@@ -14,9 +14,11 @@
    <button type="button" class="btn btn-ghost" data-clear-target="rate-modal">{% trans "Отмена" %}</button>
   </div>
  </form>
- {# nbkr.kg blocks the production server's IP directly, but the rate now
-    arrives via Frankfurter's API (pinned to its NBKR provider), which
-    isn't blocked — so this button works in prod again. #}
+ {% comment %}
+ nbkr.kg blocks the production server's IP directly, but the rate now
+ arrives via Frankfurter's API (pinned to its NBKR provider), which
+ isn't blocked — so this button works in prod again.
+ {% endcomment %}
  <button type="button" class="btn btn-ghost btn-sm" style="margin-top:var(--space-2)"
    hx-post="{% url 'pos:refresh_rates' %}" hx-target="#rates-strip" hx-swap="outerHTML"
    data-clear-target="rate-modal">{% trans "Обновить из НБКР" %}</button>
