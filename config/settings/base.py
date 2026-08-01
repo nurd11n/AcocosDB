@@ -156,6 +156,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Relaxes DENY to SAMEORIGIN for /panel/ ONLY, so Jazzmin's own same-origin
+    # "add related object" iframe popup works — see the middleware's docstring.
+    "apps.core.middleware.AdminFrameOptionsMiddleware",
     "simple_history.middleware.HistoryRequestMiddleware",
     "apps.core.errors.CorrelationIdMiddleware",  # logs unhandled exceptions with a cid
     "apps.core.middleware.RequestCounterMiddleware",
