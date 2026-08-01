@@ -14,10 +14,12 @@
    <button type="button" class="btn btn-ghost" data-clear-target="rate-modal">{% trans "Отмена" %}</button>
   </div>
  </form>
- {# «Обновить из НБКР» button removed for now — nbkr.kg blocks the production
-    server's IP, so it would silently do nothing there. The endpoint
-    (pos:refresh_rates) and the fetch logic (fetch_nbkr_rates) are untouched
-    and confirmed working from a local dev machine; re-add a button pointing
-    at pos:refresh_rates here if that ever changes (a proxied fetch via
-    settings.NBKR_PROXY, or NBKR unblocking the server IP). #}
+ {% comment %}
+ «Обновить из НБКР» button removed for now — nbkr.kg blocks the production
+ server's IP, so it would silently do nothing there. The endpoint
+ (pos:refresh_rates) and the fetch logic (fetch_nbkr_rates) are untouched
+ and confirmed working from a local dev machine; re-add a button pointing
+ at pos:refresh_rates here if that ever changes (a proxied fetch via
+ settings.NBKR_PROXY, or NBKR unblocking the server IP).
+ {% endcomment %}
 </div>
