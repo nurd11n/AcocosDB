@@ -954,7 +954,8 @@ def test_pos_share_receipt_redirects_to_whatsapp_and_logs(client, django_user_mo
     SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
     confirm_sale(order, user=editor)
 
-    resp = client.get(f"/pos/sale/{order.pk}/receipt/")
+    # POST, not GET: it writes an Interaction (see test_url_security).
+    resp = client.post(f"/pos/sale/{order.pk}/receipt/")
     assert resp.status_code == 302
     assert resp.url.startswith("https://wa.me/996700123456?text=")
     assert cust.interactions.filter(kind=Interaction.MESSAGE).count() == 1
@@ -972,14 +973,14 @@ def test_pos_debt_reminder_redirects_to_whatsapp_and_logs(client, django_user_mo
     SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
     confirm_sale(order, user=editor)  # unpaid -> client now owes 3200 KGS
 
-    resp = client.get(f"/pos/clients/{cust.pk}/remind/")
+    resp = client.post(f"/pos/clients/{cust.pk}/remind/")
     assert resp.status_code == 302
     assert resp.url.startswith("https://wa.me/996700999888?text=")
     assert cust.interactions.filter(kind=Interaction.MESSAGE).count() == 1
 
     # A client with no debt gets bounced back, nothing logged.
     paid = Client.objects.create(first_name="Zarina", phone="+996700111000")
-    resp2 = client.get(f"/pos/clients/{paid.pk}/remind/")
+    resp2 = client.post(f"/pos/clients/{paid.pk}/remind/")
     assert resp2.status_code == 302
     assert resp2.url == f"/pos/clients/{paid.pk}/"
 

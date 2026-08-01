@@ -1101,9 +1101,17 @@ def sale_return(request, pk):
 
 
 @pos_view
+@require_POST
 def share_receipt(request, pk):
     """Open WhatsApp with a ready-to-send receipt for a confirmed sale, and log
-    the touchpoint. A no-op redirect back if the sale has no client/phone."""
+    the touchpoint. A no-op redirect back if the sale has no client/phone.
+
+    POST-only and permission-gated because it WRITES an Interaction row. As a
+    GET it was reachable by a Viewer (documented read-only) and, having no CSRF
+    protection, could be fired by any page that got a logged-in manager to load
+    an <img src="…/receipt/"> — silently forging touchpoint history."""
+    if not request.user.has_perm("clients.add_interaction"):
+        raise PermissionDenied
     order = get_object_or_404(SaleOrder, pk=pk, status=SaleOrder.CONFIRMED)
     if not order.client or not order.client.phone:
         return redirect("pos:sale_result", pk=order.pk)
@@ -1120,8 +1128,14 @@ def share_receipt(request, pk):
 
 
 @pos_view
+@require_POST
 def debt_reminder(request, pk):
-    """Open WhatsApp with a polite debt reminder for a client, and log it."""
+    """Open WhatsApp with a polite debt reminder for a client, and log it.
+    POST-only and permission-gated for the same reason as share_receipt: it
+    writes an Interaction, so it must not be reachable by a Viewer or by a
+    cross-site GET."""
+    if not request.user.has_perm("clients.add_interaction"):
+        raise PermissionDenied
     client = get_object_or_404(Client, pk=pk)
     debts = client_debt(client)
     link = wa_link(client.phone, debt_reminder_text(client, debts)) if debts else ""

@@ -21,9 +21,16 @@
   {% endif %}
  </p>
  {% if client.note %}<p class="muted">{{ client.note }}</p>{% endif %}
- {% if debts and client.phone %}
- <a class="btn btn-ghost btn-ghost--debt" href="{% url 'pos:debt_reminder' client.pk %}" target="_blank" rel="noopener"
-    style="margin-top:var(--space-3)">{% trans "Напомнить о долге в WhatsApp" %}</a>
+ {% comment %}
+ POST for the same reason as the receipt button: it writes an Interaction, so a
+ Viewer must not reach it and a cross-site GET must not be able to fire it.
+ {% endcomment %}
+ {% if debts and client.phone and perms.clients.add_interaction %}
+ <form method="post" action="{% url 'pos:debt_reminder' client.pk %}" target="_blank" rel="noopener"
+    style="margin-top:var(--space-3)">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Напомнить о долге в WhatsApp" %}</button>
+ </form>
  {% endif %}
 </div>
 

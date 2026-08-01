@@ -204,3 +204,69 @@ def test_healthz_exempt_from_ssl_redirect_but_other_paths_still_forced(settings,
     other = mw(rf.get("/pos/"))
     assert other.status_code == 301
     assert other["Location"].startswith("https://")
+
+
+# ---- WhatsApp touchpoints write, so they need POST + write permission ------
+
+
+def test_receipt_and_reminder_reject_get(client, owner, variant):
+    """Both create an Interaction row. As GETs they carried no CSRF token, so
+    any page that got a logged-in manager to load an <img src=".../receipt/">
+    could forge touchpoint history."""
+    from apps.sales.models import SaleItem
+    from apps.sales.services import confirm_sale
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="WaSec", phone="+996700888333")
+    sale = SaleOrder.objects.create(created_by=owner, client=cust)
+    SaleItem.objects.create(order=sale, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(sale, user=owner)
+
+    for url in [
+        reverse("pos:share_receipt", args=[sale.pk]),
+        reverse("pos:debt_reminder", args=[cust.pk]),
+    ]:
+        assert client.get(url).status_code == 405, f"GET {url} should be 405"
+
+
+def test_viewer_cannot_write_interactions_via_the_whatsapp_endpoints(
+    client, django_user_model, variant
+):
+    """A Viewer is documented read-only. These endpoints write, so a Viewer
+    must be refused even with a valid CSRF-bearing POST."""
+    from django.contrib.auth.models import Group
+
+    from apps.clients.models import Interaction
+    from apps.core.permissions import VIEWER
+    from apps.sales.models import SaleItem
+    from apps.sales.services import confirm_sale
+
+    call_command("setup_roles")
+    owner_user = django_user_model.objects.create_superuser("wa_owner", "w@e.com", "x" * 12)
+    viewer = django_user_model.objects.create_user("wa_viewer", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="WaViewer", phone="+996700888444")
+    sale = SaleOrder.objects.create(created_by=owner_user, client=cust)
+    SaleItem.objects.create(order=sale, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(sale, user=owner_user)
+
+    client.force_login(viewer)
+    assert viewer.has_perm("clients.add_interaction") is False
+    before = Interaction.objects.count()
+    for url in [
+        reverse("pos:share_receipt", args=[sale.pk]),
+        reverse("pos:debt_reminder", args=[cust.pk]),
+    ]:
+        assert client.post(url).status_code == 403, f"Viewer POST {url} should be 403"
+    assert Interaction.objects.count() == before  # nothing written
+
+    # An Editor, who does hold the permission, still gets through.
+    from apps.core.permissions import EDITOR
+
+    editor = django_user_model.objects.create_user("wa_editor", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+    assert client.post(reverse("pos:share_receipt", args=[sale.pk])).status_code == 302
+    assert Interaction.objects.count() == before + 1

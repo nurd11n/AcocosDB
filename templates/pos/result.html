@@ -67,9 +67,17 @@
    {% endwith %}
  {% endif %}
 
- {% if order.status == "confirmed" and order.client.phone %}
- <a class="btn btn-ghost" href="{% url 'pos:share_receipt' order.pk %}" target="_blank" rel="noopener"
-    style="margin-top:var(--space-3)">{% trans "Отправить чек в WhatsApp" %}</a>
+ {% comment %}
+ A POST, not a link: sending the receipt writes an Interaction row, so it needs
+ CSRF protection and the write permission. target="_blank" still hands the
+ wa.me redirect to a new tab exactly as before.
+ {% endcomment %}
+ {% if order.status == "confirmed" and order.client.phone and perms.clients.add_interaction %}
+ <form method="post" action="{% url 'pos:share_receipt' order.pk %}" target="_blank" rel="noopener"
+    style="margin-top:var(--space-3)">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-ghost">{% trans "Отправить чек в WhatsApp" %}</button>
+ </form>
  {% endif %}
 
  {% if can_cancel %}
