@@ -17,10 +17,76 @@ Health probe: `GET /healthz/` → `200 ok` when DB + cache are up, `503` otherwi
 
 ### Login
 
-Plain username + password at `/login/` — the same page gates both `/pos/` and
-`/panel/` (admin). No second factor: this is 2-4 trusted staff on their own
-devices. Brute force is still capped by django-axes (5 failures → 1-hour lock).
-Create the first account with `createsuperuser` (below) and log straight in.
+Username + password + a one-time code, in a single POST, at `/login/` — the
+same page gates both `/pos/` and `/panel/` (admin). Gated by `OTP_ENABLED`
+(True in prod, False in dev/tests — see `config/settings`). Brute force is
+capped by django-axes (5 failures → 1-hour lock); a wrong code counts toward
+that lock exactly like a wrong password.
+
+**First login on a fresh database (no device enrolled yet):**
+```
+docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser
+docker compose -f docker-compose.prod.yml exec web python manage.py addstatictoken <username>
+# prints a one-time code, e.g. "a1b2c3d4e5f6g7h8"
+```
+Log in at `/login/` with that username/password and the printed code as the
+"code" field — it's a real, valid (if single-use) device, so this is a normal
+login, not a bypass. Once in, open **2FA** in the header (or the user-menu
+link inside `/panel/`) to scan a QR code and enroll a real TOTP device
+(Google Authenticator, Authy, etc.) for every subsequent login. The bootstrap
+code is consumed on first use — if you need another one before enrolling a
+real device, re-run `addstatictoken`.
+
+### Enabling 2FA on an existing deployment (upgrade, not a fresh install)
+
+`OTP_ENABLED` defaults to `True` in code. If you deploy this straight onto an
+**already-running** instance that has real logged-in staff with zero enrolled
+devices, every one of them gets bounced to `/login/` on their next click and
+then **cannot get back in** — there's no device yet to supply a code for.
+Avoid that with a two-step rollout instead of a single deploy:
+
+**Step 1 — ship the code with 2FA still off, so the upgrade itself is a
+non-event.**
+```bash
+# On the server, in the repo directory:
+grep -q '^OTP_ENABLED=' .env && sed -i 's/^OTP_ENABLED=.*/OTP_ENABLED=False/' .env \
+  || echo 'OTP_ENABLED=False' >> .env
+
+git pull
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml ps                      # everything "running (healthy)"
+curl -sI https://your-domain.example/healthz/ | head -1           # expect HTTP/2 200
+```
+Login still works exactly as before (password only) — confirm that in a
+browser before continuing.
+
+**Step 2 — every staff member enrolls a device while logins are still
+password-only.** Each person: log in normally, open **2FA** in the `/pos/`
+header, scan the QR with an authenticator app, enter the 6-digit code it
+shows to confirm. Do this for every account that logs in, Owner included —
+not just superusers.
+
+**Step 3 — confirm nobody was missed, then flip the flag.**
+```bash
+# On the server:
+docker compose -f docker-compose.prod.yml exec web python manage.py shell -c "
+from django.contrib.auth import get_user_model
+from django_otp import user_has_device
+for u in get_user_model().objects.filter(is_active=True):
+    print(u.username, 'device enrolled:' , user_has_device(u))
+"
+# Every active account must print True before continuing. For anyone still
+# False, either have them finish enrolling now, or hand them a one-time
+# bootstrap code so they aren't locked out at step 4:
+#   docker compose -f docker-compose.prod.yml exec web python manage.py addstatictoken <username>
+
+sed -i 's/^OTP_ENABLED=.*/OTP_ENABLED=True/' .env
+docker compose -f docker-compose.prod.yml up -d
+```
+**Step 4 — verify.** Log out and back in as yourself with your real device's
+code. Confirm a teammate can too. If anyone is unexpectedly locked out, SSH in
+and run `addstatictoken` for them (same command as the fresh-install bootstrap
+above) — it always works, 2FA or not, since it hands out a real device.
 
 ## Deploy runbook — empty VPS to a working ACOCOS
 
@@ -84,14 +150,19 @@ docker compose -f docker-compose.prod.yml exec web python manage.py migrate
 docker compose -f docker-compose.prod.yml exec web python manage.py setup_roles
 ```
 
-**7. Create the Owner account (superuser).**
+**7. Create the Owner account (superuser) and its 2FA bootstrap code.**
 ```bash
 docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser
+docker compose -f docker-compose.prod.yml exec web python manage.py addstatictoken <username>
+# prints a one-time code — you'll need it for step 8, then again to enroll a
+# real device (see the Login section above)
 ```
 
 **8. First login.** Open `https://your-domain.example/` — it redirects to
-`/login/`. Log in with the superuser you just created; you land on `/pos/`
-and see the «Админпанель» link in the header (Owner-only).
+`/login/`. Log in with the superuser you just created, the printed code as
+the "code" field; you land on `/pos/` and see the «Админпанель» link in the
+header (Owner-only). Enroll a real TOTP device at **2FA** in the header right
+away — the bootstrap code is single-use.
 
 **9. Import the existing catalog** (she already has stock — see **Data
 import** below for the file format):

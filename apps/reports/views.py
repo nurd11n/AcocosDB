@@ -84,11 +84,16 @@ def owner_only(view):
     """Every analytics surface (dashboard, storage, exports) is Owner-only:
     an anonymous hit bounces to /login/, an authenticated non-superuser
     (Editor/Viewer) gets a hard 403 — they never see a link to these pages and
-    can't reach them by typing the URL either."""
+    can't reach them by typing the URL either. An authenticated-but-not-yet-
+    2FA-verified session (see apps.core.otp) bounces to /login/ too, same as
+    anonymous — that session hasn't finished authenticating, it isn't denied
+    outright."""
 
     @wraps(view)
     def wrapper(request, *args, **kwargs):
-        if not request.user.is_authenticated:
+        from apps.core.otp import verified
+
+        if not verified(request.user):
             from django.contrib.auth.views import redirect_to_login
 
             return redirect_to_login(request.get_full_path())

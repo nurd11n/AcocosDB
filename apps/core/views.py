@@ -1,8 +1,9 @@
 """Owner statistics dashboard + authorized report downloads.
 
 Everything here is superuser-only: `_superuser_required` returns 302→login for
-anonymous users and 403 for a logged-in non-superuser, so the pages can't be
-reached just by guessing the URL.
+an anonymous OR not-yet-2FA-verified user (see apps.core.otp) and 403 for a
+fully logged-in non-superuser, so the pages can't be reached just by guessing
+the URL.
 """
 
 from datetime import timedelta
@@ -56,7 +57,9 @@ def set_theme(request):
 def _superuser_required(view):
     @wraps(view)
     def wrapper(request, *args, **kwargs):
-        if not request.user.is_authenticated:
+        from apps.core.otp import verified
+
+        if not verified(request.user):
             return redirect_to_login(request.get_full_path())
         if not request.user.is_superuser:
             raise PermissionDenied

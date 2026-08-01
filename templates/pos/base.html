@@ -23,6 +23,7 @@
 <header class="top">
  <a class="top__brand" href="{% url 'pos:index' %}" aria-label="{% trans 'К продажам' %}">ACOCOS</a>
  <div class="top__actions">
+  <a class="top__link" href="{% url 'otp-enroll' %}" aria-label="{% trans 'Двухфакторный вход' %}"><svg class="ic"><use href="#i-check"/></svg><span class="lbl">{% trans "2FA" %}</span></a>
   {% if request.user.is_superuser %}
    <a class="top__link" href="{% url 'dashboard' %}" aria-label="{% trans 'Дашборд' %}"><svg class="ic"><use href="#i-revenue"/></svg><span class="lbl">{% trans "Дашборд" %}</span></a>
    <a class="top__link" href="{% url 'storage' %}" aria-label="{% trans 'Склад' %}"><svg class="ic"><use href="#i-storage"/></svg><span class="lbl">{% trans "Склад" %}</span></a>

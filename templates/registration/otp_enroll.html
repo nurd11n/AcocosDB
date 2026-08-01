@@ -1,0 +1,23 @@
+{% extends "pos/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Двухфакторный вход" %}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2><svg class="ic"><use href="#i-check"/></svg>{% trans "Настройка двухфакторного входа" %}</h2>
+ <p class="hint">
+   {% blocktrans %}Отсканируйте QR-код в приложении-аутентификаторе (Google Authenticator,
+   Authy и т.п.), затем введите код, который оно покажет, чтобы включить устройство.{% endblocktrans %}
+ </p>
+ {% if error %}<div class="error">{{ error }}</div>{% endif %}
+ <img src="{{ qr }}" alt="{% trans 'QR-код для настройки' %}" width="220" height="220"
+   style="display:block;margin:var(--space-3) 0;border-radius:8px">
+ <form method="post">
+  {% csrf_token %}
+  <label for="id_token">{% trans "Код из приложения" %}</label>
+  <input type="text" name="token" id="id_token" inputmode="numeric" autocomplete="one-time-code"
+    placeholder="{% trans "напр. 123456" %}" autofocus required>
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">
+    {% trans "Подтвердить и включить" %}</button>
+ </form>
+</div>
+{% endblock %}

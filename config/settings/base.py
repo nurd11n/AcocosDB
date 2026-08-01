@@ -126,6 +126,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # security / auditing
     "axes",
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
     "simple_history",
     "import_export",
     # project apps
@@ -157,6 +160,12 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Populates request.user.is_verified() from the session's OTP device — must
+    # sit directly after AuthenticationMiddleware, the same way it populates
+    # request.user itself. Installed unconditionally (cheap, a no-op read of an
+    # empty session key); OTP_ENABLED below is what actually GATES on the
+    # result, so dev/test runs are unaffected either way.
+    "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Relaxes DENY to SAMEORIGIN for /panel/ ONLY, so Jazzmin's own same-origin
@@ -280,6 +289,23 @@ AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
 # so every user shares one IP bucket and the ip dimension of a lockout is
 # meaningless. Never read X-Forwarded-For here: its leftmost hop is spoofable.
 AXES_IPWARE_META_PRECEDENCE_ORDER = ["HTTP_X_REAL_IP", "REMOTE_ADDR"]
+
+# --- Two-factor auth (django-otp) ---
+# Every entry point sits behind this now — /panel/, /pos/, /dashboard/, report
+# downloads, all of it (see apps.core.otp.verified_login_required, owner_only,
+# _superuser_required, and config.urls._AdminSite.has_permission). ONE combined
+# login form at /login/ (username + password + token in one POST) serves both
+# /panel/ and /pos/ — see apps.core.auth_views.UnifiedAuthenticationForm.
+# Default True: a bare prod deploy with no .env override ships 2FA ON, the safe
+# default for every other flag in this file is the opposite (off-by-default for
+# NOT-yet-ready bot features) — this is the inverse case, a READY control that
+# must not silently disable itself. dev.py flips the default to False so the
+# test suite (which runs under it) stays fast; an explicit .env value always wins.
+OTP_ENABLED = env.bool("OTP_ENABLED", default=True)
+# Shown as the account label in the user's authenticator app (Google
+# Authenticator, Authy, etc.) so "ACOCOS" is unambiguous next to their other
+# accounts. Cosmetic only — never used for anything security-relevant.
+OTP_TOTP_ISSUER = "ACOCOS"
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -408,6 +434,7 @@ JAZZMIN_SETTINGS = {
     ],
     "usermenu_links": [
         {"name": "Терминал ACOCOS", "url": "pos:index", "icon": "fas fa-cash-register"},
+        {"name": "Двухфакторный вход", "url": "otp-enroll", "icon": "fas fa-shield-alt"},
     ],
     # Restores CSS jazzmin's own current main.css is missing — the "add
     # related object" popup's iframe is unsized there, leaving it stranded at

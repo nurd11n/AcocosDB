@@ -18,8 +18,10 @@
    <h1 class="login-wordmark">ACOCOS</h1>
    <p class="login-sub">{% trans "Sign in to continue" %}</p>
    {% if form.non_field_errors or form.errors %}
-    {# One message for every failure — never reveal which factor was wrong. #}
-    <div class="login-error" role="alert">{% trans "Неверный логин или пароль." %}</div>
+    {# One message for every failure — never reveal which factor was wrong.
+       Rendered from the form itself (not duplicated here) so it always
+       matches GENERIC_LOGIN_ERROR, whichever form is active. #}
+    <div class="login-error" role="alert">{{ form.non_field_errors.0 }}</div>
    {% endif %}
    <form method="post" novalidate>
     {% csrf_token %}
@@ -31,6 +33,12 @@
      <label for="{{ form.password.id_for_label }}">{% trans "Password" %}</label>
      {{ form.password }}
     </div>
+    {% if form.otp_token %}
+    <div class="login-field">
+     <label for="{{ form.otp_token.id_for_label }}">{% trans "Код (приложение или резервный)" %}</label>
+     {{ form.otp_token }}
+    </div>
+    {% endif %}
     {# `next` is already validated by LoginView.get_redirect_url (open-redirect guard). #}
     <input type="hidden" name="next" value="{{ next }}">
     <button type="submit" class="btn btn-primary" style="margin-top:var(--space-4)">{% trans "Log in" %}</button>
