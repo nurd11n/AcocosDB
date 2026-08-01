@@ -20,7 +20,7 @@
   <input name="first_name" value="{{ new_client_values.first_name|default:'' }}" required>
   <label>{% trans "Уточнение" %}</label>
   <input name="descriptor" value="{{ new_client_values.descriptor|default:'' }}"
-    placeholder="{% trans "напр. район или профессия — если есть тёзки" %}">
+    placeholder="{% trans "напр. район или профессия" %}">
   <label>{% trans "Телефон" %}</label>
   <input name="phone" type="tel" inputmode="tel" value="{{ new_client_values.phone|default:'' }}" required>
   <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Создать и продолжить" %}</button>
