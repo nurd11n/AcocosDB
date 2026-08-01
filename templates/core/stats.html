@@ -1,66 +1,10 @@
-{% load i18n l10n %}<!doctype html>
+{% load i18n l10n static %}<!doctype html>
 <html lang="{{ LANGUAGE_CODE|default:'en' }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ACOCOS — {% trans "Statistics" %}</title>
-<style>
- :root{
-   --bg:#f4f5f7; --card:#ffffff; --ink:#1b1f24; --muted:#6b7280; --line:#e5e7eb;
-   --accent:#2563eb; --accent-soft:#dbeafe; --bar:#3b82f6; --bar2:#8b5cf6;
-   --good:#1a7f37; --warn:#9a6700; --bad:#b42318; --shadow:0 1px 3px rgba(0,0,0,.08);
- }
- @media (prefers-color-scheme: dark){
-   :root{
-     --bg:#0f1115; --card:#1a1d23; --ink:#e6e8eb; --muted:#9aa1ab; --line:#2a2e37;
-     --accent:#60a5fa; --accent-soft:#1e293b; --bar:#3b82f6; --bar2:#a78bfa;
-     --shadow:0 1px 3px rgba(0,0,0,.4);
-   }
- }
- *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--ink);
-   font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5}
- .wrap{max-width:1040px;margin:0 auto;padding:24px 20px 60px}
- .top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:8px}
- h1{font-size:22px;margin:0}
- h2{font-size:15px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:32px 0 12px}
- a{color:var(--accent);text-decoration:none}
- a:hover{text-decoration:underline}
- .back{font-size:14px}
- .downloads{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
- .btn{display:inline-block;background:var(--accent);color:#fff;padding:7px 13px;border-radius:8px;
-   font-size:13px;font-weight:500}
- .btn:hover{text-decoration:none;opacity:.92}
- .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
- .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:18px}
- .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
- .card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
- .card .value{font-size:26px;font-weight:700;margin-top:6px}
- .card .unit{font-size:14px;font-weight:500;color:var(--muted)}
- .card.flag{border-color:var(--warn)}
- .card.flag .value{color:var(--warn)}
- .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow)}
- .bars{display:flex;flex-direction:column;gap:10px}
- .barrow{display:grid;grid-template-columns:110px 1fr 96px;align-items:center;gap:10px;font-size:13px}
- .barrow .track{background:var(--accent-soft);border-radius:6px;height:16px;overflow:hidden}
- .barrow .fill{height:100%;border-radius:6px;background:var(--bar)}
- .barrow.alt .fill{background:var(--bar2)}
- .barrow .amt{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
- table{width:100%;border-collapse:collapse;font-size:13px}
- th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
- th{color:var(--muted);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.03em}
- td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
- .empty{color:var(--muted);font-size:13px;padding:8px 0}
- .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
- @media(max-width:720px){.grid2{grid-template-columns:1fr}.barrow{grid-template-columns:90px 1fr 80px}}
- .calc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;
-   box-shadow:var(--shadow);margin-top:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:end}
- .calc label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
- .calc select,.calc input{padding:7px 9px;border:1px solid var(--line);border-radius:8px;
-   background:var(--bg);color:var(--ink);font-size:14px}
- .calc .note{font-size:12px;color:var(--muted);margin-left:auto;align-self:center;max-width:280px}
- .calc .warn{color:var(--bad)}
-</style>
+<link rel="stylesheet" href="{% static 'core/stats.css' %}">
 </head>
 <body>
 <div class="wrap">

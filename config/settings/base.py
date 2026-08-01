@@ -170,15 +170,25 @@ AXES_LOCKOUT_TEMPLATE = "errors/lockout.html"
 # Everything is self-hosted (HTMX/Inter/icons all vendored — no CDN), so the
 # policy is strict: script-src 'self' with NO 'unsafe-inline'. Every /pos/ and
 # /login/ behaviour lives in an external .js file (confirm.js/pos.js); there are
-# no inline <script> blocks or on* handlers to whitelist. Inline STYLE
-# attributes are used throughout the layout, so style-src allows 'unsafe-inline'
-# (styles can't exfiltrate data the way scripts can). data: images cover the
-# icon data-URIs. The Jazzmin admin (third-party, uses inline
-# scripts we don't control) is excluded — it's an authenticated staff surface,
-# not the public POS the strict policy protects.
+# no inline <script> blocks or on* handlers to whitelist. data: images cover the
+# icon data-URIs. The Jazzmin admin (third-party, uses inline scripts we don't
+# control) is excluded — it's an authenticated staff surface, not the public
+# POS the strict policy protects.
+#
+# STYLES: 'unsafe-inline' is confined to style ATTRIBUTES, which a handful of
+# templates genuinely need — progress-bar widths and chart segment colours are
+# per-row values (style="width:{{ pct }}%"), and no static class can express
+# them. It is NOT granted to style ELEMENTS: style-src-elem stays 'self', so an
+# injected <style> block or a remote @import — the shapes used for CSS-based
+# data exfiltration and UI redressing — is refused. Older browsers that don't
+# know the -attr/-elem directives fall back to style-src, which keeps
+# 'unsafe-inline' so the layout still renders there.
 CSP_DEFAULT_SRC = ("'self'",)
 CSP_SCRIPT_SRC = ("'self'",)
-CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
+CSP_SCRIPT_SRC_ATTR = ("'none'",)  # no on*= handlers, anywhere
+CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")  # legacy fallback only
+CSP_STYLE_SRC_ELEM = ("'self'",)  # no injected <style>/@import
+CSP_STYLE_SRC_ATTR = ("'self'", "'unsafe-inline'")  # the style="" attributes
 CSP_IMG_SRC = ("'self'", "data:")
 CSP_FONT_SRC = ("'self'",)
 CSP_CONNECT_SRC = ("'self'",)
