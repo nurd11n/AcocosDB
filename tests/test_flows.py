@@ -3610,6 +3610,58 @@ def test_orders_index_status_filter_separates_open_from_delivered(
     assert Order.objects.count() == 2
 
 
+def test_order_page_offers_a_way_out_that_is_not_handing_over(
+    client, django_user_model, variant, settings
+):
+    """«Выдать заказ» is irreversible — it confirms a sale and deducts stock.
+    It may only LOOK like the default action once the order is готов; until
+    then leaving the page must be the visually obvious move, or a manager
+    trying to finish editing reaches for the destructive button."""
+    import re
+
+    from apps.orders.models import Order
+    from apps.orders.services import create_order, mark_produced
+
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("exit_owner", "e@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="ExitRoute", phone="+996700002281")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 2, "unit_price": variant.sale_price}]
+    )
+
+    def deliver_button_class(body):
+        m = re.search(r'<button type="submit" class="btn (btn-\w+)"[^>]*>\s*Выдать заказ', body)
+        assert m, "the Выдать заказ button disappeared"
+        return m.group(1)
+
+    body = client.get(f"/orders/{order.pk}/").content.decode()
+    assert "back-link" in body  # an escape hatch above the fold
+    assert "К заказам" in body  # ...and one next to the money actions
+    assert deliver_button_class(body) == "btn-ghost"  # not the default-looking action
+
+    # Once everything is produced the order is готов and handing it over IS
+    # the natural next step, so it earns the primary styling.
+    for item in order.items.all():
+        mark_produced(item, item.quantity, user=owner)
+    order.refresh_from_db()
+    assert order.status == Order.READY
+    body = client.get(f"/orders/{order.pk}/").content.decode()
+    assert deliver_button_class(body) == "btn-primary"
+    assert "К заказам" in body  # the exit never goes away
+
+
+def test_admin_panel_links_back_to_the_pos_terminal(client, django_user_model):
+    """/panel/ used to be a one-way door — the POS header links in and nothing
+    linked back, so the only way out was editing the URL by hand."""
+    client.force_login(
+        django_user_model.objects.create_superuser("panel_owner", "p@e.com", "x" * 12)
+    )
+    body = client.get("/panel/").content.decode()
+    assert "Терминал ACOCOS" in body
+    assert 'href="/pos/"' in body
+
+
 def test_mark_produced_creates_movement_and_raises_available(variant, django_user_model, settings):
     from apps.inventory.services import available_for
     from apps.orders.models import Order

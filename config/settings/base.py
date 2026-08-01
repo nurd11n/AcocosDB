@@ -381,6 +381,18 @@ JAZZMIN_SETTINGS = {
     # Native topbar dropdowns — no custom template/view needed for either.
     "show_theme_chooser": True,
     "language_chooser": True,
+    # The way OUT of /panel/. Without these the admin is a one-way door: the
+    # POS header links in, and nothing links back, so the only route to the
+    # terminal is editing the URL. Both menus get it — the topbar one is the
+    # obvious target, the user-dropdown one survives a narrow screen where the
+    # topbar collapses. pos:index reuses the manager's existing open draft
+    # (apps.pos.views.index), so clicking it repeatedly never piles up drafts.
+    "topmenu_links": [
+        {"name": "Терминал ACOCOS", "url": "pos:index", "icon": "fas fa-cash-register"},
+    ],
+    "usermenu_links": [
+        {"name": "Терминал ACOCOS", "url": "pos:index", "icon": "fas fa-cash-register"},
+    ],
     "order_with_respect_to": [
         "sales",
         "sales.SaleOrder",

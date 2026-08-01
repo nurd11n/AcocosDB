@@ -2,6 +2,7 @@
 {% load i18n %}
 {% block title %}{% trans "Новый заказ" %}{% endblock %}
 {% block content %}
+<a class="back-link" href="{% url 'orders:index' %}">← {% trans "Все заказы" %}</a>
 <div class="card">
  <h2><svg class="ic"><use href="#i-orders"/></svg>{% trans "Новый заказ — клиент" %}</h2>
  <input type="search" name="q" placeholder="{% trans "Телефон или имя" %}" inputmode="tel" autofocus
