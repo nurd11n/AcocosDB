@@ -406,6 +406,11 @@ JAZZMIN_SETTINGS = {
     "usermenu_links": [
         {"name": "Терминал ACOCOS", "url": "pos:index", "icon": "fas fa-cash-register"},
     ],
+    # Restores CSS jazzmin's own current main.css is missing — the "add
+    # related object" popup's iframe is unsized there, leaving it stranded at
+    # browser-default size in a corner of an otherwise-empty modal (see
+    # static/core/jazzmin-overrides.css for the diff that proves it).
+    "custom_css": "core/jazzmin-overrides.css",
     "order_with_respect_to": [
         "sales",
         "sales.SaleOrder",
