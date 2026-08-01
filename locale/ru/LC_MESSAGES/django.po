@@ -863,26 +863,21 @@ msgid "overdue"
 msgstr "просрочен"
 
 #: apps/orders/admin.py:59
-#, fuzzy
-#| msgid "Cancel selected sales (returns stock)"
 msgid "Cancel selected orders (releases reservation)"
-msgstr "Отменить выбранные продажи (возвращает остаток)"
+msgstr "Отменить выбранные заказы (снимает резерв)"
 
 #: apps/orders/admin.py:63
 msgid "Cancelling an order is Owner-only."
 msgstr "Отменить заказ может только владелец."
 
 #: apps/orders/admin.py:75
-#, fuzzy, python-format
-#| msgid "Settled %(n)s order(s)."
+#, python-format
 msgid "Cancelled %(n)s order(s)."
-msgstr "Погашено заказов: %(n)s."
+msgstr "Отменено заказов: %(n)s."
 
 #: apps/orders/models.py:30
-#, fuzzy
-#| msgid "product"
 msgid "In production"
-msgstr "товар"
+msgstr "В производстве"
 
 #: apps/orders/models.py:31
 msgid "Ready"
@@ -893,50 +888,36 @@ msgid "Delivered"
 msgstr "Выдан"
 
 #: apps/orders/models.py:50
-#, fuzzy
-#| msgid "date"
 msgid "due date"
-msgstr "дата"
+msgstr "срок"
 
 #: apps/orders/models.py:71
-#, fuzzy
-#| msgid "reviewed at"
 msgid "delivered at"
-msgstr "дата проверки"
+msgstr "дата выдачи"
 
 #: apps/orders/models.py:75 apps/sales/models.py:237
-#, fuzzy
-#| msgid "Production intake"
 msgid "production order"
-msgstr "Приход с производства"
+msgstr "заказ на производство"
 
 #: apps/orders/models.py:76
-#, fuzzy
-#| msgid "Production intake"
 msgid "production orders"
-msgstr "Приход с производства"
+msgstr "заказы на производство"
 
 #: apps/orders/models.py:125 apps/sales/models.py:155
 msgid "unit price"
 msgstr "цена за единицу"
 
 #: apps/orders/models.py:132
-#, fuzzy
-#| msgid "Counted quantity"
 msgid "produced quantity"
-msgstr "Посчитанное количество"
+msgstr "произведено"
 
 #: apps/orders/models.py:135
-#, fuzzy
-#| msgid "sale item"
 msgid "order item"
-msgstr "позиция продажи"
+msgstr "позиция заказа"
 
 #: apps/orders/models.py:136
-#, fuzzy
-#| msgid "sale items"
 msgid "order items"
-msgstr "позиции продажи"
+msgstr "позиции заказа"
 
 #: apps/orders/services.py:33
 msgid "Order must have at least one item."
@@ -947,16 +928,13 @@ msgid "Quantity to produce must be positive."
 msgstr "Количество к производству должно быть положительным."
 
 #: apps/orders/services.py:156
-#, fuzzy, python-format
-#| msgid "Cannot return %(qty)s of %(sku)s — only %(have)s were sold."
+#, python-format
 msgid "Cannot produce %(qty)s — only %(remaining)s remain on this line."
-msgstr "Нельзя вернуть %(qty)s шт. %(sku)s — продано только %(have)s."
+msgstr "Нельзя произвести %(qty)s — на этой позиции осталось %(remaining)s."
 
 #: apps/orders/services.py:196
-#, fuzzy
-#| msgid "Only pending sales can be approved."
 msgid "Only an open order can be handed over."
-msgstr "Одобрить можно только ожидающую продажу."
+msgstr "Выдать можно только открытый заказ."
 
 #: apps/orders/services.py:199
 msgid "Order has no items."
@@ -3012,3 +2990,8 @@ msgstr "коррект."
 #: templates/reports/storage.html:143
 msgid "мало"
 msgstr "мало"
+
+#: apps/orders/models.py:34
+msgctxt "production order status"
+msgid "Cancelled"
+msgstr "Отменён"

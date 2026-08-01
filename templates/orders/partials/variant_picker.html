@@ -1,13 +1,16 @@
 {% load i18n pos_extras %}
 {% comment %}
 Opens as a modal over the order builder (#variant-picker:not(:empty) in
-app.css). The form is a PLAIN post, not HTMX: item_add redirects back to the
-order page, which reloads and clears this overlay for free — no partial to
-keep in sync, and no stock cap anywhere in sight (that's the point of a заказ).
+app.css). Adding swaps #order-body and the response clears this overlay
+out-of-band, so a manager can add several items in a row without the page
+ever navigating. No stock cap anywhere in sight — that's the point of a заказ.
+Falls back to a normal POST + redirect when JS is unavailable (see
+apps.orders.views._after_mutation).
 {% endcomment %}
 <div class="card">
  <h2>{{ product.name }}</h2>
- <form method="post" action="{% url 'orders:item_add' order.pk %}">
+ <form method="post" action="{% url 'orders:item_add' order.pk %}"
+   hx-post="{% url 'orders:item_add' order.pk %}" hx-target="#order-body" hx-swap="innerHTML">
   {% csrf_token %}
   <label>{% trans "Вариант" %}</label>
   <select name="variant_id" required>

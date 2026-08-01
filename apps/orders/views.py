@@ -260,6 +260,49 @@ def variant_picker(request, pk, product_id):
     )
 
 
+def _is_htmx(request) -> bool:
+    """HTMX swaps the order body in place; a plain POST (JS blocked, or a
+    test hitting the endpoint directly) still gets the redirect. Every control
+    on the builder therefore works both ways — the swap is an enhancement, not
+    the mechanism."""
+    return request.headers.get("HX-Request") == "true"
+
+
+def _body_context(request, order, error=None) -> dict:
+    """Everything the order body renders — the item lines, срок, аванс and the
+    totals. One context builder for the full page and for every partial swap,
+    so a value can never drift between the two."""
+    paid = order_paid_amount(order)
+    return {
+        "order": order,
+        "items": list(order.items.select_related("variant__product")),
+        "deposits": list(order.deposits.order_by("-created_at")),
+        "paid": paid,
+        "remaining": max(order.total - paid, Decimal("0")),
+        "currencies": CURRENCY_CODES,
+        "methods": Payment.METHOD_CHOICES,
+        "can_write": request.user.has_perm("orders.add_order"),
+        "error": error,
+    }
+
+
+def _after_mutation(request, order, error=None):
+    """Swap the body for HTMX, redirect otherwise. Errors ride inside the
+    partial (a swapped fragment never reaches base.html's message block, so
+    messages.error would silently vanish on the HTMX path)."""
+    if _is_htmx(request):
+        # mark_produced can auto-advance the order to готов, and item_add can
+        # switch its currency — re-read so the swapped body reflects the row
+        # as it now is, not as it was when the view started.
+        order.refresh_from_db()
+        return render(
+            request, "orders/partials/order_body.html", _body_context(request, order, error)
+        )
+    if error:
+        messages.error(request, error)
+    return redirect("orders:detail", pk=order.pk)
+
+
 @pos_view
 @require_can_sell
 @require_POST
@@ -285,7 +328,7 @@ def item_add(request, pk):
             unit_price=variant.sale_price,
             currency=variant.currency,
         )
-    return redirect("orders:detail", pk=order.pk)
+    return _after_mutation(request, order)
 
 
 @pos_view
@@ -294,30 +337,15 @@ def item_add(request, pk):
 def item_remove(request, pk, item_id):
     order = get_object_or_404(Order, pk=pk)
     order.items.filter(pk=item_id).delete()
-    return redirect("orders:detail", pk=order.pk)
+    return _after_mutation(request, order)
 
 
 @pos_view
 def detail(request, pk):
     order = get_object_or_404(Order, pk=pk)
-    items = list(order.items.select_related("variant__product"))
-    deposits = list(order.deposits.order_by("-created_at"))
-    paid = order_paid_amount(order)
-    return render(
-        request,
-        "orders/detail.html",
-        {
-            "order": order,
-            "items": items,
-            "deposits": deposits,
-            "paid": paid,
-            "remaining": max(order.total - paid, Decimal("0")),
-            "currencies": CURRENCY_CODES,
-            "methods": Payment.METHOD_CHOICES,
-            "can_write": request.user.has_perm("orders.add_order"),
-            "active": "orders",
-        },
-    )
+    context = _body_context(request, order)
+    context["active"] = "orders"
+    return render(request, "orders/detail.html", context)
 
 
 @pos_view
@@ -329,7 +357,7 @@ def set_due_date(request, pk):
     order.due_date = raw or None
     order.note = request.POST.get("note", "").strip()
     order.save(update_fields=["due_date", "note"])
-    return redirect("orders:detail", pk=order.pk)
+    return _after_mutation(request, order)
 
 
 @pos_view
@@ -340,12 +368,13 @@ def deposit_add(request, pk):
     amount = _parse_decimal(request.POST.get("amount"))
     currency = request.POST.get("currency") or order.currency
     method = request.POST.get("method") or Payment.CASH
+    error = None
     if amount and amount > 0:
         try:
             record_deposit(order, amount, user=request.user, method=method, currency=currency)
         except ValidationError as exc:
-            messages.error(request, "; ".join(exc.messages))
-    return redirect("orders:detail", pk=order.pk)
+            error = "; ".join(exc.messages)
+    return _after_mutation(request, order, error)
 
 
 @pos_view
@@ -354,6 +383,7 @@ def deposit_add(request, pk):
 def produce(request, pk, item_id):
     order = get_object_or_404(Order, pk=pk)
     item = get_object_or_404(OrderItem, pk=item_id, order=order)
+    error = None
     try:
         qty = int(request.POST.get("quantity", "0"))
     except (TypeError, ValueError):
@@ -362,8 +392,8 @@ def produce(request, pk, item_id):
         try:
             mark_produced(item, qty, user=request.user)
         except ValidationError as exc:
-            messages.error(request, "; ".join(exc.messages))
-    return redirect("orders:detail", pk=order.pk)
+            error = "; ".join(exc.messages)
+    return _after_mutation(request, order, error)
 
 
 @pos_view

@@ -3610,6 +3610,90 @@ def test_orders_index_status_filter_separates_open_from_delivered(
     assert Order.objects.count() == 2
 
 
+def test_order_builder_swaps_in_place_for_htmx_and_redirects_without_it(
+    client, django_user_model, variant, settings
+):
+    """Building an order used to be a full page load per item. Every control
+    now swaps #order-body, and the same endpoint still redirects for a plain
+    POST — the swap is an enhancement, not the mechanism."""
+    from apps.orders.services import create_order
+
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("swap_owner", "s@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Swap", phone="+996700002291")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 1, "unit_price": variant.sale_price}]
+    )
+    add_url = f"/orders/{order.pk}/items/add/"
+
+    # No JS: a normal POST still redirects back to the order.
+    resp = client.post(add_url, {"variant_id": variant.pk, "quantity": 1})
+    assert resp.status_code == 302
+
+    # HTMX: a fragment comes back instead, and it closes the picker modal
+    # out-of-band so the next item can be added without leaving the page.
+    resp = client.post(add_url, {"variant_id": variant.pk, "quantity": 1}, HTTP_HX_REQUEST="true")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert not body.lstrip().startswith("<!doctype")
+    assert 'id="variant-picker" hx-swap-oob' in body
+    assert str(variant) in body  # the line list came back with it
+
+
+def test_order_builder_shows_errors_inside_the_swapped_body(
+    client, django_user_model, variant, settings
+):
+    """A swapped fragment never reaches base.html's message block, so an
+    over-produce that used to go to messages.error would vanish silently."""
+    from apps.orders.services import create_order
+
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("err_owner", "er@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="ErrBody", phone="+996700002292")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 2, "unit_price": variant.sale_price}]
+    )
+    item = order.items.get()
+
+    resp = client.post(
+        f"/orders/{order.pk}/items/{item.pk}/produce/",
+        {"quantity": 99},  # more than the line has left
+        HTTP_HX_REQUEST="true",
+    )
+    assert resp.status_code == 200
+    assert 'class="error"' in resp.content.decode()
+    item.refresh_from_db()
+    assert item.produced_qty == 0  # and nothing was written
+
+
+def test_empty_order_hides_money_sections_until_it_has_items(
+    client, django_user_model, variant, settings
+):
+    """Аванс and Итого are meaningless against a 0 сом order — they appear
+    only once there's something to price."""
+    from apps.orders.models import Order
+
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("empty_owner", "em@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="EmptyOrd", phone="+996700002293")
+    order = Order.objects.create(client=cust, created_by=owner)
+
+    body = client.get(f"/orders/{order.pk}/").content.decode()
+    assert "Внести аванс" not in body
+    assert "Аванс внесён" not in body  # the totals card is out too
+    assert "найдите товар выше" in body  # ...replaced by what to do next
+
+    client.post(
+        f"/orders/{order.pk}/items/add/", {"variant_id": variant.pk, "quantity": 1}
+    )
+    body = client.get(f"/orders/{order.pk}/").content.decode()
+    assert "Внести аванс" in body
+    assert "Аванс внесён" in body
+
+
 def test_order_page_offers_a_way_out_that_is_not_handing_over(
     client, django_user_model, variant, settings
 ):
