@@ -13,7 +13,13 @@ class ExchangeRate(models.Model):
 
     MANUAL = "manual"
     NBKR = "nbkr"
-    SOURCE_CHOICES = [(MANUAL, _("Manual")), (NBKR, _("NBKR"))]
+    FRANKFURTER = "frankfurter"
+    # NBKR data now arrives via the Frankfurter API (nbkr.kg itself blocks
+    # this server's IP), pinned to its NBKR provider — so a Frankfurter-
+    # sourced rate is still genuinely NBKR data and stays labelled NBKR.
+    # FRANKFURTER exists only for the (currently unused) case where the
+    # pinned provider ever isn't NBKR — the label must never lie about that.
+    SOURCE_CHOICES = [(MANUAL, _("Manual")), (NBKR, _("NBKR")), (FRANKFURTER, _("Frankfurter"))]
 
     currency = models.CharField(_("currency"), max_length=3, unique=True)
     date = models.DateField(_("updated"), help_text=_("When this rate was last updated."))

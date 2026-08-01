@@ -18,7 +18,7 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
-from apps.core.currency import CENTS, snapshot_rate_to_base
+from apps.core.currency import CENTS, rate_info, snapshot_rate_to_base
 from apps.inventory.models import ProductVariant, StockMovement
 from apps.inventory.services import add_movement, reserved_by_variant
 
@@ -396,21 +396,28 @@ def record_payment(
         return None
     payment_currency = currency or order.currency
     if rate_override is None and payment_currency != order.currency:
-        from apps.core.currency import rate_info
-
         if rate_info(payment_currency) is None:
             raise ValidationError(
                 _("Нет курса для %(c)s — оплата не сохранена. Обновите курс и повторите.")
                 % {"c": payment_currency}
             )
 
-    # Resolve the ONE rate this whole transaction (payment + any change) uses.
+    # Resolve the ONE rate this whole transaction (payment + any change) uses
+    # — and the HONEST source label that goes with it. A payment that used
+    # the currently-on-record rate must say whatever that ExchangeRate row
+    # actually is (nbkr/frankfurter/manual), never a hardcoded guess: the
+    # Owner may have hand-entered today's rate, and a payment against it is
+    # not "NBKR" just because nobody typed an override on THIS payment.
     if rate_override is not None:
         resolved_rate = rate_override
+        resolved_rate_source = Payment.RATE_MANUAL
     elif payment_currency == settings.CURRENCY:
         resolved_rate = Decimal("1")
+        resolved_rate_source = Payment.RATE_NBKR  # trivial 1:1, matches rate_info's base stub
     else:
         resolved_rate = snapshot_rate_to_base(payment_currency, timezone.localdate())
+        info = rate_info(payment_currency)
+        resolved_rate_source = info["source"] if info else Payment.RATE_NBKR
 
     change_amount = Decimal("0")
     change_amount_kgs = Decimal("0")
@@ -468,6 +475,7 @@ def record_payment(
         amount=amount,
         currency=payment_currency,
         rate_to_kgs=resolved_rate,
+        rate_source=resolved_rate_source,
         method=method,
         excess_disposition=excess_disposition,
         change_amount=change_amount,
@@ -481,7 +489,6 @@ def record_payment(
             "reason": change_adjust_reason.strip()
         }
     if rate_override is not None:
-        kwargs["rate_source"] = Payment.RATE_MANUAL
         kwargs["rate_official"] = snapshot_rate_to_base(payment_currency, timezone.localdate())
     return Payment.objects.create(**kwargs)
 

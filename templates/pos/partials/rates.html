@@ -4,7 +4,7 @@
  <span class="rates-strip__item num">
    1 {{ r.symbol }} = {{ r.rate|floatformat:2 }} {{ r.base_symbol }}
    <span class="badge badge--{{ r.age_class }} rates-strip__age">
-     {% if r.source == "manual" %}{% trans "вручную" %}{% else %}{% trans "НБКР" %}{% endif %}
+     {% if r.source == "manual" %}{% trans "вручную" %}{% elif r.source == "nbkr" %}{% trans "НБКР" %}{% else %}{% trans "Frankfurter" %}{% endif %}
      {{ r.date|date:"d.m.Y" }}{% if r.stale %} · {% trans "Курс устарел" %}{% endif %}
    </span>
  </span>

@@ -197,7 +197,15 @@ class Payment(models.Model):
 
     RATE_NBKR = "nbkr"
     RATE_MANUAL = "manual"
-    RATE_SOURCE_CHOICES = [(RATE_NBKR, _("NBKR")), (RATE_MANUAL, _("Manual"))]
+    RATE_FRANKFURTER = "frankfurter"
+    # Mirrors apps.core.models.ExchangeRate.SOURCE_CHOICES — a frozen payment
+    # rate carries whatever the ExchangeRate row it was snapshotted from was
+    # actually labelled, never a hardcoded guess (see services.record_payment).
+    RATE_SOURCE_CHOICES = [
+        (RATE_NBKR, _("NBKR")),
+        (RATE_MANUAL, _("Manual")),
+        (RATE_FRANKFURTER, _("Frankfurter")),
+    ]
 
     # What happens to money handed over beyond the sale's balance. Always a
     # deliberate choice — never auto-picked (see apps.pos.views). 'debt' and
