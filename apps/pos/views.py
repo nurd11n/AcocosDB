@@ -411,7 +411,11 @@ def _today_rates():
 @require_can_sell
 @require_POST
 def refresh_rates(request):
-    """On-demand NBKR pull behind the «Обновить» button on the Курс card.
+    """On-demand NBKR pull — the view + fetch logic stay live and reachable at
+    this URL, but nbkr.kg blocks the production server's IP outright (it works
+    fine from a local dev machine, confirmed separately), so no /pos/ button
+    currently calls this — see the removed-button note in sale_detail.html and
+    rate_modal.html. Owner hand-enters rates instead (rate_edit/rate_save).
     Fetches the latest rates (owner manual overrides still win), then re-renders
     the rate strip. On a network/parse failure it just keeps the last known
     rates — same fail-soft contract as the daily fetch, never a 500. Allowed
