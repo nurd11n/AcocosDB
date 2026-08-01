@@ -100,7 +100,20 @@ a { color: inherit; }
   top: 0;
   z-index: 6;
 }
-.top__brand { font-weight: 800; font-size: 24px; letter-spacing: -0.03em; }
+/* The wordmark doubles as the way home (pos:index) — the convention every
+   web app already trained people on. Inherits the header's colour rather
+   than looking like a link: it should read as the brand first and reveal
+   itself as tappable on hover/focus. */
+.top__brand {
+  font-weight: 800;
+  font-size: 24px;
+  letter-spacing: -0.03em;
+  color: inherit;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .top__brand:hover { color: var(--accent); }
+}
 @media (min-width: 560px) {
   .top__brand { font-size: 30px; }
 }

@@ -3735,6 +3735,17 @@ def test_order_page_offers_a_way_out_that_is_not_handing_over(
     assert "К заказам" in body  # the exit never goes away
 
 
+def test_header_wordmark_links_home(client, django_user_model, settings):
+    """The ACOCOS wordmark is the way back to the terminal from any /pos/
+    screen — the convention every web app already trained people on."""
+    settings.CURRENCY = "KGS"
+    client.force_login(
+        django_user_model.objects.create_superuser("brand_owner", "b@e.com", "x" * 12)
+    )
+    body = client.get("/pos/today/").content.decode()
+    assert '<a class="top__brand" href="/pos/"' in body
+
+
 def test_admin_panel_links_back_to_the_pos_terminal(client, django_user_model):
     """/panel/ used to be a one-way door — the POS header links in and nothing
     linked back, so the only way out was editing the URL by hand."""
