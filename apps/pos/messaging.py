@@ -19,11 +19,39 @@ def wa_link(phone: str, text: str) -> str:
 
 
 def receipt_text(order) -> str:
+    """The WhatsApp receipt. Shows what was bought, what was paid, and what is
+    still owed — a receipt that stops at «Итого» leaves the client with no
+    record of a balance they're carrying, which is exactly the number they
+    ask about later. `balance` is derived (total − payments, converted at each
+    payment's frozen rate), so it always agrees with the POS and the debts
+    report rather than being a second, drifting copy."""
     lines = [_("Спасибо за покупку в ACOCOS! 🌸"), ""]
     for item in order.items.select_related("variant__product"):
         lines.append(f"• {item.variant} — {item.quantity} × {item.unit_price} {order.currency}")
     lines.append("")
     lines.append(_("Итого: %(total)s %(cur)s") % {"total": order.total, "cur": order.currency})
+
+    paid = order.paid_amount
+    balance = order.balance
+    if paid > 0:
+        lines.append(_("Оплачено: %(paid)s %(cur)s") % {"paid": paid, "cur": order.currency})
+    if balance > 0:
+        lines.append(
+            _("Остаток к оплате: %(bal)s %(cur)s") % {"bal": balance, "cur": order.currency}
+        )
+        # The client's TOTAL across every unpaid sale — only worth saying when
+        # it differs from this one sale's balance, otherwise it just repeats
+        # the line above.
+        if order.client_id:
+            from apps.clients.services import client_debt
+
+            total_debt = client_debt(order.client).get(order.currency)
+            if total_debt and total_debt != balance:
+                lines.append(
+                    _("Общий долг: %(debt)s %(cur)s") % {"debt": total_debt, "cur": order.currency}
+                )
+    elif paid > 0:
+        lines.append(_("Оплачено полностью. Спасибо!"))
     return "\n".join(lines)
 
 

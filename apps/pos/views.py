@@ -1259,7 +1259,16 @@ def client_detail(request, pk):
     client = get_object_or_404(Client, pk=pk)
     debts = client_debt(client)
     credits = client_credits(client)
-    orders = client.sales.filter(status=SaleOrder.CONFIRMED).order_by("-confirmed_at")[:20]
+    orders = (
+        client.sales.filter(status=SaleOrder.CONFIRMED)
+        .prefetch_related("payments")  # balance walks payments per order
+        .order_by("-confirmed_at")[:20]
+    )
+    # Each sale carries its own outstanding balance, so the history shows WHICH
+    # purchases the debt came from instead of only a single total at the top.
+    # Derived per order (never stored) — same numbers the POS and the debts
+    # report use, so the three can't drift apart.
+    order_rows = [{"order": o, "paid": o.paid_amount, "balance": o.balance} for o in orders]
     interactions = client.interactions.order_by("-created_at")[:20]
     payments = client.payments.order_by("-created_at")[:20]
     return render(
@@ -1269,7 +1278,7 @@ def client_detail(request, pk):
             "client": client,
             "debts": debts,
             "credits": credits,
-            "orders": orders,
+            "order_rows": order_rows,
             "payments": payments,
             "interactions": interactions,
             "active": "clients",

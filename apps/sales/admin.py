@@ -154,7 +154,9 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         "confirmed_at",
     ]
     list_filter = ["status", "channel", "currency"]
-    search_fields = ["id", "client__name", "client__phone"]
+    search_fields = ["id", "client__first_name", "client__descriptor", "client__phone"]
+    search_help_text = "Номер продажи, имя клиента, уточнение или телефон"
+    date_hierarchy = "confirmed_at"
     list_select_related = ["client"]
     autocomplete_fields = ["client"]
     readonly_fields = ["total", "status", "confirmed_at", "created_by"]
@@ -327,7 +329,9 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         "created_by",
     ]
     list_filter = ["method", "currency", "rate_source", "excess_disposition", "reviewed"]
-    search_fields = ["client__name", "client__phone"]
+    search_fields = ["client__first_name", "client__descriptor", "client__phone"]
+    search_help_text = "Имя клиента, уточнение или телефон"
+    date_hierarchy = "created_at"
     list_select_related = ["client", "order", "created_by"]
     autocomplete_fields = ["client", "order"]
     actions = ["void_selected"]
