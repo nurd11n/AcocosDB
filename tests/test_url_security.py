@@ -270,3 +270,41 @@ def test_viewer_cannot_write_interactions_via_the_whatsapp_endpoints(
     client.force_login(editor)
     assert client.post(reverse("pos:share_receipt", args=[sale.pk])).status_code == 302
     assert Interaction.objects.count() == before + 1
+
+
+# ---- Content-Security-Policy hardening -------------------------------------
+
+
+def test_csp_confines_unsafe_inline_to_style_attributes(client, owner):
+    """A handful of templates need per-row style attributes (progress-bar
+    widths, chart colours) that no static class can express, so style-src-attr
+    keeps 'unsafe-inline'. style-src-elem must NOT: an injected <style> block
+    or a remote @import — the shapes used for CSS data exfiltration — stays
+    refused. script-src takes no inline anything."""
+    csp = client.get(reverse("pos:today")).headers["Content-Security-Policy"]
+    directives = {
+        part.strip().split(" ")[0]: part.strip() for part in csp.split(";") if part.strip()
+    }
+
+    assert "'unsafe-inline'" in directives["style-src-attr"]
+    assert "'unsafe-inline'" not in directives["style-src-elem"]
+    assert "'unsafe-inline'" not in directives["script-src"]
+    assert directives["script-src-attr"] == "script-src-attr 'none'"  # no on*= handlers
+    assert directives["frame-ancestors"] == "frame-ancestors 'none'"
+
+
+def test_no_template_relies_on_an_inline_style_element(client, owner):
+    """style-src-elem 'self' silently unstyles any page carrying a <style>
+    block, so none may. The 500 page is exempt by nature — Django's exception
+    path bypasses the middleware chain, so that response carries no CSP at
+    all, which is why it can stay self-contained for a total outage."""
+    import pathlib
+
+    offenders = [
+        str(p)
+        for p in pathlib.Path("templates").rglob("*.html")
+        if "templates/admin/" not in str(p)  # vendored Jazzmin: CSP-excluded
+        and str(p) != "templates/errors/500.html"
+        and "<style" in p.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], f"inline <style> would be blocked by CSP: {offenders}"

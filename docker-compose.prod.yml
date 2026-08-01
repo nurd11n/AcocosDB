@@ -120,6 +120,10 @@ services:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      # Uploaded photos, served by Caddy (see the /media/ block in the
+      # Caddyfile). READ-ONLY on purpose: Caddy only ever needs to read these,
+      # so a flaw here can't write into the volume the web container uploads to.
+      - media:/srv/media:ro
 
   # Encrypted, checksummed backups every 6 hours, synced offsite to B2.
   backup:

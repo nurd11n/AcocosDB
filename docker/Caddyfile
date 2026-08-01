@@ -1,10 +1,31 @@
 {$DOMAIN} {
-    reverse_proxy web:8000 {
-        # Set X-Real-IP to the actual TCP peer, OVERWRITING anything the client
-        # sent. Django + django-axes read only this header for the client IP, so
-        # it can't be spoofed (unlike X-Forwarded-For, whose leftmost entry the
-        # client controls — Caddy only appends the real IP to that one).
-        header_up X-Real-IP {remote_host}
-    }
-    encode gzip
+	# Uploaded product photos. Django only routes /media/ when DEBUG=True, so in
+	# production nothing served them and every photo 404'd. Caddy serves them
+	# straight off the shared volume — no gunicorn worker tied up per image, and
+	# the volume is mounted read-only (see docker-compose.prod.yml) so a flaw
+	# here still can't write into what the web container uploads to.
+	#
+	# These bytes are user-uploaded, so they are served defensively: nosniff
+	# stops a mislabelled file being sniffed into HTML/JS, and the sandbox CSP
+	# means that even if one were interpreted it runs with no scripts, no forms
+	# and no same-origin privileges. ImageField already rejects anything Pillow
+	# can't parse as an image at upload time, so this is depth, not the only line.
+	handle_path /media/* {
+		root * /srv/media
+		header {
+			X-Content-Type-Options nosniff
+			Content-Security-Policy "sandbox; default-src 'none'"
+			Cache-Control "public, max-age=604800"
+		}
+		file_server
+	}
+
+	reverse_proxy web:8000 {
+		# Set X-Real-IP to the actual TCP peer, OVERWRITING anything the client
+		# sent. Django + django-axes read only this header for the client IP, so
+		# it can't be spoofed (unlike X-Forwarded-For, whose leftmost entry the
+		# client controls — Caddy only appends the real IP to that one).
+		header_up X-Real-IP {remote_host}
+	}
+	encode gzip
 }
