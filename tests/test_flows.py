@@ -4799,3 +4799,53 @@ def test_admin_has_debt_filter_selects_only_debtors(client, django_user_model, v
     settled = client.get("/panel/clients/client/?has_debt=no")
     ids = {c.pk for c in settled.context["cl"].result_list}
     assert clear.pk in ids and debtor.pk not in ids
+
+
+def test_daily_report_query_count_does_not_scale_with_sales(settings):
+    """Regression: the nightly report was N+1 on payments. SaleOrder.paid_amount
+    used .values_list(), which ALWAYS issues its own query and ignores an
+    existing prefetch_related("payments") — so todays_confirmed_orders()
+    prefetched them and paid for it anyway, and the Debts sheet's
+    unpaid-span scan had no prefetch at all. Measured 96 queries for 45 sales
+    and climbing; at real volume the scheduler's nightly run would crawl."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from apps.core.management.commands.send_daily_report import (
+        _debts_sheet,
+        _orders_sheet,
+        _sales_sheet,
+        _stock_sheet,
+    )
+
+    settings.CURRENCY = "KGS"
+
+    def seed(n, tag):
+        cat = Category.objects.create(name=f"QC{tag}")
+        prod = Product.objects.create(category=cat, name=f"QP{tag}")
+        v = ProductVariant.objects.create(
+            product=prod, sku=f"QS{tag}", cost_price=Decimal("1"), sale_price=Decimal("100")
+        )
+        add_movement(v, StockMovement.PRODUCTION_IN, n * 2)
+        for i in range(n):
+            cust = Client.objects.create(first_name=f"Q{tag}{i}", phone=f"+9967008{tag}{i:04d}")
+            o = SaleOrder.objects.create(client=cust, currency="KGS")
+            SaleItem.objects.create(order=o, variant=v, quantity=1, unit_price=Decimal("100"))
+            confirm_sale(o)
+            record_payment(o, Decimal("40"))  # leaves a debt on every one
+
+    def count(fn):
+        with CaptureQueriesContext(connection) as ctx:
+            fn()
+        return len(ctx.captured_queries)
+
+    builders = (_sales_sheet, _debts_sheet, _orders_sheet, _stock_sheet)
+    seed(5, "a")
+    small = {f.__name__: count(f) for f in builders}
+    seed(40, "b")  # 9x the data
+    big = {f.__name__: count(f) for f in builders}
+
+    for name in small:
+        assert big[name] == small[name], (
+            f"{name}: {small[name]} -> {big[name]} queries as rows grew 9x — N+1 is back"
+        )

@@ -100,3 +100,51 @@ def test_purge_is_idempotent_and_leaves_active_notes_alone(monkeypatch):
 
         assert Note.objects.filter(pk=active.pk).exists()
         assert not Note.objects.filter(pk=stale.pk).exists()
+
+
+# ---- Role boundaries on the shared scratchpad -----------------------------
+
+
+@pytest.mark.django_db
+def test_notes_role_matrix_owner_editor_viewer(client, django_user_model):
+    """Regression: every notes view was gated on login_required ALONE, and no
+    role held a notes permission — so a Viewer, documented read-only, could
+    create, edit, toggle, pin and permanently DELETE another user's note.
+    Owner does everything; Editor writes but cannot delete (setup_roles grants
+    add/change/view only, like every other business model); Viewer reads."""
+    from django.contrib.auth.models import Group
+    from django.core.management import call_command
+
+    from apps.core.permissions import EDITOR, VIEWER
+    from apps.notes.models import Note
+
+    call_command("setup_roles", verbosity=0)
+    owner = django_user_model.objects.create_superuser("nm_owner", "o@e.com", "x" * 12)
+    editor = django_user_model.objects.create_user("nm_editor", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    viewer = django_user_model.objects.create_user("nm_viewer", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+
+    expected = {
+        "owner": dict(create=True, edit=True, delete=True),
+        "editor": dict(create=True, edit=True, delete=False),
+        "viewer": dict(create=False, edit=False, delete=False),
+    }
+    for label, user in (("owner", owner), ("editor", editor), ("viewer", viewer)):
+        client.force_login(user)
+        note = Note.objects.create(title="seed", created_by=owner)
+        want = expected[label]
+
+        before = Note.objects.count()
+        client.post("/notes/", {"title": "made", "body": "b"})
+        assert (Note.objects.count() > before) is want["create"], f"{label}: create"
+
+        client.post(f"/notes/{note.pk}/edit/", {"title": "edited", "body": ""})
+        note.refresh_from_db()
+        assert (note.title == "edited") is want["edit"], f"{label}: edit"
+
+        client.post(f"/notes/{note.pk}/delete/")
+        assert (not Note.objects.filter(pk=note.pk).exists()) is want["delete"], f"{label}: delete"
+
+        # Everyone can still READ the board — it's a shared scratchpad.
+        assert client.get("/notes/").status_code == 200, f"{label}: cannot read"

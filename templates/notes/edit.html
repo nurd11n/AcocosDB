@@ -5,6 +5,7 @@
 
 <div class="card">
  <h2><svg class="ic"><use href="#i-edit"/></svg>{% trans "Изменить заметку" %}</h2>
+ {% if can_edit %}
  <form method="post" action="{% url 'notes:edit' note.pk %}">
   {% csrf_token %}
   <input type="text" name="title" maxlength="200" value="{{ note.title }}" placeholder="{% trans 'Заголовок' %}" autocomplete="off">
@@ -14,11 +15,24 @@
    <a class="btn btn-ghost" href="{% url 'notes:index' %}">{% trans "Отмена" %}</a>
   </div>
  </form>
+ {% else %}
+ {# Read-only: show the note's content, no form to submit. #}
+ {% if note.title %}<p style="font-weight:500">{{ note.title }}</p>{% endif %}
+ {% if note.body %}<p class="muted" style="white-space:pre-wrap">{{ note.body }}</p>{% endif %}
+ <a class="btn btn-ghost" href="{% url 'notes:index' %}">{% trans "Назад" %}</a>
+ {% endif %}
 </div>
 
+{% comment %}
+Deleting is Owner-only — setup_roles grants Editor add/change/view but never
+delete_, matching every other business model, so one manager can't wipe
+another's note. The view enforces it too; this only hides a dead button.
+{% endcomment %}
+{% if can_delete %}
 <form method="post" action="{% url 'notes:delete' note.pk %}">
  {% csrf_token %}
  <button type="submit" class="btn btn-ghost btn-ghost--debt"><svg class="ic"><use href="#i-close"/></svg>{% trans "Удалить заметку" %}</button>
 </form>
+{% endif %}
 
 {% endblock %}

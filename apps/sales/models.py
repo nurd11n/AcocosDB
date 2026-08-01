@@ -114,12 +114,17 @@ class SaleOrder(models.Model):
         # a сом order reduces the сом balance by 16 × the frozen USD rate,
         # minus any сом change given back. Same-currency payments (payment_rate
         # == order_rate) come through unchanged.
+        # Iterates .all() rather than .values_list(): values_list ALWAYS issues
+        # its own query and ignores an existing prefetch_related("payments"),
+        # so the daily report was paying one query per order even though it
+        # prefetched them (see apps.sales.services.todays_confirmed_orders).
+        # Same fix, same reason as apps.orders.services.order_paid_amount.
         order_rate = self.rate_to_kgs or Decimal("1")
         paid = Decimal("0")
-        for amount, prate, change_kgs in self.payments.values_list(
-            "amount", "rate_to_kgs", "change_amount_kgs"
-        ):
-            net_kgs = amount * (prate or Decimal("1")) - (change_kgs or Decimal("0"))
+        for payment in self.payments.all():
+            net_kgs = payment.amount * (payment.rate_to_kgs or Decimal("1")) - (
+                payment.change_amount_kgs or Decimal("0")
+            )
             paid += net_kgs / order_rate
         return paid.quantize(CENTS, rounding=ROUND_HALF_UP)
 
