@@ -3686,9 +3686,7 @@ def test_empty_order_hides_money_sections_until_it_has_items(
     assert "Аванс внесён" not in body  # the totals card is out too
     assert "найдите товар выше" in body  # ...replaced by what to do next
 
-    client.post(
-        f"/orders/{order.pk}/items/add/", {"variant_id": variant.pk, "quantity": 1}
-    )
+    client.post(f"/orders/{order.pk}/items/add/", {"variant_id": variant.pk, "quantity": 1})
     body = client.get(f"/orders/{order.pk}/").content.decode()
     assert "Внести аванс" in body
     assert "Аванс внесён" in body
