@@ -42,7 +42,9 @@ def test_marking_done_sets_completed_at(monkeypatch):
         set_note_done(note, True)
         note.refresh_from_db()
         assert note.done is True
-        assert note.completed_at == datetime.datetime(2026, 7, 21, 12, 0, tzinfo=datetime.timezone.utc)
+        assert note.completed_at == datetime.datetime(
+            2026, 7, 21, 12, 0, tzinfo=datetime.timezone.utc
+        )
 
 
 def test_uncompleting_clears_completed_at_and_resets_the_clock(monkeypatch):

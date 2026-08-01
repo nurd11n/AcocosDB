@@ -422,9 +422,7 @@ def step_due(request, pk):
         order.due_date = raw or None
         order.note = request.POST.get("note", "").strip()
         order.save(update_fields=["due_date", "note"])
-        return render(
-            request, "orders/partials/step_payment.html", _payment_step_context(order)
-        )
+        return render(request, "orders/partials/step_payment.html", _payment_step_context(order))
     return render(request, "orders/partials/step_due.html", {"order": order})
 
 

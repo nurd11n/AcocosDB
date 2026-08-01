@@ -220,8 +220,11 @@ class ProductVariantAdmin(
                             request, _("Recounted — stock is now %(s)s.") % {"s": variant.stock}
                         )
         except (ValidationError, ValueError) as exc:
-            self.message_user(request, "; ".join(exc.messages) if hasattr(exc, "messages")
-                              else str(exc), level=messages.ERROR)
+            self.message_user(
+                request,
+                "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc),
+                level=messages.ERROR,
+            )
         return back
 
     def _stock_history(self, variant, limit=100):
