@@ -169,7 +169,42 @@ a { color: inherit; }
 @media (prefers-reduced-motion: no-preference) {
   .rates-refresh.htmx-request .ic { animation: rates-spin 0.7s linear infinite; }
 }
+/* Motion-free fallback: with «Reduce motion» on, the spin above never runs, so
+   the button needs a state that isn't an animation — otherwise a slow refresh
+   looks identical to a dead button. */
+.rates-refresh.htmx-request { opacity: 0.6; cursor: progress; }
 @keyframes rates-spin { to { transform: rotate(360deg); } }
+
+/* Busy state for any .btn that fires an HTMX request (htmx sets .htmx-request
+   on the triggering element for the life of the request). The label SWAPS
+   rather than only spinning: an animation alone disappears under «Reduce
+   motion» and tells a screen reader nothing, whereas «Обновляем курс…» reads
+   correctly in both cases. Pair it with hx-disabled-elt="this" so the tap
+   can't be repeated mid-flight. */
+/* Two selectors, because htmx marks whichever element ISSUED the request: the
+   button itself for hx-post on a <button>, but the <form> for a submit. */
+.btn__busy { display: none; }
+.btn.htmx-request .btn__idle,
+.htmx-request .btn .btn__idle { display: none; }
+.btn.htmx-request .btn__busy,
+.htmx-request .btn .btn__busy { display: inline-flex; align-items: center; gap: var(--space-2); }
+.btn.htmx-request { cursor: progress; }
+/* No double-submit while a request is in flight — the form case can't use
+   hx-disabled-elt without an extended selector, so it's enforced here. */
+form.htmx-request .btn { pointer-events: none; cursor: progress; }
+.btn:disabled { opacity: 0.75; pointer-events: none; }
+.btn__spinner {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.9;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn__spinner { animation: rates-spin 0.7s linear infinite; }
+}
 .top__actions { display: flex; align-items: center; gap: var(--space-2); }
 .top__link {
   font-size: 13px;
@@ -851,7 +886,12 @@ body:has(#order-modal:not(:empty)) { overflow: hidden; }
   .line-row__remove:hover { color: var(--debt); background: var(--surface-sunken); }
 }
 
-/* Item count in the card header — "ПОЗИЦИИ · 4". */
+/* Item count in the card header — "ПОЗИЦИИ · 4". The cart rail is the densest
+   thing on the screen and the header is a 12px uppercase label, not a title —
+   the card's default 16px top padding left it floating in a band of empty
+   space. Tightened at the top only; the sides and bottom keep the normal card
+   padding so the rows themselves don't feel cramped against the border. */
+.items-card { padding-top: var(--space-3); }
 .items-card h2 { margin-bottom: var(--space-2); }
 .items-scroll { position: relative; }
 
@@ -1255,18 +1295,19 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-gutter: stable;
-    /* Subtle top/bottom fade so a longer list reads as scrollable. */
+    /* Bottom fade ONLY. The matching top fade was removed: at rest — which is
+       how the rail is 95% of the time, with a cart of one or two lines — it
+       had nothing to fade except the ПОЗИЦИИ card's own top edge, ghosting the
+       border and header into the background and reading as dead space above
+       the list. "There is more below" is the affordance worth having; "there
+       is more above" is not, when there usually isn't. */
     -webkit-mask-image: linear-gradient(
       to bottom,
-      transparent 0,
-      black 12px,
       black calc(100% - 12px),
       transparent 100%
     );
     mask-image: linear-gradient(
       to bottom,
-      transparent 0,
-      black 12px,
       black calc(100% - 12px),
       transparent 100%
     );

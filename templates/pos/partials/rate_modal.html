@@ -10,16 +10,31 @@
  action (big + first): pulls the official rate automatically. Manual entry
  below stays available as the deliberate, Owner-only fallback/override — see
  CLAUDE.md's rate-permissions section.
+
+ data-clear-AFTER, never data-clear-target: closing on the click itself
+ removes this button before htmx can mark it busy, so the tap looked like it
+ did nothing while the fetch was still in flight (see static/pos/js/pos.js).
  {% endcomment %}
  <button type="button" class="btn btn-primary" style="width:100%"
    hx-post="{% url 'pos:refresh_rates' %}" hx-target="#rates-strip" hx-swap="outerHTML"
-   data-clear-target="rate-modal">{% trans "Обновить автоматически (НБКР)" %}</button>
+   hx-disabled-elt="this" data-clear-after="rate-modal">
+  <span class="btn__idle">{% trans "Обновить автоматически (НБКР)" %}</span>
+  <span class="btn__busy"><span class="btn__spinner" aria-hidden="true"></span>{% trans "Обновляем курс…" %}</span>
+ </button>
  <p class="hint" style="margin-top:var(--space-2)">
    {% blocktrans %}Подтянет официальный курс НБКР. Значения ниже — на случай, если нужно
    проверить или задать курс вручную.{% endblocktrans %}
  </p>
 
- <form hx-post="{% url 'pos:rate_save' %}" hx-target="#rates-strip" hx-swap="outerHTML" style="margin-top:var(--space-3)">
+ {% comment %}
+ The busy state here keys off the FORM (htmx marks whichever element issued
+ the request), so the submit button's label swaps via .htmx-request .btn — see
+ app.css. Re-submitting mid-flight is blocked in CSS rather than with
+ hx-disabled-elt, which would need an extended selector to reach the button
+ from the form.
+ {% endcomment %}
+ <form hx-post="{% url 'pos:rate_save' %}" hx-target="#rates-strip" hx-swap="outerHTML"
+   data-clear-after="rate-modal" style="margin-top:var(--space-3)">
   {% csrf_token %}
   {% for r in rate_rows %}
   <label>1 {{ r.symbol }} = ? {{ base_symbol }}</label>
@@ -27,7 +42,11 @@
     value="{{ r.value }}" placeholder="{% trans "напр. 87.45" %}">
   {% endfor %}
   <div class="row" style="margin-top:var(--space-3)">
-   <button type="submit" class="btn btn-ghost">{% trans "Сохранить вручную" %}</button>
+   <button type="submit" class="btn btn-ghost">
+    <span class="btn__idle">{% trans "Сохранить вручную" %}</span>
+    <span class="btn__busy"><span class="btn__spinner" aria-hidden="true"></span>{% trans "Сохраняем…" %}</span>
+   </button>
+   {# No request behind it, so this one closes instantly on the click. #}
    <button type="button" class="btn btn-ghost" data-clear-target="rate-modal">{% trans "Отмена" %}</button>
   </div>
  </form>
