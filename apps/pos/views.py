@@ -3,6 +3,7 @@ swaps — no API layer, no JS framework. Every screen calls the existing
 apps/*/services.py functions; nothing here recomputes stock, money, or debt.
 """
 
+import uuid
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
@@ -11,10 +12,12 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.db.models import IntegerField, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
@@ -517,7 +520,16 @@ def index(request):
     dropped connection or accidental refresh never loses the basket. ?new=1
     forces a fresh draft (an intentional 'start over'). /pos/ is also
     LOGIN_REDIRECT_URL, so a Viewer (no sales.add_saleorder) lands here too —
-    route them to Сегодня instead of a dead-end 403."""
+    route them to Сегодня instead of a dead-end 403.
+
+    CHANGED: no longer creates a SaleOrder just to land on it. A draft used to
+    be created the instant this page was hit — including a bare visit with no
+    intent to sell — leaving an empty "Ожидает / 0.00 / —" row in the Продажи
+    admin list for anyone who ever opened /pos/. The draft is now created
+    LAZILY, on the first real action (an item added or a client picked — see
+    sale_new/_get_or_create_pending_draft below); opening this page with
+    nothing to resume lands on the empty terminal instead, which creates
+    nothing in the database by itself."""
     if not request.user.has_perm("sales.add_saleorder"):
         return redirect("pos:today")
     order = None
@@ -527,9 +539,188 @@ def index(request):
             .order_by("-created_at")
             .first()
         )
-    if order is None:
-        order = SaleOrder.objects.create(created_by=request.user, channel=SaleOrder.SHOP)
-    return redirect("pos:sale_detail", pk=order.pk)
+    if order is not None:
+        return redirect("pos:sale_detail", pk=order.pk)
+    return redirect("pos:sale_new")
+
+
+def _get_or_create_pending_draft(request) -> SaleOrder:
+    """The ONE place a draft SaleOrder is created for a reason other than
+    already being real work — called from item_add_new/client_set_new/
+    client_create_new below, the first time any of them fires for a given
+    empty-terminal visit.
+
+    Race-safe against a double-tap: sale_new (GET) mints a token into the
+    session BEFORE either of two near-simultaneous first actions can fire, so
+    both POSTs read the SAME token and race on THIS field's unique
+    constraint via get_or_create — Django's own documented safe pattern for
+    exactly this (the loser's IntegrityError makes it retry the SELECT and
+    return the winner's row), contingent on a real DB constraint backing it,
+    which SaleOrder.pending_token's unique=True provides. Two tabs opened
+    independently naturally get two different orders: whichever acts first
+    consumes and clears the shared token, so a second tab that acts later
+    mints its own fresh one rather than reattaching to the first tab's
+    now-real sale."""
+    token = request.session.get("pending_sale_token")
+    if not token:
+        token = uuid.uuid4().hex
+        request.session["pending_sale_token"] = token
+    with transaction.atomic():
+        order, _created = SaleOrder.objects.get_or_create(
+            created_by=request.user,
+            pending_token=token,
+            defaults={"channel": SaleOrder.SHOP},
+        )
+    if request.session.get("pending_sale_token") == token:
+        del request.session["pending_sale_token"]
+        request.session.modified = True
+    return order
+
+
+@pos_view
+@require_can_sell
+def sale_new(request):
+    """The empty terminal: no SaleOrder exists yet, and loading this page
+    must not create one — see index()'s docstring. Renders the same Курс/
+    Клиент/Товары layout as sale_detail, but every action here creates the
+    draft lazily on first use (see _get_or_create_pending_draft) and then
+    hands off entirely to the ordinary, unmodified per-order screen and
+    endpoints — this page and its "_new" partials only ever represent the
+    state BEFORE any order exists."""
+    if "pending_sale_token" not in request.session:
+        request.session["pending_sale_token"] = uuid.uuid4().hex
+    return render(request, "pos/sale_new.html", {"active": "sale", "rates": _today_rates()})
+
+
+@pos_view
+@require_can_sell
+def client_search_new(request):
+    """Same search client_search does — read-only, so it needs no draft to
+    run against. A near-duplicate of that view rather than a shared helper:
+    the two differ only in which template they hand the results to (this one
+    points "Выбрать" at client_set_new), and the query itself is three lines."""
+    q = request.GET.get("q", "").strip()
+    if q:
+        clients = Client.objects.filter(
+            Q(phone__icontains=q) | Q(first_name__icontains=q) | Q(descriptor__icontains=q)
+        ).order_by("first_name")[:RECENT_CLIENTS_LIMIT]
+    else:
+        clients = Client.objects.order_by("-created_at")[:RECENT_CLIENTS_LIMIT]
+    return render(request, "pos/partials/client_results_new.html", {"clients": clients, "q": q})
+
+
+@pos_view
+@require_can_sell
+def client_new_form_new(request):
+    """Opens the new-client form before any order exists — mirrors
+    client_new_form, minus the order it doesn't have yet."""
+    return render(request, "pos/partials/client_section_new.html", {"new_client_open": True})
+
+
+@pos_view
+@require_can_sell
+def client_section_reset_new(request):
+    """Back to the search state from the new-client form's «Отмена» — pure UI
+    state, no order to clear (there isn't one yet), so unlike client_clear
+    this needs no POST/mutation at all."""
+    return render(request, "pos/partials/client_section_new.html", {})
+
+
+@pos_view
+@require_can_sell
+def product_grid_new(request):
+    """Same tile grid as product_grid — _build_grid_tiles is already
+    order-independent (its own docstring says so), so this just skips the
+    _own_draft_or_404 lookup product_grid does purely to pass `order` through
+    for URL-building, and points tiles at variant_picker_new instead."""
+    q = request.GET.get("q", "").strip()
+    cache_key = f"grid:v{catalog_version()}:{q.lower()}"
+    tiles = cache.get(cache_key)
+    if tiles is None:
+        tiles = _build_grid_tiles(q)
+        cache.set(cache_key, tiles, 60)
+    return render(request, "pos/partials/product_grid_new.html", {"tiles": tiles, "q": q})
+
+
+@pos_view
+@require_can_sell
+def variant_picker_new(request, product_id):
+    """variant_picker before any order exists: `already_in_cart` is always
+    empty here by construction (nothing has been added to a cart that isn't
+    real yet), so available_qty is simply on_hand minus reserved."""
+    from apps.inventory.services import reserved_by_variant
+
+    product = get_object_or_404(Product, pk=product_id)
+    variants = list(
+        product.variants.filter(is_active=True).annotate(stock_qty=Sum("movements__quantity"))
+    )
+    reserved = reserved_by_variant(variant_ids=[v.pk for v in variants])
+    for v in variants:
+        on_hand = v.stock_qty or 0
+        v.reserved_qty = reserved.get(v.pk, 0)
+        v.available_qty = max(on_hand - v.reserved_qty, 0)
+    return render(
+        request, "pos/partials/variant_picker_new.html", {"product": product, "variants": variants}
+    )
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def item_add_new(request):
+    """Creates the draft lazily, then hands off ENTIRELY to the existing,
+    unmodified item_add for the real work — this changes nothing about what
+    item_add does or how (its own stock-cap/currency logic is untouched).
+    Always lands on the real per-order page afterward via HX-Redirect (a full
+    client-side navigation, not a partial swap — sale_new.html has no
+    #sale-body for item_add's normal response to swap into): the
+    currency-mismatch branch can't fire on a brand-new empty order (it only
+    fires once items already exist), and a stock-cap clamp still leaves a
+    correct, real cart behind even though its one-shot warning message
+    doesn't survive the redirect — no worse than an ordinary page reload
+    already not preserving that same message today."""
+    order = _get_or_create_pending_draft(request)
+    item_add(request, order.pk)
+    response = HttpResponse(status=200)
+    response["HX-Redirect"] = reverse("pos:sale_detail", args=[order.pk])
+    return response
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def client_set_new(request, client_id):
+    """Same hand-off pattern as item_add_new. client_set has no failure path
+    of its own (get_object_or_404 either finds the client or 404s — no
+    in-app validation branch), so redirecting unconditionally loses nothing."""
+    order = _get_or_create_pending_draft(request)
+    client_set(request, order.pk, client_id)
+    response = HttpResponse(status=200)
+    response["HX-Redirect"] = reverse("pos:sale_detail", args=[order.pk])
+    return response
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def client_create_new(request):
+    """Unlike the two above, client_create has a real validation path
+    (required fields, a duplicate phone) worth preserving inline rather than
+    losing across a redirect — a mistyped phone number bouncing to a
+    freshly-created, client-less order would be a real step backward.
+    On success (order.client_id got set), hand off exactly like item_add_new/
+    client_set_new. On failure, return client_create's OWN error partial as
+    normal htmx content (no HX-Redirect) — order.pk is real by now, so every
+    URL inside that partial, including a retry, already points at the
+    ordinary, unmodified client_create and keeps working without any further
+    help from this wrapper."""
+    order = _get_or_create_pending_draft(request)
+    response = client_create(request, order.pk)
+    order.refresh_from_db()
+    if order.client_id:
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = reverse("pos:sale_detail", args=[order.pk])
+    return response
 
 
 @pos_view

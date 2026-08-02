@@ -85,6 +85,17 @@ class SaleOrder(models.Model):
     )
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
     confirmed_at = models.DateTimeField(_("confirmed at"), null=True, blank=True)
+    # A one-time race guard for LAZY draft creation (apps.pos.views.sale_new /
+    # _get_or_create_pending_draft): /pos/ no longer creates a row just by
+    # being opened — the row is created on the first real action (adding an
+    # item or picking a client). A token is minted into the session when the
+    # empty-cart page loads, so two near-simultaneous first actions (a
+    # double-tap) race on THIS field's unique constraint via get_or_create
+    # rather than each creating its own order. Meaningless after that first
+    # creation — never read again once the order is real.
+    pending_token = models.CharField(
+        _("pending creation token"), max_length=32, null=True, blank=True, unique=True
+    )
     history = HistoricalRecords()
 
     class Meta:
