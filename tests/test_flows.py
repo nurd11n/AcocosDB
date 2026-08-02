@@ -2605,6 +2605,71 @@ def test_cleanup_draft_sales_deletes_only_old_drafts():
     assert not SaleOrder.objects.filter(pk=old.pk).exists()
 
 
+def test_cleanup_draft_sales_purges_a_truly_empty_draft_within_the_hour(variant):
+    """A draft with neither a client nor an item is pure noise from the
+    moment /pos/ is opened — nothing in it survives a reload to lose, so it
+    doesn't wait for the 24h grace period a real in-progress cart gets."""
+    empty_old = SaleOrder.objects.create()
+    SaleOrder.objects.filter(pk=empty_old.pk).update(
+        created_at=timezone.now() - timezone.timedelta(hours=2)
+    )
+    empty_fresh = SaleOrder.objects.create()  # just opened — must survive
+
+    call_command("cleanup_draft_sales")
+
+    assert not SaleOrder.objects.filter(pk=empty_old.pk).exists()
+    assert SaleOrder.objects.filter(pk=empty_fresh.pk).exists()
+
+
+def test_cleanup_draft_sales_keeps_an_in_progress_cart_for_the_full_grace_period(variant):
+    """A draft with an item (or a client) attached is real work, not noise —
+    it keeps the original 24h window even though it's well past the 1h
+    empty-draft threshold."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    working = SaleOrder.objects.create(currency=variant.currency)
+    SaleItem.objects.create(order=working, variant=variant, quantity=1, unit_price=Decimal("100"))
+    SaleOrder.objects.filter(pk=working.pk).update(
+        created_at=timezone.now() - timezone.timedelta(hours=3)
+    )
+
+    client_only = SaleOrder.objects.create(
+        client=Client.objects.create(first_name="Draft", phone="+996700990301")
+    )
+    SaleOrder.objects.filter(pk=client_only.pk).update(
+        created_at=timezone.now() - timezone.timedelta(hours=3)
+    )
+
+    call_command("cleanup_draft_sales")
+
+    assert SaleOrder.objects.filter(pk=working.pk).exists(), "3h-old cart with an item was purged"
+    assert SaleOrder.objects.filter(pk=client_only.pk).exists(), (
+        "3h-old draft with a client was purged"
+    )
+
+
+def test_cleanup_draft_sales_purges_an_in_progress_cart_past_24h(variant):
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(currency=variant.currency)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("100"))
+    SaleOrder.objects.filter(pk=order.pk).update(
+        created_at=timezone.now() - timezone.timedelta(hours=25)
+    )
+    call_command("cleanup_draft_sales")
+    assert not SaleOrder.objects.filter(pk=order.pk).exists()
+
+
+def test_cleanup_draft_sales_never_touches_a_confirmed_or_cancelled_order(variant):
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(currency=variant.currency)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("100"))
+    confirm_sale(order)
+    SaleOrder.objects.filter(pk=order.pk).update(
+        created_at=timezone.now() - timezone.timedelta(hours=48)
+    )
+    call_command("cleanup_draft_sales")
+    assert SaleOrder.objects.filter(pk=order.pk, status=SaleOrder.CONFIRMED).exists()
+
+
 # =========================================================================
 # Owner dashboard (Phase 3) — access control, HTMX, query budget, caching.
 # =========================================================================
@@ -3219,11 +3284,33 @@ def test_scheduler_runs_fetch_rates_daily_and_before_the_report():
     automatic for reliability, manual for control."""
     import scheduler as scheduler_module
 
-    job_commands = [cmds for _, cmds in scheduler_module.JOBS]
-    assert ["fetch_rates"] in job_commands
+    # RATES_HOUR's own slot also picks up the hourly cleanup_draft_sales entry
+    # now (see DRAFT_CLEANUP_HOURS), so it's no longer bare ["fetch_rates"] —
+    # what must hold is that SOME job runs fetch_rates without also running
+    # the report (the separate daily pull), and that job is not the report job.
+    rates_job = next(
+        cmds
+        for _, cmds in scheduler_module.JOBS
+        if "fetch_rates" in cmds and "send_daily_report" not in cmds
+    )
+    assert "fetch_rates" in rates_job
     report_job = next(cmds for _, cmds in scheduler_module.JOBS if "send_daily_report" in cmds)
     assert "fetch_rates" in report_job
     assert "cleanup_draft_sales" in report_job
+
+
+def test_scheduler_purges_empty_drafts_hourly_not_just_at_report_hour():
+    """An EMPTY draft (someone just opened /pos/) used to wait up to 24h,
+    visible in the Продажи list the whole time — cleanup_draft_sales now runs
+    every hour, not once a day, so it's gone within the hour instead."""
+    import scheduler as scheduler_module
+
+    times_running_cleanup = {
+        hhmm for hhmm, cmds in scheduler_module.JOBS if "cleanup_draft_sales" in cmds
+    }
+    assert len(times_running_cleanup) >= 23, (
+        f"expected roughly hourly coverage, got {sorted(times_running_cleanup)}"
+    )
 
 
 def test_refresh_rates_writes_audit_log_and_skips_noop_refresh(
