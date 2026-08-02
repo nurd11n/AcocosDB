@@ -31,6 +31,47 @@ CURRENCY_SYMBOLS = {KGS: "сом", USD: "$", RUB: "₽"}
 
 CENTS = Decimal("0.01")
 
+_MONEY_NBSP = " "
+
+
+def format_money(value, currency: str) -> str:
+    """'3 800 сом' / '874,50 сом' — NBSP-grouped thousands, the currency
+    SYMBOL (сом/₽/$, never the KGS/RUB/USD code), cents dropped when exactly
+    zero. The ONE formatter for money display, in both /pos/ templates (via
+    apps.pos.templatetags.pos_extras.money_filter, a thin wrapper around this)
+    and /panel/ admin list columns — a bare `f"{amount} {currency}"` anywhere
+    is how a value with more than 2 decimal places (see the note below) or a
+    raw currency CODE ends up on screen.
+
+    Always quantizes to 2dp before formatting, deliberately not trusting the
+    caller's Decimal to already be clean: a DB-computed annotation (a raw SQL
+    division, e.g. an ExpressionWrapper in an admin get_queryset) can come
+    back with far more than 2 decimal places — Postgres's NUMERIC division
+    picks its own result scale and neither Postgres nor Django rounds it to
+    match an output_field's declared decimal_places, so `6800.00 - 6800.00…0`
+    computed at two different scales nets to an unnormalized `Decimal('0E-16')`
+    rather than `Decimal('0.00')`. Quantizing HERE, at the single point every
+    money value must pass through before being shown, is what makes that
+    impossible to display (or, worse, be treated as a false "not fully paid"
+    by a truthiness/equality check upstream) regardless of which query or
+    computation produced the value.
+    """
+    if value is None or value == "":
+        return ""
+    try:
+        amount = Decimal(value)
+    except (TypeError, ValueError, ArithmeticError):
+        return str(value)
+    symbol = CURRENCY_SYMBOLS.get(currency, currency)
+    sign = "-" if amount < 0 else ""
+    amount = abs(amount).quantize(CENTS, rounding=ROUND_HALF_UP)
+    whole, cents = divmod(amount, 1)
+    whole_str = f"{int(whole):,}".replace(",", _MONEY_NBSP)
+    cents = int((cents * 100).to_integral_value(rounding=ROUND_HALF_UP))
+    if cents:
+        return f"{sign}{whole_str},{cents:02d}{_MONEY_NBSP}{symbol}"
+    return f"{sign}{whole_str}{_MONEY_NBSP}{symbol}"
+
 
 def _current_rates() -> dict:
     """{currency: current rate}, cached under rates:current. There is exactly

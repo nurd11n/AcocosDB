@@ -1,6 +1,7 @@
 from decimal import Decimal, InvalidOperation
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import DecimalField, Sum, Value
@@ -9,6 +10,8 @@ from django.template.response import TemplateResponse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
+
+from apps.core.currency import format_money
 
 from .models import Payment, SaleItem, SaleOrder
 from .services import cancel_sale, confirm_sale, mark_fully_paid, record_payment, void_payment
@@ -127,7 +130,7 @@ class PaymentInline(admin.TabularInline):
         if not obj.pk or obj.excess_disposition == Payment.DISPOSITION_NONE:
             return "—"
         if obj.excess_disposition == Payment.DISPOSITION_CHANGE:
-            return f"{obj.change_amount} {obj.change_currency}"
+            return format_money(obj.change_amount, obj.change_currency)
         return obj.get_excess_disposition_display()
 
     def get_formset(self, request, obj=None, **kwargs):
@@ -164,10 +167,23 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     actions = ["approve_selected", "mark_paid_selected", "cancel_selected"]
 
     def get_queryset(self, request):
-        # Sum every payment's NET (gross minus any change given back) per
-        # order in SQL, converting into the order's currency (net_kgs ÷
-        # order_rate) so a foreign payment counts too — matching
-        # SaleOrder.paid_amount. One aggregate, no N+1.
+        # _paid stays for ORDERING ONLY now (a Python @property can't back
+        # list_display's `ordering=`) — never for display. Postgres's NUMERIC
+        # division picks its own result scale, and neither Postgres nor Django
+        # rounds it to the output_field's declared decimal_places: summing
+        # this raw expression can come back 6800.0000000000000000 against a
+        # 6800.00 total, and `total - _paid` then nets to an unnormalized
+        # Decimal('0E-16') instead of Decimal('0.00') — exactly the kind of
+        # value a naive `if remaining:` or `== 0` check downstream could
+        # misread. paid_column/balance_column/payment_badge below read
+        # obj.paid_amount/obj.balance/obj.payment_status instead — the SAME
+        # canonical, already-quantized properties every other balance/debt
+        # figure in the app uses (CLAUDE.md: derive once, never a second
+        # computation that can quietly disagree with the first). Sort order is
+        # unaffected by _paid's extra precision, only its display would be.
+        #
+        # prefetch_related("payments"): those properties iterate
+        # self.payments.all() — without this it's one extra query per row.
         from django.db.models import ExpressionWrapper, F
 
         converted = ExpressionWrapper(
@@ -185,23 +201,24 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
                     output_field=DecimalField(max_digits=14, decimal_places=2),
                 )
             )
+            .prefetch_related("payments")
         )
 
     @admin.display(description=_("total"), ordering="total")
     def total_display(self, obj):
-        return f"{obj.total} {obj.currency}"
+        return format_money(obj.total, obj.currency)
 
     @admin.display(description=_("paid"), ordering="_paid")
     def paid_column(self, obj):
         if obj.status != SaleOrder.CONFIRMED or obj.client_id is None:
             return "—"
-        return f"{obj._paid} {obj.currency}"
+        return format_money(obj.paid_amount, obj.currency)
 
     @admin.display(description=_("balance"))
     def balance_column(self, obj):
         if obj.status != SaleOrder.CONFIRMED or obj.client_id is None:
             return "—"
-        return f"{max(obj.total - obj._paid, Decimal('0'))} {obj.currency}"
+        return format_money(obj.balance, obj.currency)
 
     @admin.display(description=_("payment"))
     def payment_badge(self, obj):
@@ -209,7 +226,7 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         # cancelled, and walk-in (paid-on-the-spot) orders show nothing.
         if obj.status != SaleOrder.CONFIRMED or obj.client_id is None:
             return "—"
-        status = SaleOrder.payment_status_for(obj.total, obj._paid)
+        status = obj.payment_status
         return format_html(
             '<span style="background:{};color:#fff;padding:2px 8px;'
             'border-radius:10px;font-size:11px;white-space:nowrap">{}</span>',
@@ -349,8 +366,12 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         if obj.excess_disposition == Payment.DISPOSITION_NONE:
             return "—"
         if obj.excess_disposition == Payment.DISPOSITION_CHANGE:
-            extra = f" (округление {obj.change_rounding_kgs})" if obj.change_rounding_kgs else ""
-            return f"{obj.change_amount} {obj.change_currency}{extra}"
+            extra = (
+                f" (округление {format_money(obj.change_rounding_kgs, settings.CURRENCY)})"
+                if obj.change_rounding_kgs
+                else ""
+            )
+            return f"{format_money(obj.change_amount, obj.change_currency)}{extra}"
         return obj.get_excess_disposition_display()
 
     def has_module_permission(self, request):
