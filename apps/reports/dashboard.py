@@ -55,7 +55,12 @@ DEAD_STOCK_DAYS = 90
 
 _MONEY = DecimalField(max_digits=18, decimal_places=2)
 # сом value of a payment / sale line, from the FROZEN rate — pure DB expression.
-_PAY_KGS = F("amount") * F("rate_to_kgs")
+# NET, never gross: what actually stayed with the shop is the amount MINUS any
+# change handed back (Payment.net_applied_kgs). Summing the gross amount here
+# would report a 5 000 сом note tendered for a 3 000 сом sale as 5 000 сом of
+# cash taken, when 2 000 went straight back out of the till. CLAUDE.md: every
+# balance/debt/report sums net_applied_kgs, never amount alone.
+_PAY_KGS = F("amount") * F("rate_to_kgs") - F("change_amount_kgs")
 _LINE_SUBTOTAL = F("unit_price") * F("quantity")
 # Mirrors SaleItem.discount_amount in SQL — this must stay a DB expression
 # (not the Python property) because it feeds a grouped .annotate()/Sum() over

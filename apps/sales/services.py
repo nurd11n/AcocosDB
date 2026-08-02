@@ -59,16 +59,29 @@ def confirm_sale(order: SaleOrder, user=None) -> SaleOrder:
     # runs, in the same transaction — see apps.orders.services.hand_over.
     reserved = reserved_by_variant(variant_ids=variant_ids)
 
-    total = Decimal("0")
+    # Check availability per VARIANT, summed across every line — never per
+    # line. The same variant can legitimately appear on two lines (a production
+    # order handed over via apps.orders.services.hand_over copies OrderItems
+    # straight across, and nothing merges them), and a per-line check would
+    # pass 6+6 against 10 available and drive stock to −2. This mirrors the
+    # cart-time cap's own "across ALL lines of that same variant combined"
+    # rule (CLAUDE.md Part 1a) — the guard of last resort must be at least as
+    # strict as the UX cap in front of it, never weaker.
+    needed: dict[int, int] = defaultdict(int)
     for item in items:
-        on_hand = stock.get(item.variant_id, 0)
-        available = on_hand - reserved.get(item.variant_id, 0)
-        if available < item.quantity:
+        needed[item.variant_id] += item.quantity
+
+    skus = {i.variant_id: i.variant.sku for i in items}
+    for variant_id, need in needed.items():
+        on_hand = stock.get(variant_id, 0)
+        available = on_hand - reserved.get(variant_id, 0)
+        if available < need:
             raise ValidationError(
                 _("Insufficient stock for %(sku)s: available %(have)s, requested %(need)s.")
-                % {"sku": item.variant.sku, "have": max(available, 0), "need": item.quantity}
+                % {"sku": skus[variant_id], "have": max(available, 0), "need": need}
             )
-        total += item.line_total
+
+    total = sum((item.line_total for item in items), Decimal("0"))
 
     for item in items:
         add_movement(
@@ -153,11 +166,27 @@ def return_items(order: SaleOrder, returns: dict[int, int], user=None) -> SaleOr
             reason=f"Return sale #{order.pk}",
             sale_order=order,
         )
+        old_qty = item.quantity
         item.quantity -= qty
         if item.quantity == 0:
             item.delete()
-        else:
-            item.save(update_fields=["quantity"])
+            continue
+        fields = ["quantity"]
+        # A FIXED discount was agreed against the WHOLE line, so returning part
+        # of it has to shrink the discount in the same proportion — the client
+        # keeps exactly the per-unit price they actually paid. Leaving it whole
+        # would hand them the full discount on fewer units and, as soon as
+        # discount_value exceeded the now-smaller subtotal, the
+        # saleitem_discount_fixed_lte_subtotal CheckConstraint would reject the
+        # save and the return would 500. A PERCENT discount needs nothing: it
+        # is proportional by definition.
+        if item.discount_type == SaleItem.DISCOUNT_FIXED and item.discount_value:
+            scaled = (item.discount_value * item.quantity / old_qty).quantize(
+                CENTS, rounding=ROUND_HALF_UP
+            )
+            item.discount_value = min(scaled, item.unit_price * item.quantity)
+            fields.append("discount_value")
+        item.save(update_fields=fields)
 
     remaining = list(order.items.all())
     if not remaining:
@@ -512,10 +541,19 @@ def void_payment(payment: Payment, user=None) -> Payment:
     pre-payment balance, at the SAME frozen rate, never today's. Even
     change_rounding_kgs flips, so a void doesn't double-count that day's
     till-drift report with the now-undone transaction's residue."""
-    if payment.reversed_payment_id:
+    # Lock the row being voided first: two concurrent voids (a double-tapped
+    # admin action) would otherwise both read "not yet voided" and each write a
+    # reversal, subtracting the amount TWICE and leaving the client with a
+    # phantom credit. The DB's payment_one_reversal_per_payment unique
+    # constraint backs this up even for a caller that bypasses this function.
+    locked = Payment.objects.select_for_update().get(pk=payment.pk)
+    if locked.reversed_payment_id:
         raise ValidationError(_("This payment is already a reversal — nothing to void."))
-    if payment.reviewed and not (user and user.is_superuser):
+    if Payment.objects.filter(reversed_payment_id=locked.pk).exists():
+        raise ValidationError(_("This payment has already been voided."))
+    if locked.reviewed and not (user and user.is_superuser):
         raise ValidationError(_("Voiding a reviewed payment requires a superuser."))
+    payment = locked
     return Payment.objects.create(
         client_id=payment.client_id,
         order_id=payment.order_id,

@@ -97,7 +97,11 @@ def _sales_sheet() -> export.Sheet:
         # the client's debt, never a same-currency-only sum.
         paid = order.paid_amount
         balance = order.balance  # todays_confirmed_orders() is always CONFIRMED
-        status = _PAYMENT_STATUS_RU[SaleOrder.payment_status_for(order.total, paid)]
+        # order.payment_status, not the bare classifier: only the property
+        # knows a walk-in is settled on the spot (no client, so no payment row
+        # can exist). Calling payment_status_for(total, 0) directly branded
+        # every cash-and-carry sale «долг» in this sheet.
+        status = _PAYMENT_STATUS_RU[order.payment_status]
         total_base = order.total_kgs  # frozen at confirm — never re-converted
         paid_base = to_base(paid, order.currency, today)
 

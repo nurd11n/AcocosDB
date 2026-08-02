@@ -5,7 +5,7 @@ from django.test import TestCase, override_settings
 @override_settings(AXES_ENABLED=False)
 class LoginPageTests(TestCase):
     """Plain username + password login — OTP_ENABLED is False under the test
-    settings module (config/settings/dev.py), so no code field/step applies
+    settings module (config/settings/test.py), so no code field/step applies
     here. See tests/test_otp.py for the OTP_ENABLED=True behavior."""
 
     def test_get_renders_split_layout(self):
