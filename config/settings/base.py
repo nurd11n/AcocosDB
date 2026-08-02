@@ -460,6 +460,12 @@ JAZZMIN_SETTINGS = {
     "order_with_respect_to": [
         "sales",
         "sales.SaleOrder",
+        # Заказы (production orders) placed directly after Продажи — related
+        # work stays adjacent instead of falling wherever Jazzmin's default
+        # (unlisted apps sort after every explicitly-ordered one) happens to
+        # put it, which today is dead last.
+        "orders",
+        "orders.Order",
         "inventory",
         "inventory.Category",
         "inventory.Product",
