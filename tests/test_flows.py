@@ -26,13 +26,11 @@ from apps.core.management.commands.send_daily_report import (
     _debts_sheet,
     _sales_sheet,
     _stock_sheet,
-    _unreviewed_sheet,
 )
 from apps.core.models import ExchangeRate, RateChangeLog
 from apps.core.permissions import EDITOR, VIEWER
 from apps.inventory.models import Category, Product, ProductImage, ProductVariant, StockMovement
 from apps.inventory.services import add_movement, adjust_to_count
-from apps.reports.models import DailyReview
 from apps.sales.models import Payment, SaleItem, SaleOrder
 from apps.sales.services import (
     balance_kgs_before_payment,
@@ -431,23 +429,6 @@ def test_setup_roles_keeps_exchange_rates_superuser_only():
     assert not viewer.permissions.filter(codename__endswith="_exchangerate").exists()
 
 
-def test_editor_can_view_daily_review_but_not_act_on_it(django_user_model):
-    # DB permissions alone don't matter here — the ModelAdmin itself blocks
-    # editing/reviewing for non-superusers regardless of what's granted.
-    call_command("setup_roles")
-    editor = Group.objects.get(name=EDITOR)
-    assert editor.permissions.filter(codename="view_dailyreview").exists()
-
-    user = django_user_model.objects.create_user("editor2", password="x" * 12, is_staff=True)
-    user.groups.add(editor)
-    request = RequestFactory().get("/")
-    request.user = user
-    model_admin = site._registry[DailyReview]
-    assert model_admin.has_view_permission(request) is True
-    assert model_admin.has_change_permission(request) is False
-    assert "mark_reviewed" not in model_admin.get_actions(request)
-
-
 def test_stock_movement_and_standalone_payment_hidden_from_sidebar():
     from apps.inventory.models import StockMovement as SM
 
@@ -496,18 +477,6 @@ def test_daily_report_rows_are_russian_and_reflect_current_data(variant):
         r["Клиент"] == "Aiperi" and r["Долг"] == Decimal("5400.00") and r["Валюта"] == "KGS"
         for r in debts
     )
-
-
-def test_unreviewed_rows_lists_todays_unreviewed_payments(variant):
-    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
-    client = Client.objects.create(first_name="Nurgul", phone="+996700000011")
-    order = SaleOrder.objects.create(client=client)
-    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
-    confirm_sale(order)
-    Payment.objects.create(client=client, order=order, amount=Decimal("3200"))
-
-    rows = _by_header(_unreviewed_sheet())
-    assert any(r["Клиент"] == "Nurgul" for r in rows)
 
 
 def test_send_daily_report_command_skips_network_when_unconfigured(capsys):
@@ -1192,6 +1161,10 @@ def test_voided_payment_excluded_from_method_mix(variant):
 
 
 def test_void_reviewed_payment_requires_superuser(variant, django_user_model):
+    """Payment.reviewed is deprecated (the review queue that used to write it
+    is gone) but nothing drops the column, and this guard still protects
+    whatever a payment was already marked before removal — set directly here
+    since there's no UI path to it anymore."""
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     c = Client.objects.create(first_name="Elmira", phone="+996700000014")
     order = SaleOrder.objects.create(client=c)
@@ -5419,16 +5392,15 @@ def test_debts_sheet_reports_debt_age_and_spread(variant, settings):
 
 
 def test_admin_search_boxes_do_not_crash(client, django_user_model, variant):
-    """Regression: SaleOrder/Payment/DailyReview searched on `client__name` —
-    a PROPERTY, not a column — so every one of these 500'd with FieldError the
-    moment anyone typed in the box. The search box is the main way a
-    non-technical owner finds anything in the panel."""
+    """Regression: SaleOrder/Payment searched on `client__name` — a PROPERTY,
+    not a column — so every one of these 500'd with FieldError the moment
+    anyone typed in the box. The search box is the main way a non-technical
+    owner finds anything in the panel."""
     owner = django_user_model.objects.create_superuser("srch_owner", "s@e.com", "x" * 12)
     client.force_login(owner)
     for url in [
         "/panel/sales/saleorder/?q=Айгуль",
         "/panel/sales/payment/?q=Айгуль",
-        "/panel/reports/dailyreview/?q=Айгуль",
         "/panel/clients/client/?q=Айгуль",
         "/panel/orders/order/?q=Айгуль",
         "/panel/inventory/productvariant/?q=EVD",

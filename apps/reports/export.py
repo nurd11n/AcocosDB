@@ -140,9 +140,9 @@ def write_sheet(ws, columns: list[Column], rows, totals: list | None = None) -> 
     # point of shipping a real spreadsheet rather than a static table.
     ws.freeze_panes = "A2"
     if columns:
-        # Applied even to a header-only sheet (a quiet day's «Не проверено»):
-        # Excel accepts the range, and a sheet that gains rows tomorrow is
-        # then already filterable rather than inconsistently not.
+        # Applied even to a header-only sheet (a quiet day's «Долги», nobody
+        # owing anything): Excel accepts the range, and a sheet that gains
+        # rows tomorrow is then already filterable rather than inconsistently not.
         ws.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{ws.max_row}"
     for i, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = min(max(width, _MIN_WIDTH), _MAX_WIDTH)

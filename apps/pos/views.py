@@ -1479,8 +1479,6 @@ def today(request):
         .select_related("client")
         .order_by("-confirmed_at")
     )
-    unreviewed_count = Payment.objects.filter(created_at__date=today_date, reviewed=False).count()
-
     revenue_base = Decimal("0")
     skipped_currencies = []
     for cur, amt in summary["revenue_by_currency"].items():
@@ -1496,7 +1494,6 @@ def today(request):
         {
             "summary": summary,
             "orders": orders,
-            "unreviewed_count": unreviewed_count,
             "revenue_base": revenue_base,
             "base_currency": settings.CURRENCY,
             "skipped_currencies": skipped_currencies,

@@ -1,13 +1,5 @@
-from django.utils.translation import gettext_lazy as _
-
-from apps.sales.models import Payment
-
-
-class DailyReview(Payment):
-    """Proxy of Payment, grouped under its own 'Отчёты' sidebar section — the
-    day-end review changelist of today's payments awaiting a look."""
-
-    class Meta:
-        proxy = True
-        verbose_name = _("payment review")
-        verbose_name_plural = _("payment review")
+# No models of its own — this app is the dashboard/report/export machinery
+# (dashboard.py, client_export.py, export.py, storage.py, views.py) built on
+# top of apps.sales/apps.orders/apps.inventory. It used to also hold
+# DailyReview, a proxy Payment admin for the day-end payment-review queue;
+# that feature was removed (2026-08) along with this file's only model.

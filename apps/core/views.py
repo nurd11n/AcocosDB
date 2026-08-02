@@ -248,15 +248,16 @@ _CSV_BUILDERS = {
     "sales": ("_sales_rows", "prodazhi"),
     "stock": ("_stock_rows", "ostatok"),
     "debts": ("_debts_rows", "dolgi"),
-    "unreviewed": ("_unreviewed_rows", "ne_provereno"),
 }
 
 
 @_superuser_required
 def report_download(request):
-    """Download today's report (Продажи/Остаток/Долги/Не проверено) as xlsx or
-    csv, on demand. Reuses the same builders as the scheduled
-    `send_daily_report` command — always in Russian, same as the scheduled one."""
+    """Download today's report as xlsx or csv, on demand. The xlsx has every
+    sheet (Продажи/Остаток/Долги/Заказы); a per-sheet csv is offered for
+    Продажи/Остаток/Долги only (see _CSV_BUILDERS). Reuses the same builders
+    as the scheduled `send_daily_report` command — always in Russian, same as
+    the scheduled one."""
     from apps.core.management.commands import send_daily_report as report
 
     fmt = request.GET.get("format", "xlsx")
