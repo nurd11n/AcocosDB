@@ -6,7 +6,7 @@
 {% if can_write %}
 <div class="card">
  <h2><svg class="ic"><use href="#i-notes"/></svg>{% trans "Новая заметка" %}</h2>
- <form method="post" action="{% url 'notes:index' %}">
+ <form method="post" action="{% url 'notes:index' %}" data-autosave="note-new" data-undo>
   {% csrf_token %}
   <input type="text" name="title" maxlength="200" placeholder="{% trans 'Заголовок' %}" autocomplete="off">
   <textarea name="body" rows="3" placeholder="{% trans 'Задача, идея, что угодно про работу…' %}"></textarea>

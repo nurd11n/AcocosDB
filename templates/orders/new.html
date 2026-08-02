@@ -14,7 +14,7 @@
 {% if new_client_error %}<div class="error">{{ new_client_error }}</div>{% endif %}
 <div class="card">
  <h2>{% trans "+ Новый клиент" %}</h2>
- <form method="post" action="{% url 'orders:client_create' %}">
+ <form method="post" action="{% url 'orders:client_create' %}" data-autosave="order-client-new" data-undo>
   {% csrf_token %}
   <label>{% trans "Имя" %}</label>
   <input name="first_name" value="{{ new_client_values.first_name|default:'' }}" required>

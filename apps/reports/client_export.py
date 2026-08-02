@@ -49,7 +49,7 @@ _SUMMARY_FONT = Font(bold=True)
 
 
 def _order_row(order, items) -> list:
-    subtotal = sum((i.unit_price * i.quantity for i in items), Decimal("0"))
+    subtotal = sum((i.subtotal for i in items), Decimal("0"))
     discount = sum((i.discount_amount for i in items), Decimal("0"))
     quantity = sum((i.quantity for i in items), 0)
     products = ", ".join(f"{i.variant} ×{i.quantity}" for i in items)

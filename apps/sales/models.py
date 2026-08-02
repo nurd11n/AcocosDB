@@ -246,12 +246,20 @@ class SaleItem(models.Model):
         return f"{self.variant} × {self.quantity}"
 
     @property
+    def subtotal(self) -> Decimal:
+        """The line BEFORE any discount (unit_price × quantity). Named because
+        three separate places were recomputing it inline — the cart row, the
+        client export, and discount_amount's own clamp — and the POS shows it
+        beside the discounted total, so it has to be one definition."""
+        return self.unit_price * self.quantity
+
+    @property
     def discount_amount(self) -> Decimal:
         """How much this line's discount actually takes off, in the order's
         currency — always >= 0, always <= the undiscounted subtotal (clamped
         here too, not just by the DB constraint, so a property read is never
         the thing that goes negative even mid-transaction before a save)."""
-        subtotal = self.unit_price * self.quantity
+        subtotal = self.subtotal
         if self.discount_type == self.DISCOUNT_PERCENT and self.discount_value:
             amount = subtotal * self.discount_value / Decimal("100")
         elif self.discount_type == self.DISCOUNT_FIXED and self.discount_value:
@@ -262,7 +270,7 @@ class SaleItem(models.Model):
 
     @property
     def line_total(self) -> Decimal:
-        return self.unit_price * self.quantity - self.discount_amount
+        return self.subtotal - self.discount_amount
 
 
 class Payment(models.Model):

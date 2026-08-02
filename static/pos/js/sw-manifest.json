@@ -1,14 +1,15 @@
 {
   "hashes": {
-    "/static/pos/app.css": "e5e21aae00756338c3d91fc03ac7e3fe7a475712e345edcb88bcea0bfc2bb6d9",
+    "/static/pos/app.css": "db1d0ef79add98c318d529c005876c27157036de3cc6fa2678bb180ab08e14b0",
     "/static/pos/fonts/InterVariable.woff2": "693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3",
     "/static/pos/icons/icon-192.png": "ef858b3e52575143c5e85685c3ca2f8844fe7844a5edb7a48379ce2364e882d4",
     "/static/pos/icons/icon-512-maskable.png": "1359b350717033bf246b6373b450424d289fcfc2bc67f1bdc988eaf9aea1874d",
     "/static/pos/icons/icon-512.png": "fffdbb6fb035ac5151dae05fc2b000eae6f9477f5f80b92c1a6e3617ed3073ae",
-    "/static/pos/js/confirm.js": "fd204dd4e4878472599dc8897389f16e40b40681025d5fbbb5ef1a3289d7d201",
-    "/static/pos/js/pos.js": "0825798ff3b62c7a7cc8174d16b94c768ec661ce8a18d462dc484c19978a69fe",
+    "/static/pos/js/confirm.js": "7bc914e7fb124c75dafb03283365794122e5bc8f00ecf850af53e7a6375eb71b",
+    "/static/pos/js/pos.js": "5e126fffed09209f1e8e1d99b1248d724329472f0c3244934af975a003575258",
+    "/static/pos/js/safety.js": "927a48b2b723fd7d8011fcae8bf34ee54bbf4ec1211caf6e953030388453066c",
     "/static/pos/tokens.css": "25f8bf8615826931a67454285f0f94e03c4495a071f7733dd32cfa14e2c5925b",
     "/static/vendor/htmx/htmx.min.js": "449317ade7881e949510db614991e195c3a099c4c791c24dacec55f9f4a2a452"
   },
-  "version": "30"
+  "version": "31"
 }

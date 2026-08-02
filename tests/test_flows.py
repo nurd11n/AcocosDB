@@ -5708,3 +5708,184 @@ def test_daily_report_does_not_list_a_walk_in_cash_sale_as_unpaid(variant):
     rows = [str(cell) for row in _sales_sheet().rows for cell in row]
     assert "долг" not in rows, f"walk-in cash sale reported as debt: {rows}"
     assert "оплачено" in rows
+
+
+# --- Cart undo/redo (apps.pos.undo) ------------------------------------------
+
+
+def _draft_for(client, user, variant):
+    return SaleOrder.objects.create(created_by=user, currency=variant.currency)
+
+
+def test_cart_undo_restores_a_removed_line_and_redo_removes_it_again(
+    client, django_user_model, variant
+):
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("seller-undo", password="pw", is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(user)
+    add_movement(variant, StockMovement.PURCHASE_IN, 10)
+
+    order = _draft_for(client, user, variant)
+    client.post(f"/pos/sale/{order.pk}/items/add/", {"variant_id": variant.pk, "quantity": 2})
+    assert order.items.count() == 1
+
+    item = order.items.get()
+    client.post(f"/pos/sale/{order.pk}/items/{item.pk}/remove/")
+    assert order.items.count() == 0
+
+    client.post(f"/pos/sale/{order.pk}/undo/")
+    assert order.items.count() == 1, "undo must put the removed line back"
+    assert order.items.get().quantity == 2
+
+    client.post(f"/pos/sale/{order.pk}/redo/")
+    assert order.items.count() == 0, "redo must remove it again"
+
+
+def test_cart_undo_reverses_a_discount(client, django_user_model, variant):
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("seller-disc", password="pw", is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(user)
+    add_movement(variant, StockMovement.PURCHASE_IN, 10)
+
+    order = _draft_for(client, user, variant)
+    client.post(f"/pos/sale/{order.pk}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+    item = order.items.get()
+
+    client.post(
+        f"/pos/sale/{order.pk}/items/{item.pk}/discount/",
+        {"discount_type": "percent", "discount_value": "50"},
+    )
+    assert order.items.get().discount_amount == Decimal("1600.00")
+
+    client.post(f"/pos/sale/{order.pk}/undo/")
+    assert order.items.get().discount_amount == Decimal("0.00")
+
+
+def test_cart_undo_restores_the_client_on_the_sale(client, django_user_model, variant):
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("seller-cl", password="pw", is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(user)
+
+    buyer = Client.objects.create(first_name="Асель", phone="+996700990101")
+    order = _draft_for(client, user, variant)
+    client.post(f"/pos/sale/{order.pk}/client/{buyer.pk}/set/")
+    order.refresh_from_db()
+    assert order.client_id == buyer.pk
+
+    client.post(f"/pos/sale/{order.pk}/client/clear/")
+    order.refresh_from_db()
+    assert order.client_id is None
+
+    client.post(f"/pos/sale/{order.pk}/undo/")
+    order.refresh_from_db()
+    assert order.client_id == buyer.pk, "undo must re-attach the client"
+    assert Client.objects.filter(pk=buyer.pk).exists(), "undo must never delete the Client record"
+
+
+def test_cart_undo_with_nothing_to_undo_is_a_calm_no_op(client, django_user_model, variant):
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("seller-noop", password="pw", is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(user)
+
+    order = _draft_for(client, user, variant)
+    resp = client.post(f"/pos/sale/{order.pk}/undo/")
+    assert resp.status_code == 200
+    assert "Отменять больше нечего" in resp.content.decode()
+
+
+def test_cart_undo_re_clamps_against_stock_that_moved_since_the_snapshot(
+    client, django_user_model, variant
+):
+    """A snapshot was valid when taken, but stock can move before the undo. The
+    restore must never be the thing that puts an unsellable quantity in the
+    cart — the same cap every other cart path applies."""
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("seller-clamp", password="pw", is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(user)
+    add_movement(variant, StockMovement.PURCHASE_IN, 10)
+
+    order = _draft_for(client, user, variant)
+    client.post(f"/pos/sale/{order.pk}/items/add/", {"variant_id": variant.pk, "quantity": 8})
+    item = order.items.get()
+    client.post(f"/pos/sale/{order.pk}/items/{item.pk}/remove/")
+
+    # Someone else sells 9 of the 10 while this cart sits empty.
+    add_movement(variant, StockMovement.WRITEOFF_OUT, 9)
+
+    client.post(f"/pos/sale/{order.pk}/undo/")
+    restored = order.items.first()
+    assert restored is not None
+    assert restored.quantity == 1, f"undo restored {restored.quantity} with only 1 available"
+
+
+def test_cart_undo_never_touches_a_confirmed_sale(client, django_user_model, variant):
+    """Undo is for the draft. Once a sale is confirmed its reversal path is
+    cancel_sale/return_items, which restock through services.py and leave a
+    ledger trail — a keystroke must never rewrite counted money."""
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("seller-conf", password="pw", is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(user)
+    add_movement(variant, StockMovement.PURCHASE_IN, 10)
+
+    order = _draft_for(client, user, variant)
+    client.post(f"/pos/sale/{order.pk}/items/add/", {"variant_id": variant.pk, "quantity": 2})
+    client.post(f"/pos/sale/{order.pk}/confirm/", {"amount": ""})
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CONFIRMED
+
+    resp = client.post(f"/pos/sale/{order.pk}/undo/")
+    assert resp.status_code == 404, "a confirmed sale is not a draft and has no undo endpoint"
+    order.refresh_from_db()
+    assert order.items.get().quantity == 2
+    assert variant.stock == 8
+
+
+def test_cart_undo_requires_sell_permission(client, django_user_model, variant):
+    call_command("setup_roles")
+    viewer = django_user_model.objects.create_user("viewer-undo", password="pw", is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    owner = django_user_model.objects.create_superuser("owner-undo", password="pw")
+    order = SaleOrder.objects.create(created_by=owner, currency=variant.currency)
+
+    client.force_login(viewer)
+    assert client.post(f"/pos/sale/{order.pk}/undo/").status_code == 403
+    assert client.post(f"/pos/sale/{order.pk}/redo/").status_code == 403
+
+
+def test_destructive_cart_and_order_actions_carry_a_confirmation(
+    client, django_user_model, variant
+):
+    """The guard is a data-confirm attribute read by static/pos/js/safety.js —
+    assert it is actually present on the rendered destructive controls, so
+    removing it is a test failure rather than a silent regression."""
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("seller-guard", password="pw", is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(user)
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+
+    order = _draft_for(client, user, variant)
+    client.post(f"/pos/sale/{order.pk}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+    body = client.get(f"/pos/sale/{order.pk}/").content.decode()
+    assert "data-confirm=" in body, "the cart's remove-line button lost its confirmation"
+
+
+def test_adding_an_item_with_no_variant_id_is_a_404_not_a_500(client, django_user_model, variant):
+    """A blank variant_id used to reach the ORM as "" and raise ValueError —
+    a 500 on malformed input, where 404 is the honest answer."""
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("seller-bad", password="pw", is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(user)
+    order = SaleOrder.objects.create(created_by=user, currency=variant.currency)
+
+    for payload in ({"variant_id": "", "quantity": "1"}, {"quantity": "1"}, {"variant_id": "abc"}):
+        resp = client.post(f"/pos/sale/{order.pk}/items/add/", payload)
+        assert resp.status_code == 404, f"{payload} -> {resp.status_code}"
+    assert order.items.count() == 0

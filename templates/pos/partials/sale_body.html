@@ -8,33 +8,67 @@
 <div class="cart-scroll">
 {% if items %}
 <div class="card items-card">
- <h2>{% trans "Позиции" %} · {{ items|length }}</h2>
+ {% comment %}
+ Undo/redo for the draft basket (apps.pos.undo). Server-side, because the
+ basket itself is server state — a client-side stack would be wiped by the
+ very reload the draft exists to survive. data-undo-scope lets pos.js bind
+ Cmd/Ctrl+Z to these same two buttons, so the keyboard and the taps go through
+ one code path.
+ {% endcomment %}
+ <div class="items-card__head" data-undo-scope>
+  <h2>{% trans "Позиции" %} · {{ items|length }}</h2>
+  <div class="undo-bar">
+   <button type="button" class="undo-bar__btn" data-undo-action
+     hx-post="{% url 'pos:sale_undo' order.pk %}" hx-target="#sale-body" hx-swap="innerHTML"
+     {% if not can_undo %}disabled{% endif %}
+     aria-label="{% trans "Отменить последнее действие" %}"
+     title="{% trans "Отменить (⌘Z)" %}">↶</button>
+   <button type="button" class="undo-bar__btn" data-redo-action
+     hx-post="{% url 'pos:sale_redo' order.pk %}" hx-target="#sale-body" hx-swap="innerHTML"
+     {% if not can_redo %}disabled{% endif %}
+     aria-label="{% trans "Вернуть отменённое" %}"
+     title="{% trans "Вернуть (⇧⌘Z)" %}">↷</button>
+  </div>
+ </div>
  <div class="items-scroll">
   {% for item in items %}
   <div class="line-row line-row--compact">
     <div class="line-row__top">
-      <span class="line-row__name">{{ item.variant }}</span>
+      <span class="line-row__name">{{ item.variant.product.name }}</span>
       <button type="button" class="line-row__remove" aria-label="{% trans "Удалить" %}"
+        data-confirm="{% blocktrans with name=item.variant %}Убрать «{{ name }}» из продажи?{% endblocktrans %}"
         hx-post="{% url 'pos:item_remove' order.pk item.pk %}" hx-target="#sale-body" hx-swap="innerHTML">✕</button>
     </div>
+    {% if item.variant.size or item.variant.color %}
+    <div class="line-row__attrs">{{ item.variant.size }}{% if item.variant.size and item.variant.color %} · {% endif %}{{ item.variant.color }}</div>
+    {% endif %}
+    {% comment %}
+    qty × price on the left, the money right-aligned in tabular figures so
+    totals stack into one scannable column down the cart. A discounted line
+    adds a second money row — the struck subtotal above, what's actually
+    charged below — so «what it cost» and «what came off» stay two visible
+    facts, matching how SaleItem stores them.
+    {% endcomment %}
     <div class="line-row__meta">
-      <span class="line-row__qty muted num">{{ item.quantity }}×{{ item.unit_price|money:order.currency }}</span>
+      <span class="line-row__qty">{{ item.quantity }} × {{ item.unit_price|money:order.currency }}</span>
+      <span class="line-row__total num {% if item.discount_amount > 0 %}line-row__total--struck{% endif %}">
+        {{ item.subtotal|money:order.currency }}</span>
+    </div>
+    {% if item.discount_amount > 0 %}
+    <div class="line-row__meta line-row__meta--net">
+      <span class="line-row__disc">{% trans "Скидка" %} −{{ item.discount_amount|money:order.currency }}{% if item.discount_type == "percent" %} ({{ item.discount_value|floatformat:0 }}%){% endif %}</span>
       <span class="line-row__total num">{{ item.line_total|money:order.currency }}</span>
     </div>
+    {% endif %}
     {% comment %}
     Native <details>/<summary> — no JS needed to expand, same pattern as the
-    "Свой курс (Владелец)" toggle further down this file. Collapsed by
-    default so a line with no discount stays visually one row, matching the
-    cart's "one row per line" density goal (CLAUDE.md).
+    "Свой курс (Владелец)" toggle further down this file. The amount itself now
+    lives in its own money row above, so this is purely the control: it stays a
+    quiet one-word link on the common (undiscounted) line and never competes
+    with the figures for attention.
     {% endcomment %}
     <details class="line-row__discount">
-     <summary class="muted">
-      {% if item.discount_amount > 0 %}
-        {% trans "Скидка" %}: −{{ item.discount_amount|money:order.currency }}{% if item.discount_type == "percent" %} ({{ item.discount_value|floatformat:0 }}%){% endif %}
-      {% else %}
-        {% trans "+ скидка" %}
-      {% endif %}
-     </summary>
+     <summary>{% if item.discount_amount > 0 %}{% trans "Изменить скидку" %}{% else %}{% trans "+ скидка" %}{% endif %}</summary>
      <form hx-post="{% url 'pos:item_discount' order.pk item.pk %}" hx-target="#sale-body" hx-swap="innerHTML" class="row">
       <select name="discount_type">
        <option value="none" {% if item.discount_type == "none" %}selected{% endif %}>{% trans "Без скидки" %}</option>
