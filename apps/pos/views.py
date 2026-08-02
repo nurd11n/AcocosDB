@@ -283,6 +283,7 @@ def _sale_body_context(
 ):
     items = list(order.items.select_related("variant__product"))
     total = sum((i.line_total for i in items), Decimal("0"))
+    total_discount = sum((i.discount_amount for i in items), Decimal("0"))
     today = timezone.localdate()
     total_conv = None
     if order.currency != settings.CURRENCY:
@@ -350,6 +351,7 @@ def _sale_body_context(
         "error": error,
         "total": total,
         "total_conv": total_conv,
+        "total_discount": total_discount,
         "base_currency": settings.CURRENCY,
         "currencies": CURRENCY_CODES,
         "methods": Payment.METHOD_CHOICES,
@@ -833,6 +835,43 @@ def item_add(request, pk):
 def item_remove(request, pk, item_id):
     order = _own_draft_or_404(request, pk)
     order.items.filter(pk=item_id).delete()
+    return render(
+        request,
+        "pos/partials/sale_body.html",
+        _sale_body_context(order, can_override_rate=request.user.is_superuser),
+    )
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def item_discount(request, pk, item_id):
+    """Set (or clear) one cart line's discount. Never trusts the client-side
+    max= alone (the cart-time-stock-cap precedent, CLAUDE.md Part 1c/1d):
+    a percent is clamped to 0-100, a fixed amount to 0-subtotal, here, again,
+    regardless of what was actually POSTed — the same two bounds the DB
+    CheckConstraints enforce as the last line of defence. discount_type=none
+    always zeroes discount_value out too, rather than leaving a stale value
+    inert-but-present from a previous discount."""
+    order = _own_draft_or_404(request, pk)
+    item = get_object_or_404(SaleItem, pk=item_id, order=order)
+
+    discount_type = request.POST.get("discount_type", SaleItem.DISCOUNT_NONE)
+    if discount_type not in dict(SaleItem.DISCOUNT_TYPE_CHOICES):
+        discount_type = SaleItem.DISCOUNT_NONE
+
+    raw_value = _parse_decimal(request.POST.get("discount_value", "")) or Decimal("0")
+    subtotal = item.unit_price * item.quantity
+    if discount_type == SaleItem.DISCOUNT_PERCENT:
+        value = min(raw_value, Decimal("100"))
+    elif discount_type == SaleItem.DISCOUNT_FIXED:
+        value = min(raw_value, subtotal)
+    else:
+        value = Decimal("0")
+
+    item.discount_type = discount_type
+    item.discount_value = value
+    item.save(update_fields=["discount_type", "discount_value"])
     return render(
         request,
         "pos/partials/sale_body.html",

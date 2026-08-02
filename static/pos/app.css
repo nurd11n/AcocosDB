@@ -810,6 +810,23 @@ body:has(#order-modal:not(:empty)) { overflow: hidden; }
 }
 .line-row__qty { flex: none; white-space: nowrap; color: var(--text-3); }
 .line-row--compact .line-row__total { flex: none; }
+/* Per-line discount toggle — same quiet-<details> treatment as .rate-override,
+   so an undiscounted line (the common case) stays one compact row. */
+.line-row__discount { margin-top: var(--space-1); }
+.line-row__discount summary {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.line-row__discount form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.line-row__discount select { flex: none; width: auto; }
+.line-row__discount input { flex: 1; min-width: 0; }
 /* Loud bordered "btn" styling is wrong for a per-row delete — keep the 44px
    touch target, but read as a quiet icon, not the row's dominant element.
    Negative margin keeps the visual row compact while the hit area stays full. */

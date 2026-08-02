@@ -1,11 +1,33 @@
+from urllib.parse import quote
+
 from django.contrib import admin
-from django.urls import reverse
+from django.core.exceptions import PermissionDenied
+from django.http import Http404, HttpResponse
+from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
 from .models import Client, Interaction
 from .services import client_debts_by_currency
+
+
+def _xlsx_response(content: bytes, filename: str) -> HttpResponse:
+    """Content-Disposition with a real UTF-8 filename (client names are
+    Cyrillic almost always) — the plain filename="" parameter must stay pure
+    ASCII or some clients mishandle/reject the header entirely, so this sends
+    BOTH: an ASCII-safe fallback and the real name via the standard
+    filename*=UTF-8'' extension (RFC 5987/6266) every modern browser honours."""
+    ascii_fallback = "".join(ch if ch.isascii() else "_" for ch in filename) or "export.xlsx"
+    resp = HttpResponse(
+        content,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = (
+        f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
+    )
+    return resp
 
 
 class InteractionInline(admin.TabularInline):
@@ -57,8 +79,9 @@ class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     search_fields = ["first_name", "descriptor", "phone"]
     search_help_text = "Имя, уточнение или телефон"
     list_filter = [HasDebtFilter, "source", "is_active"]
-    readonly_fields = ["unpaid_orders"]
+    readonly_fields = ["unpaid_orders", "export_link"]
     inlines = [InteractionInline]
+    actions = ["export_selected"]
 
     def get_queryset(self, request):
         # Debt is per-currency now, so it can't be a single annotated column —
@@ -66,6 +89,47 @@ class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         # on the ModelAdmin instance for the duration of this request/response.
         self._debts = client_debts_by_currency()
         return super().get_queryset(request)
+
+    # --- Excel export: transaction history + per-currency debt summary.
+    # Reachable by anyone who can already VIEW this client (Editor and
+    # Viewer both hold clients.view_client — the export is just a different
+    # rendering of data they already see on screen, not a new disclosure). ---
+
+    def get_urls(self):
+        custom = [
+            path(
+                "<int:pk>/export/",
+                self.admin_site.admin_view(self.export_view),
+                name="clients_client_export",
+            ),
+        ]
+        return custom + super().get_urls()
+
+    @admin.display(description=_("export"))
+    def export_link(self, obj):
+        if not obj.pk:
+            return "—"
+        url = reverse("admin:clients_client_export", args=[obj.pk])
+        return format_html('<a class="button" href="{}">{}</a>', url, _("Выгрузить в Excel"))
+
+    def export_view(self, request, pk):
+        client = self.get_object(request, pk)
+        if client is None:
+            raise Http404
+        if not self.has_view_permission(request, client):
+            raise PermissionDenied
+        from apps.reports.client_export import client_export_filename, client_workbook_bytes
+
+        content = client_workbook_bytes([client])
+        return _xlsx_response(content, client_export_filename(client))
+
+    @admin.action(description=_("Export to Excel (Выгрузить в Excel)"))
+    def export_selected(self, request, queryset):
+        from apps.reports.client_export import client_workbook_bytes
+
+        content = client_workbook_bytes(queryset)
+        filename = f"clients_export_{timezone.localdate():%Y-%m-%d}.xlsx"
+        return _xlsx_response(content, filename)
 
     @admin.display(description=_("debt"))
     def debt(self, obj):
