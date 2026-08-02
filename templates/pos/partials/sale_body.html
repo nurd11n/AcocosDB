@@ -17,13 +17,13 @@
  {% endcomment %}
  <div class="items-card__head" data-undo-scope>
   <h2>{% trans "Позиции" %} · {{ items|length }}</h2>
-  <div class="segbtn">
-   <button type="button" class="segbtn__half" data-undo-action
+  <div class="undo-bar">
+   <button type="button" class="undo-bar__btn" data-undo-action
      hx-post="{% url 'pos:sale_undo' order.pk %}" hx-target="#sale-body" hx-swap="innerHTML"
      {% if not can_undo %}disabled{% endif %}
      aria-label="{% trans "Отменить последнее действие" %}"
      title="{% trans "Отменить (⌘Z)" %}"><svg class="ic"><use href="#i-chevron-left"/></svg></button>
-   <button type="button" class="segbtn__half" data-redo-action
+   <button type="button" class="undo-bar__btn" data-redo-action
      hx-post="{% url 'pos:sale_redo' order.pk %}" hx-target="#sale-body" hx-swap="innerHTML"
      {% if not can_redo %}disabled{% endif %}
      aria-label="{% trans "Вернуть отменённое" %}"
