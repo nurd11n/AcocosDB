@@ -5,7 +5,7 @@
  * This file is served by apps.pos.views.service_worker at /pos/sw.js (not
  * under /static/) so its default scope covers all of /pos/.
  */
-const SHELL_VERSION = "31";
+const SHELL_VERSION = "32";
 const CACHE_NAME = `acocos-pos-shell-v${SHELL_VERSION}`;
 
 // App shell only: CSS, JS, fonts, icons. Never HTML, never data — stale
