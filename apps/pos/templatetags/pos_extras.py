@@ -1,5 +1,3 @@
-from decimal import ROUND_HALF_UP, Decimal
-
 from django import template
 from django.utils.translation import gettext_lazy as _
 
@@ -7,8 +5,6 @@ from apps.clients.services import client_credits, client_debt
 from apps.sales.models import SaleOrder
 
 register = template.Library()
-
-NBSP = " "
 
 # payment_status_for() returns "unpaid"/"partial"/"paid" — the CSS classes
 # and money-bar tokens use "debt" for the unpaid case (see POS-DESIGN.md's
@@ -83,24 +79,15 @@ def money_filter(value, currency):
     """'3 800 сом' / '874,50 сом' — NBSP-grouped thousands, the currency
     SYMBOL (сом/₽/$, never the KGS/RUB/USD code), cents dropped when exactly
     zero (POS-DESIGN.md's money rule). Pair with the `.num` class at the call
-    site for tabular-nums — this filter only formats digits."""
-    if value is None or value == "":
-        return ""
-    from apps.core.currency import CURRENCY_SYMBOLS
+    site for tabular-nums — this filter only formats digits.
 
-    try:
-        amount = Decimal(value)
-    except (TypeError, ValueError):
-        return value
-    symbol = CURRENCY_SYMBOLS.get(currency, currency)
-    sign = "-" if amount < 0 else ""
-    amount = abs(amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    whole, cents = divmod(amount, 1)
-    whole_str = f"{int(whole):,}".replace(",", NBSP)
-    cents = int((cents * 100).to_integral_value(rounding=ROUND_HALF_UP))
-    if cents:
-        return f"{sign}{whole_str},{cents:02d}{NBSP}{symbol}"
-    return f"{sign}{whole_str}{NBSP}{symbol}"
+    A thin wrapper: the actual formatting (and the quantize-before-display
+    that keeps a stray high-precision Decimal from ever reaching the screen)
+    lives in apps.core.currency.format_money, so /pos/ templates and /panel/
+    admin columns render money identically through ONE implementation."""
+    from apps.core.currency import format_money
+
+    return format_money(value, currency)
 
 
 @register.filter(name="currency_symbol")

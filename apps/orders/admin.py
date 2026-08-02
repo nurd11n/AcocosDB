@@ -3,6 +3,8 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
+from apps.core.currency import format_money
+
 from .models import Order, OrderItem
 from .services import cancel_order, order_paid_amount
 
@@ -39,11 +41,11 @@ class OrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
 
     @admin.display(description=_("total"))
     def total_display(self, obj):
-        return f"{obj.total} {obj.currency}"
+        return format_money(obj.total, obj.currency)
 
     @admin.display(description=_("paid"))
     def paid_display(self, obj):
-        return f"{order_paid_amount(obj)} {obj.currency}"
+        return format_money(order_paid_amount(obj), obj.currency)
 
     @admin.display(description=_("overdue"), boolean=True)
     def overdue_display(self, obj):

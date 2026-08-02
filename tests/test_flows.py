@@ -5889,3 +5889,112 @@ def test_adding_an_item_with_no_variant_id_is_a_404_not_a_500(client, django_use
         resp = client.post(f"/pos/sale/{order.pk}/items/add/", payload)
         assert resp.status_code == 404, f"{payload} -> {resp.status_code}"
     assert order.items.count() == 0
+
+
+# --- Money display precision (2026-08 review) --------------------------------
+# Root cause: Postgres's NUMERIC division picks its own result scale, and
+# neither Postgres nor Django rounds a raw SQL annotation to its declared
+# output_field.decimal_places. SaleOrderAdmin's `_paid` (amount*rate -
+# change)/rate summed in SQL) could come back as Decimal('6800.0000000000000000')
+# against a Decimal('6800.00') total; subtracting nets to an unnormalized
+# Decimal('0E-16') rather than Decimal('0.00'). apps.core.currency.format_money
+# now quantizes at the one point every money value passes through before
+# display, and the admin reads the already-quantized SaleOrder.paid_amount/
+# .balance/.payment_status properties instead of the raw annotation.
+
+
+def test_format_money_normalizes_the_exact_reported_garbage_values():
+    """Decimal('0E-16') and a 16-decimal-place Decimal are exactly what a raw
+    Postgres NUMERIC division annotation produced in production — assert the
+    shared formatter turns both into clean, correct money strings."""
+    from apps.core.currency import format_money
+
+    assert format_money(Decimal("0E-16"), "KGS") == "0\N{NBSP}сом"
+    assert format_money(Decimal("6800.0000000000000000"), "KGS") == "6\N{NBSP}800\N{NBSP}сом"
+    assert format_money(Decimal("874.500000000000"), "USD") == "874,50\N{NBSP}$"
+
+
+def test_sale_admin_paid_and_balance_columns_never_read_the_raw_annotation(variant):
+    """Full-stack proof, not just the formatter: even if the DB-computed _paid
+    annotation carries garbage precision (simulated here — sqlite's own
+    division doesn't reproduce Postgres's scale behaviour, so the real bug
+    can't be provoked through sqlite alone), the displayed columns must be
+    unaffected because they no longer read _paid at all."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client = Client.objects.create(first_name="Точность", phone="+996700990201")
+    order = SaleOrder.objects.create(client=client, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("6800"))
+    confirm_sale(order)
+    record_payment(order, Decimal("6800"))
+
+    admin_instance = site._registry[SaleOrder]
+    obj = admin_instance.get_queryset(RequestFactory().get("/")).get(pk=order.pk)
+    # Corrupt the annotation the way Postgres's division scale would, in place —
+    # if any column still read it, this is what would leak onto the screen.
+    obj._paid = Decimal("6800.00") - Decimal("6800.0000000000000000")
+    assert str(obj._paid) == "0E-16", "sanity: this IS the unnormalized-zero shape"
+
+    assert admin_instance.paid_column(obj) == "6\N{NBSP}800\N{NBSP}сом"
+    assert admin_instance.balance_column(obj) == "0\N{NBSP}сом"
+    assert "оплачено" in admin_instance.payment_badge(obj).lower()
+
+
+def test_sale_admin_columns_render_correctly_for_a_normal_fully_paid_order(variant):
+    """The literal spec: a sale paid exactly in full stores Decimal('0.00'),
+    renders «0 сом», and classifies as оплачено — through the REAL,
+    uncorrupted admin queryset this time."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client = Client.objects.create(first_name="Ровно", phone="+996700990202")
+    order = SaleOrder.objects.create(client=client, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    record_payment(order, Decimal("3200"))
+
+    admin_instance = site._registry[SaleOrder]
+    obj = admin_instance.get_queryset(RequestFactory().get("/")).get(pk=order.pk)
+    assert obj.balance == Decimal("0.00")
+    assert admin_instance.total_display(obj) == "3\N{NBSP}200\N{NBSP}сом"
+    assert admin_instance.paid_column(obj) == "3\N{NBSP}200\N{NBSP}сом"
+    assert admin_instance.balance_column(obj) == "0\N{NBSP}сом"
+    assert "оплачено" in admin_instance.payment_badge(obj).lower()
+
+
+def test_sale_admin_queryset_still_sorts_by_paid_despite_display_change(variant):
+    """_paid stays for `ordering=` — only what's DISPLAYED moved to the
+    canonical property. Sorting must still work."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client = Client.objects.create(first_name="Сорт", phone="+996700990203")
+    small = SaleOrder.objects.create(client=client, currency="KGS")
+    SaleItem.objects.create(order=small, variant=variant, quantity=1, unit_price=Decimal("100"))
+    confirm_sale(small)
+    record_payment(small, Decimal("100"))
+
+    big = SaleOrder.objects.create(client=client, currency="KGS")
+    SaleItem.objects.create(order=big, variant=variant, quantity=1, unit_price=Decimal("900"))
+    confirm_sale(big)
+    record_payment(big, Decimal("900"))
+
+    admin_instance = site._registry[SaleOrder]
+    ids = list(
+        admin_instance.get_queryset(RequestFactory().get("/"))
+        .filter(pk__in=[small.pk, big.pk])
+        .order_by("_paid")
+        .values_list("pk", flat=True)
+    )
+    assert ids == [small.pk, big.pk]
+
+
+def test_order_admin_total_and_paid_use_money_formatting(variant):
+    """apps.orders.admin (production-order 'Заказы') gets the same NBSP +
+    symbol formatting — the report named this admin list too."""
+    from apps.orders.admin import OrderAdmin
+    from apps.orders.models import Order, OrderItem
+
+    client = Client.objects.create(first_name="Заказ", phone="+996700990204")
+    order = Order.objects.create(client=client, currency="KGS")
+    OrderItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3400"))
+    admin_instance = site._registry[Order]
+    assert isinstance(admin_instance, OrderAdmin)
+    assert order.total == Decimal("6800")
+    assert admin_instance.total_display(order) == "6\N{NBSP}800\N{NBSP}сом"
+    assert admin_instance.paid_display(order) == "0\N{NBSP}сом"
