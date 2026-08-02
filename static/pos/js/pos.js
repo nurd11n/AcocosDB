@@ -51,6 +51,27 @@
     }
   });
 
+  // --- Cmd/Ctrl+Z on the sale screen drives the cart's undo buttons -------
+  // The basket is server state, so the keystroke just clicks the same button a
+  // tap would (see apps/pos/undo.py) — one code path, and the button's own
+  // disabled state is what decides whether anything happens. Ignored while the
+  // caret is in a field, where the browser's native per-field undo is the
+  // behaviour people actually expect.
+  document.addEventListener("keydown", function (event) {
+    var key = event.key ? event.key.toLowerCase() : "";
+    if (key !== "z" || !(event.metaKey || event.ctrlKey)) return;
+    var active = document.activeElement;
+    if (active && active.closest && active.closest("input, textarea, select, [contenteditable]")) {
+      return;
+    }
+    var scope = document.querySelector("[data-undo-scope]");
+    if (!scope) return;
+    var button = scope.querySelector(event.shiftKey ? "[data-redo-action]" : "[data-undo-action]");
+    if (!button || button.disabled) return;
+    event.preventDefault();
+    button.click();
+  });
+
   // --- Close a panel only AFTER its request finishes (data-clear-after) ---
   // data-clear-target above clears on the CLICK, which is right for a plain
   // «Отмена» but wrong for a button that fires a request: it tears the button

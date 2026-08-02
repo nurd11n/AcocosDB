@@ -27,6 +27,8 @@ urlpatterns = [
     ),
     path("sale/<int:pk>/items/add/", views.item_add, name="item_add"),
     path("sale/<int:pk>/items/<int:item_id>/remove/", views.item_remove, name="item_remove"),
+    path("sale/<int:pk>/undo/", views.sale_undo, name="sale_undo"),
+    path("sale/<int:pk>/redo/", views.sale_redo, name="sale_redo"),
     path("sale/<int:pk>/items/<int:item_id>/discount/", views.item_discount, name="item_discount"),
     path("sale/<int:pk>/recalc/", views.recalc, name="recalc"),
     path("sale/<int:pk>/confirm/", views.sale_confirm, name="sale_confirm"),

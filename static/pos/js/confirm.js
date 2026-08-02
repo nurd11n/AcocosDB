@@ -18,13 +18,22 @@
       return;
     }
 
-    var confirmText = form.getAttribute("data-confirm");
-    if (confirmText && !window.confirm(confirmText)) {
-      event.preventDefault();
-      return;
-    }
     event.preventDefault();
 
+    // The styled dialog in safety.js is async, so the fetch below moves into a
+    // callback. Falls back to a bare window.confirm if safety.js failed to
+    // load — a destructive action must never lose its guard just because one
+    // script is missing.
+    var confirmText = form.getAttribute("data-confirm");
+    if (!confirmText) return send();
+    var asked = window.posConfirm
+      ? window.posConfirm(confirmText, form.getAttribute("data-confirm-ok"))
+      : Promise.resolve(window.confirm(confirmText));
+    asked.then(function (ok) {
+      if (ok) send();
+    });
+
+    function send() {
     var button = form.querySelector("button[type=submit]");
     var errorTarget = form.getAttribute("data-error-target");
     var errorEl = errorTarget ? document.getElementById(errorTarget) : null;
@@ -49,5 +58,6 @@
         }
         if (button) button.disabled = false;
       });
+    }
   });
 })();

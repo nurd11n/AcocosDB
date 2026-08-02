@@ -36,7 +36,9 @@ order is a question with no meaning.
   <span class="oline__total num">{{ row.item.line_total|money:row.item.currency }}</span>
   {% if can_write and order.is_open %}
   <form hx-post="{% url 'orders:item_remove' order.pk row.item.pk %}"
-    hx-target="#order-body" hx-swap="innerHTML" class="oline__remove">
+    hx-target="#order-body" hx-swap="innerHTML" class="oline__remove"
+    data-confirm="{% blocktrans with name=row.item.variant %}Убрать «{{ name }}» из заказа?{% endblocktrans %}"
+    data-confirm-ok="{% trans "Убрать" %}">
     {% csrf_token %}
     <button type="submit" class="btn btn-ghost btn-icon" aria-label="{% trans "Удалить" %}">✕</button>
   </form>

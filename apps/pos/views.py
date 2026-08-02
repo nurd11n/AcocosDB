@@ -13,7 +13,7 @@ from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import IntegerField, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -41,6 +41,7 @@ from apps.sales.services import (
     today_summary,
 )
 
+from . import undo
 from .decorators import pos_view
 from .messaging import debt_reminder_text, receipt_text, wa_link
 
@@ -270,6 +271,7 @@ def _draft_balance_kgs(order, today):
 
 def _sale_body_context(
     order,
+    request=None,
     payment_amount=None,
     payment_currency=None,
     payment_method=None,
@@ -375,6 +377,14 @@ def _sale_body_context(
         "change_amount_override": change_amount_override,
         "change_adjust_reason": change_adjust_reason,
         "has_client": order.client_id is not None,
+        # Undo/redo availability for the cart toolbar. Optional `request` so
+        # the few call sites that only render a fragment (and have no session
+        # to read) still work — the buttons just render disabled there.
+        **(
+            undo.state(request, order)
+            if request is not None
+            else {"can_undo": False, "can_redo": False}
+        ),
     }
 
 
@@ -529,7 +539,7 @@ def sale_detail(request, pk):
     if order.status != SaleOrder.DRAFT:
         return redirect("pos:sale_result", pk=order.pk)
     context = {
-        **_sale_body_context(order, can_override_rate=request.user.is_superuser),
+        **_sale_body_context(order, request, can_override_rate=request.user.is_superuser),
         "active": "sale",
         "rates": _today_rates(),
     }
@@ -560,6 +570,7 @@ def client_search(request, pk):
 @require_POST
 def client_set(request, pk, client_id):
     order = _own_draft_or_404(request, pk)
+    undo.push(request, order)
     order.client = get_object_or_404(Client, pk=client_id)
     order.save(update_fields=["client"])
     return render(request, "pos/partials/client_section.html", {"order": order})
@@ -570,6 +581,7 @@ def client_set(request, pk, client_id):
 @require_POST
 def client_clear(request, pk):
     order = _own_draft_or_404(request, pk)
+    undo.push(request, order)
     order.client = None
     order.save(update_fields=["client"])
     return render(request, "pos/partials/client_section.html", {"order": order})
@@ -617,6 +629,11 @@ def client_create(request, pk):
     client = Client.objects.create(
         first_name=first_name, descriptor=descriptor, phone=phone, source=Client.SHOP
     )
+    # Pushed only now that the new client actually exists: an undo step for a
+    # validation bounce above would be a step that changed nothing. Undo
+    # detaches the client from THIS sale — it never deletes the Client record,
+    # which by then may already be referenced elsewhere.
+    undo.push(request, order)
     order.client = client
     order.save(update_fields=["client"])
     return render(request, "pos/partials/client_section.html", {"order": order})
@@ -772,7 +789,15 @@ def item_add(request, pk):
     from apps.inventory.services import available_for
 
     order = _own_draft_or_404(request, pk)
-    variant = get_object_or_404(ProductVariant, pk=request.POST.get("variant_id"))
+    # A missing/blank variant_id reached the ORM as "" and raised ValueError —
+    # a 500 on malformed input, where a 404 is the honest answer. Parsed here
+    # so the pk is an int (or nothing) before it ever gets to the query.
+    try:
+        variant_id = int(request.POST.get("variant_id") or "")
+    except (TypeError, ValueError):
+        raise Http404("No variant given.") from None
+    undo.push(request, order)
+    variant = get_object_or_404(ProductVariant, pk=variant_id)
     try:
         qty = max(int(request.POST.get("quantity", "1")), 1)
     except (TypeError, ValueError):
@@ -793,7 +818,9 @@ def item_add(request, pk):
         return render(
             request,
             "pos/partials/sale_body.html",
-            _sale_body_context(order, error=error, can_override_rate=request.user.is_superuser),
+            _sale_body_context(
+                order, request, error=error, can_override_rate=request.user.is_superuser
+            ),
         )
 
     # CART-TIME CAP (Part 1a): capped against the TOTAL of this variant across
@@ -825,7 +852,9 @@ def item_add(request, pk):
     return render(
         request,
         "pos/partials/sale_body.html",
-        _sale_body_context(order, error=error, can_override_rate=request.user.is_superuser),
+        _sale_body_context(
+            order, request, error=error, can_override_rate=request.user.is_superuser
+        ),
     )
 
 
@@ -834,11 +863,64 @@ def item_add(request, pk):
 @require_POST
 def item_remove(request, pk, item_id):
     order = _own_draft_or_404(request, pk)
+    undo.push(request, order)
     order.items.filter(pk=item_id).delete()
     return render(
         request,
         "pos/partials/sale_body.html",
-        _sale_body_context(order, can_override_rate=request.user.is_superuser),
+        _sale_body_context(order, request, can_override_rate=request.user.is_superuser),
+    )
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def sale_undo(request, pk):
+    """Step the draft back one edit (see apps.pos.undo). Both the client
+    section and the cart re-render, because an undo can move the client as
+    well as the lines — client_section is swapped out-of-band from
+    sale_body.html so one response updates both."""
+    order = _own_draft_or_404(request, pk)
+    if not undo.undo(request, order):
+        return render(
+            request,
+            "pos/partials/sale_body.html",
+            _sale_body_context(
+                order,
+                request,
+                error=_("Отменять больше нечего."),
+                can_override_rate=request.user.is_superuser,
+            ),
+        )
+    order.refresh_from_db()
+    return render(
+        request,
+        "pos/partials/sale_body.html",
+        _sale_body_context(order, request, can_override_rate=request.user.is_superuser),
+    )
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def sale_redo(request, pk):
+    order = _own_draft_or_404(request, pk)
+    if not undo.redo(request, order):
+        return render(
+            request,
+            "pos/partials/sale_body.html",
+            _sale_body_context(
+                order,
+                request,
+                error=_("Возвращать больше нечего."),
+                can_override_rate=request.user.is_superuser,
+            ),
+        )
+    order.refresh_from_db()
+    return render(
+        request,
+        "pos/partials/sale_body.html",
+        _sale_body_context(order, request, can_override_rate=request.user.is_superuser),
     )
 
 
@@ -854,6 +936,7 @@ def item_discount(request, pk, item_id):
     always zeroes discount_value out too, rather than leaving a stale value
     inert-but-present from a previous discount."""
     order = _own_draft_or_404(request, pk)
+    undo.push(request, order)
     item = get_object_or_404(SaleItem, pk=item_id, order=order)
 
     discount_type = request.POST.get("discount_type", SaleItem.DISCOUNT_NONE)
@@ -875,7 +958,7 @@ def item_discount(request, pk, item_id):
     return render(
         request,
         "pos/partials/sale_body.html",
-        _sale_body_context(order, can_override_rate=request.user.is_superuser),
+        _sale_body_context(order, request, can_override_rate=request.user.is_superuser),
     )
 
 
@@ -921,6 +1004,7 @@ def recalc(request, pk):
         "pos/partials/sale_body.html",
         _sale_body_context(
             order,
+            request,
             payment_amount=amount,
             payment_currency=currency,
             payment_method=method,
@@ -1048,6 +1132,10 @@ def sale_confirm(request, pk):
             # and here) — the sale itself still stands, only the payment
             # didn't save, and that's surfaced clearly rather than silently.
             messages.error(request, "; ".join(exc.messages))
+    # The sale is committed — its undo history goes with the draft it belonged
+    # to. From here the way back is «Отменить продажу»/«Оформить возврат»,
+    # which restock through services.py and leave a ledger trail.
+    undo.clear(request, order.pk)
     return redirect("pos:sale_result", pk=order.pk)
 
 
