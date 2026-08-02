@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: acocos-crm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-02 05:53+0600\n"
+"POT-Creation-Date: 2026-08-03 04:05+0600\n"
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -105,12 +105,12 @@ msgstr "товары"
 msgid "Their photos are sent as a media group with the message."
 msgstr "Их фотографии отправляются группой вместе с сообщением."
 
-#: apps/campaigns/models.py:32 apps/core/models.py:121 apps/sales/models.py:50
+#: apps/campaigns/models.py:32 apps/core/models.py:121 apps/sales/models.py:59
 msgid "channel"
 msgstr "канал"
 
 #: apps/campaigns/models.py:34 apps/campaigns/models.py:91
-#: apps/inbox/models.py:55 apps/orders/models.py:50 apps/sales/models.py:51
+#: apps/inbox/models.py:55 apps/orders/models.py:50 apps/sales/models.py:60
 msgid "status"
 msgstr "статус"
 
@@ -138,7 +138,7 @@ msgstr "только клиенты с долгом"
 
 #: apps/campaigns/models.py:59 apps/clients/models.py:87
 #: apps/inventory/models.py:211 apps/notes/models.py:24
-#: apps/orders/models.py:66 apps/sales/models.py:72 apps/sales/models.py:326
+#: apps/orders/models.py:66 apps/sales/models.py:81 apps/sales/models.py:441
 msgid "created by"
 msgstr "создал(а)"
 
@@ -146,8 +146,8 @@ msgstr "создал(а)"
 #: apps/clients/models.py:92 apps/core/models.py:99 apps/core/models.py:140
 #: apps/inbox/models.py:63 apps/inbox/models.py:124 apps/inbox/models.py:152
 #: apps/inventory/models.py:36 apps/inventory/models.py:216
-#: apps/notes/models.py:30 apps/orders/models.py:71 apps/sales/models.py:77
-#: apps/sales/models.py:331
+#: apps/notes/models.py:30 apps/orders/models.py:71 apps/sales/models.py:86
+#: apps/sales/models.py:446
 msgid "created at"
 msgstr "создано"
 
@@ -159,7 +159,7 @@ msgstr "рассылка"
 msgid "campaigns"
 msgstr "рассылки"
 
-#: apps/campaigns/models.py:81 apps/sales/models.py:19
+#: apps/campaigns/models.py:81 apps/sales/models.py:28
 msgid "Pending"
 msgstr "Ожидает"
 
@@ -174,7 +174,7 @@ msgstr "Пропущено"
 #: apps/campaigns/models.py:90 apps/clients/models.py:54
 #: apps/clients/models.py:81 apps/core/models.py:134 apps/inbox/models.py:51
 #: apps/inbox/models.py:117 apps/inbox/models.py:145 apps/orders/models.py:43
-#: apps/sales/models.py:43 apps/sales/models.py:230
+#: apps/sales/models.py:52 apps/sales/models.py:344
 msgid "client"
 msgstr "клиент"
 
@@ -194,23 +194,37 @@ msgstr "получатель рассылки"
 msgid "campaign recipients"
 msgstr "получатели рассылки"
 
-#: apps/clients/admin.py:25 apps/clients/admin.py:70
+#: apps/clients/admin.py:47 apps/clients/admin.py:134
 msgid "debt"
 msgstr "долг"
 
-#: apps/clients/admin.py:29
+#: apps/clients/admin.py:51
 msgid "Owes money"
 msgstr "С долгом"
 
-#: apps/clients/admin.py:29
+#: apps/clients/admin.py:51
 msgid "Nothing owed"
 msgstr "Без долга"
 
-#: apps/clients/admin.py:77
+#: apps/clients/admin.py:108
+#, fuzzy
+#| msgid "Reports"
+msgid "export"
+msgstr "Отчёты"
+
+#: apps/clients/admin.py:113
+msgid "Выгрузить в Excel"
+msgstr ""
+
+#: apps/clients/admin.py:126
+msgid "Export to Excel (Выгрузить в Excel)"
+msgstr ""
+
+#: apps/clients/admin.py:141
 msgid "unpaid orders"
 msgstr "неоплаченные продажи"
 
-#: apps/clients/admin.py:94
+#: apps/clients/admin.py:158
 msgid "None — all settled."
 msgstr "Нет — всё оплачено."
 
@@ -218,11 +232,11 @@ msgstr "Нет — всё оплачено."
 msgid "Clients"
 msgstr "Клиенты"
 
-#: apps/clients/models.py:15 apps/sales/models.py:37
+#: apps/clients/models.py:15 apps/sales/models.py:46
 msgid "Shop"
 msgstr "Магазин"
 
-#: apps/clients/models.py:16 apps/sales/models.py:38
+#: apps/clients/models.py:16 apps/sales/models.py:47
 msgid "Wholesale"
 msgstr "Опт"
 
@@ -245,7 +259,7 @@ msgstr "источник"
 
 #: apps/clients/models.py:29 apps/clients/models.py:84 apps/inbox/models.py:57
 #: apps/inbox/models.py:100 apps/notes/models.py:34 apps/orders/models.py:52
-#: apps/sales/models.py:69 apps/sales/models.py:304
+#: apps/sales/models.py:78 apps/sales/models.py:418
 msgid "note"
 msgstr "заметка"
 
@@ -306,7 +320,7 @@ msgstr "взаимодействия"
 
 #: apps/core/admin.py:20 apps/core/models.py:24 apps/core/models.py:66
 #: apps/inventory/models.py:134 apps/orders/models.py:48
-#: apps/orders/models.py:135 apps/sales/models.py:53 apps/sales/models.py:258
+#: apps/orders/models.py:135 apps/sales/models.py:62 apps/sales/models.py:372
 msgid "currency"
 msgstr "валюта"
 
@@ -342,17 +356,17 @@ msgstr "Доллар США"
 msgid "Russian ruble"
 msgstr "Российский рубль"
 
-#: apps/core/models.py:22 apps/sales/models.py:206
+#: apps/core/models.py:22 apps/sales/models.py:320
 msgid "Manual"
 msgstr "Вручную"
 
-#: apps/core/models.py:22 apps/sales/models.py:205
+#: apps/core/models.py:22 apps/sales/models.py:319
 msgid "NBKR"
 msgstr "НБКР"
 
-#: apps/core/models.py:22 apps/sales/models.py:207
+#: apps/core/models.py:22 apps/sales/models.py:321
 #: templates/pos/partials/rates.html:7
-#: templates/pos/partials/sale_body.html:106
+#: templates/pos/partials/sale_body.html:169
 msgid "Frankfurter"
 msgstr ""
 
@@ -520,7 +534,7 @@ msgstr "подтверждена"
 msgid "Declined"
 msgstr "Отклонена"
 
-#: apps/inbox/models.py:41 apps/sales/models.py:21
+#: apps/inbox/models.py:41 apps/sales/models.py:30
 msgid "Cancelled"
 msgstr "Отменена"
 
@@ -578,7 +592,7 @@ msgid "variant"
 msgstr "вариант товара"
 
 #: apps/inbox/models.py:99 apps/inventory/models.py:199
-#: apps/orders/models.py:132 apps/sales/models.py:159
+#: apps/orders/models.py:132 apps/sales/models.py:210
 msgid "quantity"
 msgstr "количество"
 
@@ -799,7 +813,7 @@ msgid "low stock threshold"
 msgstr "порог низкого остатка"
 
 #: apps/inventory/models.py:147 apps/inventory/models.py:194
-#: apps/orders/models.py:128 apps/sales/models.py:155
+#: apps/orders/models.py:128 apps/sales/models.py:206
 msgid "product variant"
 msgstr "вариант товара"
 
@@ -836,7 +850,7 @@ msgid "reason"
 msgstr "причина"
 
 #: apps/inventory/models.py:203 apps/orders/models.py:58
-#: apps/sales/models.py:82 apps/sales/models.py:151 apps/sales/models.py:236
+#: apps/sales/models.py:102 apps/sales/models.py:202 apps/sales/models.py:350
 msgid "sale order"
 msgstr "продажа"
 
@@ -902,27 +916,27 @@ msgstr "заметка"
 msgid "(empty note)"
 msgstr "(пустая заметка)"
 
-#: apps/orders/admin.py:40 apps/sales/admin.py:190 apps/sales/models.py:56
+#: apps/orders/admin.py:42 apps/sales/admin.py:238 apps/sales/models.py:65
 msgid "total"
 msgstr "итого"
 
-#: apps/orders/admin.py:44 apps/sales/admin.py:194
+#: apps/orders/admin.py:46 apps/sales/admin.py:242
 msgid "paid"
 msgstr "оплачено"
 
-#: apps/orders/admin.py:48
+#: apps/orders/admin.py:50
 msgid "overdue"
 msgstr "просрочен"
 
-#: apps/orders/admin.py:61
+#: apps/orders/admin.py:63
 msgid "Cancel selected orders (releases reservation)"
 msgstr "Отменить выбранные заказы (снимает резерв)"
 
-#: apps/orders/admin.py:65
+#: apps/orders/admin.py:67
 msgid "Cancelling an order is Owner-only."
 msgstr "Отменить заказ может только владелец."
 
-#: apps/orders/admin.py:77
+#: apps/orders/admin.py:79
 #, python-format
 msgid "Cancelled %(n)s order(s)."
 msgstr "Отменено заказов: %(n)s."
@@ -952,7 +966,7 @@ msgstr "срок"
 msgid "delivered at"
 msgstr "дата выдачи"
 
-#: apps/orders/models.py:76 apps/sales/models.py:250
+#: apps/orders/models.py:76 apps/sales/models.py:364
 msgid "production order"
 msgstr "заказ на производство"
 
@@ -960,7 +974,7 @@ msgstr "заказ на производство"
 msgid "production orders"
 msgstr "заказы на производство"
 
-#: apps/orders/models.py:133 apps/sales/models.py:160
+#: apps/orders/models.py:133 apps/sales/models.py:215
 msgid "unit price"
 msgstr "цена за единицу"
 
@@ -1001,11 +1015,11 @@ msgstr "В заказе нет позиций."
 msgid "This order is already closed."
 msgstr "Этот заказ уже закрыт."
 
-#: apps/orders/views.py:166 apps/pos/views.py:596
+#: apps/orders/views.py:166 apps/pos/views.py:801
 msgid "Имя и телефон обязательны."
 msgstr "Имя и телефон обязательны."
 
-#: apps/orders/views.py:168 apps/pos/views.py:598
+#: apps/orders/views.py:168 apps/pos/views.py:803
 msgid "Клиент с этим телефоном уже есть."
 msgstr "Клиент с этим телефоном уже есть."
 
@@ -1022,36 +1036,36 @@ msgstr "Точка продаж"
 msgid "Спасибо за покупку в ACOCOS! 🌸"
 msgstr "Спасибо за покупку в ACOCOS! 🌸"
 
-#: apps/pos/messaging.py:32
+#: apps/pos/messaging.py:40
 #, python-format
 msgid "Итого: %(total)s %(cur)s"
 msgstr "Итого: %(total)s %(cur)s"
 
-#: apps/pos/messaging.py:37
+#: apps/pos/messaging.py:45
 #, fuzzy, python-format
 #| msgid "Итого: %(total)s %(cur)s"
 msgid "Оплачено: %(paid)s %(cur)s"
 msgstr "Итого: %(total)s %(cur)s"
 
-#: apps/pos/messaging.py:40
+#: apps/pos/messaging.py:48
 #, fuzzy, python-format
 #| msgid "Итого: %(total)s %(cur)s"
 msgid "Остаток к оплате: %(bal)s %(cur)s"
 msgstr "Итого: %(total)s %(cur)s"
 
-#: apps/pos/messaging.py:51
+#: apps/pos/messaging.py:59
 #, fuzzy, python-format
 #| msgid "Итого: %(total)s %(cur)s"
 msgid "Общий долг: %(debt)s %(cur)s"
 msgstr "Итого: %(total)s %(cur)s"
 
-#: apps/pos/messaging.py:54
+#: apps/pos/messaging.py:62
 #, fuzzy
 #| msgid "Оплачено полностью"
 msgid "Оплачено полностью. Спасибо!"
 msgstr "Оплачено полностью"
 
-#: apps/pos/messaging.py:67
+#: apps/pos/messaging.py:75
 #, python-format
 msgid ""
 "Здравствуйте, %(name)s! Напоминаем о задолженности %(amounts)s. Спасибо! — "
@@ -1060,55 +1074,57 @@ msgstr ""
 "Здравствуйте, %(name)s! Напоминаем о задолженности %(amounts)s. Спасибо! — "
 "ACOCOS"
 
-#: apps/pos/templatetags/pos_extras.py:18 templates/pos/client_detail.html:54
+#: apps/pos/templatetags/pos_extras.py:14 apps/reports/client_export.py:45
+#: templates/pos/client_detail.html:54
 msgid "долг"
 msgstr "долг"
 
-#: apps/pos/templatetags/pos_extras.py:19
+#: apps/pos/templatetags/pos_extras.py:15 apps/reports/client_export.py:45
 msgid "частично"
 msgstr "частично"
 
-#: apps/pos/templatetags/pos_extras.py:20 templates/pos/client_detail.html:53
+#: apps/pos/templatetags/pos_extras.py:16 apps/reports/client_export.py:45
+#: templates/pos/client_detail.html:53
 msgid "оплачено"
 msgstr "оплачено"
 
-#: apps/pos/templatetags/pos_extras.py:51 templates/pos/partials/rates.html:7
+#: apps/pos/templatetags/pos_extras.py:47 templates/pos/partials/rates.html:7
 msgid "вручную"
 msgstr ""
 
-#: apps/pos/templatetags/pos_extras.py:73
+#: apps/pos/templatetags/pos_extras.py:69
 msgid "сдача"
 msgstr ""
 
-#: apps/pos/templatetags/pos_extras.py:74
+#: apps/pos/templatetags/pos_extras.py:70
 msgid "зачтено"
 msgstr ""
 
-#: apps/pos/views.py:208
+#: apps/pos/views.py:212
 #, python-format
 msgid "Курс сильно отличается от официального (НБКР %(o)s)."
 msgstr ""
 
-#: apps/pos/views.py:210
+#: apps/pos/views.py:214
 msgid "курс введён вручную"
 msgstr ""
 
-#: apps/pos/views.py:223
+#: apps/pos/views.py:227
 #, python-format
 msgid "курс устарел (%(n)s дн.)"
 msgstr ""
 
-#: apps/pos/views.py:239
+#: apps/pos/views.py:243
 #, python-format
 msgid "крупная сумма — %(a)s %(c)s"
 msgstr ""
 
-#: apps/pos/views.py:317 apps/pos/views.py:965
+#: apps/pos/views.py:323 apps/pos/views.py:1279
 #, python-format
 msgid "крупная сдача — %(a)s %(c)s"
 msgstr ""
 
-#: apps/pos/views.py:789
+#: apps/pos/views.py:1007
 #, python-format
 msgid ""
 "Товар в %(vc)s нельзя добавить в продажу в %(oc)s — оформите отдельной "
@@ -1117,88 +1133,159 @@ msgstr ""
 "Товар в %(vc)s нельзя добавить в продажу в %(oc)s — оформите отдельной "
 "продажей."
 
-#: apps/pos/views.py:805
+#: apps/pos/views.py:1025
 #, python-format
 msgid "Товар «%(name)s» уже полностью в корзине — доступно %(n)s шт."
 msgstr ""
 
-#: apps/pos/views.py:811
+#: apps/pos/views.py:1031
 #, python-format
 msgid "Доступно только %(n)s шт «%(name)s»."
 msgstr ""
 
-#: apps/pos/views.py:927 apps/sales/services.py:401
+#: apps/pos/views.py:1082
+#, fuzzy
+#| msgid "Отменить продажу"
+msgid "Отменять больше нечего."
+msgstr "Отменить продажу"
+
+#: apps/pos/views.py:1106
+#, fuzzy
+#| msgid "Возврат по продаже"
+msgid "Возвращать больше нечего."
+msgstr "Возврат по продаже"
+
+#: apps/pos/views.py:1241 apps/sales/services.py:430
 #, python-format
 msgid "Нет курса для %(c)s — оплата не сохранена. Обновите курс и повторите."
 msgstr ""
 
-#: apps/pos/views.py:948
+#: apps/pos/views.py:1262
 msgid "Выберите, что сделать с излишком: сдача, в счёт долга или аванс."
 msgstr ""
 
-#: apps/pos/views.py:954
+#: apps/pos/views.py:1268
 msgid "«В счёт долга» и «Аванс» требуют клиента на продаже."
 msgstr ""
 
-#: apps/pos/views.py:973
+#: apps/pos/views.py:1287
 #, python-format
 msgid "Требуется подтверждение платежа: %(reasons)s"
 msgstr ""
 
-#: apps/pos/views.py:1093
+#: apps/pos/views.py:1411
 msgid "Возврат оформлён."
 msgstr "Возврат оформлён."
 
-#: apps/pos/views.py:1123
+#: apps/pos/views.py:1441
 msgid "Чек отправлен"
 msgstr "Чек отправлен"
 
-#: apps/pos/views.py:1146
+#: apps/pos/views.py:1464
 msgid "Напоминание о долге"
 msgstr "Напоминание о долге"
-
-#: apps/reports/admin.py:56
-msgid "Mark reviewed (Отметить проверенным)"
-msgstr "Отметить проверенным"
-
-#: apps/reports/admin.py:61
-msgid "Only a superuser can mark payments as reviewed."
-msgstr "Только суперпользователь может отмечать платежи проверенными."
-
-#: apps/reports/admin.py:68
-#, python-format
-msgid "Marked %(n)s payment(s) reviewed."
-msgstr "Отмечено проверенными платежей: %(n)s."
 
 #: apps/reports/apps.py:8
 msgid "Reports"
 msgstr "Отчёты"
 
-#: apps/reports/models.py:12 apps/reports/models.py:13
-msgid "payment review"
-msgstr "проверка платежей"
+#: apps/reports/client_export.py:30
+#: templates/admin/inventory/variant_change_form.html:68
+msgid "Дата"
+msgstr "Дата"
 
-#: apps/sales/admin.py:22
+#: apps/reports/client_export.py:31
+#, fuzzy
+#| msgid "Продажа"
+msgid "Продажа №"
+msgstr "Продажа"
+
+#: apps/reports/client_export.py:32 templates/orders/detail.html:27
+#: templates/orders/detail.html:45 templates/pos/sale_detail.html:30
+#: templates/pos/sale_new.html:35 templates/reports/storage.html:37
+msgid "Товары"
+msgstr "Товары"
+
+#: apps/reports/client_export.py:33
+#: templates/orders/partials/variant_picker.html:24
+#: templates/pos/partials/variant_picker.html:14
+#: templates/pos/partials/variant_picker_new.html:14
+msgid "Количество"
+msgstr "Количество"
+
+#: apps/reports/client_export.py:34
+msgid "Подытог"
+msgstr ""
+
+#: apps/reports/client_export.py:35 templates/pos/partials/sale_body.html:62
+#: templates/pos/partials/sale_body.html:241
+msgid "Скидка"
+msgstr ""
+
+#: apps/reports/client_export.py:36
+#: templates/orders/partials/deliver_modal.html:37
+#: templates/orders/partials/order_body.html:106
+#: templates/orders/partials/order_body.html:190
+#: templates/pos/partials/sale_body.html:246 templates/pos/result.html:25
+msgid "Итого"
+msgstr "Итого"
+
+#: apps/reports/client_export.py:37 templates/pos/partials/sale_body.html:251
+msgid "Оплачено"
+msgstr "Оплачено"
+
+#: apps/reports/client_export.py:38
+#: templates/admin/inventory/variant_change_form.html:71
+#: templates/orders/partials/order_body.html:198
+#: templates/orders/partials/step_payment.html:21
+#: templates/pos/partials/sale_body.html:255
+msgid "Остаток"
+msgstr "Остаток"
+
+#: apps/reports/client_export.py:39
+#: templates/orders/partials/order_body.html:171
+#: templates/orders/partials/step_payment.html:33
+#: templates/pos/partials/sale_body.html:102
+msgid "Валюта"
+msgstr "Валюта"
+
+#: apps/reports/client_export.py:40 templates/orders/index.html:18
+msgid "Статус"
+msgstr ""
+
+#: apps/reports/client_export.py:100
+msgid "ВСЕГО КУПЛЕНО"
+msgstr ""
+
+#: apps/reports/client_export.py:101
+msgid "ВСЕГО ОПЛАЧЕНО"
+msgstr ""
+
+#: apps/reports/client_export.py:102
+msgid "ЗАДОЛЖЕННОСТЬ"
+msgstr ""
+
+#: apps/sales/admin.py:25
 msgid "Paid"
 msgstr "Оплачено"
 
-#: apps/sales/admin.py:23
+#: apps/sales/admin.py:26
 msgid "Partial"
 msgstr "Частично"
 
-#: apps/sales/admin.py:24
+#: apps/sales/admin.py:27
 msgid "Unpaid"
 msgstr "Не оплачено"
 
-#: apps/sales/admin.py:45
+#: apps/sales/admin.py:51
 msgid "confirm overpayment"
 msgstr "подтвердить переплату"
 
-#: apps/sales/admin.py:46
+#: apps/sales/admin.py:52
 msgid "Tick to allow a payment larger than the order's remaining balance."
 msgstr "Отметьте, чтобы разрешить платёж больше остатка по заказу."
 
-#: apps/sales/admin.py:94
+#: apps/sales/admin.py:100
 #, python-format
 msgid ""
 "This would overpay the order (total %(total)s, already paid %(paid)s). Tick "
@@ -1207,68 +1294,76 @@ msgstr ""
 "Это приведёт к переплате по заказу (итого %(total)s, уже оплачено %(paid)s). "
 "Отметьте «подтвердить переплату», чтобы продолжить."
 
-#: apps/sales/admin.py:123
+#: apps/sales/admin.py:128
 msgid "payments (for loans / partial payment)"
 msgstr "платежи (рассрочка / частичная оплата)"
 
-#: apps/sales/admin.py:125 apps/sales/admin.py:347
+#: apps/sales/admin.py:130 apps/sales/admin.py:394
 #, fuzzy
 #| msgid "channel"
 msgid "change"
 msgstr "канал"
 
-#: apps/sales/admin.py:200
+#: apps/sales/admin.py:157
+msgid "show empty drafts"
+msgstr ""
+
+#: apps/sales/admin.py:161
+msgid "Черновики (пустые)"
+msgstr ""
+
+#: apps/sales/admin.py:248
 msgid "balance"
 msgstr "к оплате"
 
-#: apps/sales/admin.py:206 apps/sales/models.py:335
+#: apps/sales/admin.py:254 apps/sales/models.py:450
 msgid "payment"
 msgstr "оплата"
 
-#: apps/sales/admin.py:240
+#: apps/sales/admin.py:288
 msgid "Approve selected sales — record payment"
 msgstr "Одобрить выбранные продажи — записать оплату"
 
-#: apps/sales/admin.py:264
+#: apps/sales/admin.py:312
 #, python-format
 msgid "Approved %(n)s sale(s)."
 msgstr "Одобрено продаж: %(n)s."
 
-#: apps/sales/admin.py:269
+#: apps/sales/admin.py:317
 msgid "None of the selected sales are pending."
 msgstr "Ни одна из выбранных продаж не ожидает одобрения."
 
-#: apps/sales/admin.py:275
+#: apps/sales/admin.py:323
 msgid "Approve sales"
 msgstr "Одобрение продаж"
 
-#: apps/sales/admin.py:290
+#: apps/sales/admin.py:338
 msgid "Mark fully paid (settle balance)"
 msgstr "Отметить как полностью оплаченные (погасить остаток)"
 
-#: apps/sales/admin.py:301
+#: apps/sales/admin.py:349
 #, python-format
 msgid "Settled %(n)s order(s)."
 msgstr "Погашено заказов: %(n)s."
 
-#: apps/sales/admin.py:303
+#: apps/sales/admin.py:351
 msgid "Cancel selected sales (returns stock)"
 msgstr "Отменить выбранные продажи (возвращает остаток)"
 
-#: apps/sales/admin.py:308
+#: apps/sales/admin.py:356
 #, python-format
 msgid "Sale #%(id)s cancelled."
 msgstr "Продажа №%(id)s отменена."
 
-#: apps/sales/admin.py:339
+#: apps/sales/admin.py:386
 msgid "conversion"
 msgstr "конвертация"
 
-#: apps/sales/admin.py:364
+#: apps/sales/admin.py:415
 msgid "Void selected payments (creates a reversing entry)"
 msgstr "Аннулировать выбранные платежи (создаёт обратную запись)"
 
-#: apps/sales/admin.py:375
+#: apps/sales/admin.py:426
 #, python-format
 msgid "Voided %(n)s payment(s)."
 msgstr "Аннулировано платежей: %(n)s."
@@ -1277,141 +1372,167 @@ msgstr "Аннулировано платежей: %(n)s."
 msgid "Sales"
 msgstr "Продажи"
 
-#: apps/sales/models.py:20
+#: apps/sales/models.py:29
 msgid "Approved"
 msgstr "Одобрена"
 
-#: apps/sales/models.py:48
+#: apps/sales/models.py:57
 msgid "Leave empty for a walk-in sale."
 msgstr "Оставьте пустым для продажи без клиента."
 
-#: apps/sales/models.py:60
+#: apps/sales/models.py:69
 msgid "Set automatically when the sale is approved."
 msgstr "Заполняется автоматически при одобрении продажи."
 
-#: apps/sales/models.py:65 apps/sales/models.py:264
+#: apps/sales/models.py:74 apps/sales/models.py:378
 msgid "rate to KGS"
 msgstr "курс к сому"
 
-#: apps/sales/models.py:67
+#: apps/sales/models.py:76
 msgid "total, KGS"
 msgstr "итого, сом"
 
-#: apps/sales/models.py:78
+#: apps/sales/models.py:87
 msgid "confirmed at"
 msgstr "подтверждена"
 
-#: apps/sales/models.py:83
+#: apps/sales/models.py:97
+msgid "pending creation token"
+msgstr ""
+
+#: apps/sales/models.py:103
 msgid "sale orders"
 msgstr "продажи"
 
-#: apps/sales/models.py:163
+#: apps/sales/models.py:196
+msgid "No discount"
+msgstr ""
+
+#: apps/sales/models.py:197
+msgid "Percent"
+msgstr ""
+
+#: apps/sales/models.py:198
+#, fuzzy
+#| msgid "amount"
+msgid "Fixed amount"
+msgstr "сумма"
+
+#: apps/sales/models.py:217
+msgid "discount type"
+msgstr ""
+
+#: apps/sales/models.py:225
+msgid "discount value"
+msgstr ""
+
+#: apps/sales/models.py:229
 msgid "sale item"
 msgstr "позиция продажи"
 
-#: apps/sales/models.py:164
+#: apps/sales/models.py:230
 msgid "sale items"
 msgstr "позиции продажи"
 
-#: apps/sales/models.py:192
+#: apps/sales/models.py:306
 msgid "Cash"
 msgstr "Наличные"
 
-#: apps/sales/models.py:194
+#: apps/sales/models.py:308
 msgid "Transfer"
 msgstr "Перевод"
 
-#: apps/sales/models.py:195
+#: apps/sales/models.py:309
 msgid "Other"
 msgstr "Прочее"
 
-#: apps/sales/models.py:222
+#: apps/sales/models.py:336
 msgid "—"
 msgstr ""
 
-#: apps/sales/models.py:223 templates/pos/partials/sale_body.html:121
-#: templates/pos/partials/sale_body.html:142
+#: apps/sales/models.py:337 templates/pos/partials/sale_body.html:184
+#: templates/pos/partials/sale_body.html:205
 msgid "Сдача"
 msgstr ""
 
-#: apps/sales/models.py:224 templates/pos/partials/sale_body.html:124
+#: apps/sales/models.py:338 templates/pos/partials/sale_body.html:187
 #, fuzzy
 #| msgid "В долг"
 msgid "В счёт долга"
 msgstr "В долг"
 
-#: apps/sales/models.py:225 templates/orders/partials/order_body.html:150
+#: apps/sales/models.py:339 templates/orders/partials/order_body.html:152
 #: templates/pos/client_detail.html:19
-#: templates/pos/partials/sale_body.html:127 templates/pos/result.html:59
+#: templates/pos/partials/sale_body.html:190 templates/pos/result.html:59
 msgid "Аванс"
 msgstr ""
 
-#: apps/sales/models.py:256
+#: apps/sales/models.py:370
 msgid "amount"
 msgstr "сумма"
 
-#: apps/sales/models.py:269
+#: apps/sales/models.py:383
 #, fuzzy
 #| msgid "source"
 msgid "rate source"
 msgstr "источник"
 
-#: apps/sales/models.py:275
+#: apps/sales/models.py:389
 msgid "official rate"
 msgstr "официальный курс"
 
-#: apps/sales/models.py:277
+#: apps/sales/models.py:391
 msgid "method"
 msgstr "способ"
 
-#: apps/sales/models.py:287
+#: apps/sales/models.py:401
 msgid "excess disposition"
 msgstr "распределение излишка"
 
-#: apps/sales/models.py:293
+#: apps/sales/models.py:407
 #, fuzzy
 #| msgid "exchange rate"
 msgid "change amount"
 msgstr "обменный курс"
 
-#: apps/sales/models.py:296
+#: apps/sales/models.py:410
 #, fuzzy
 #| msgid "currency"
 msgid "change currency"
 msgstr "валюта"
 
-#: apps/sales/models.py:299
+#: apps/sales/models.py:413
 msgid "change amount, KGS"
 msgstr "сумма сдачи, сом"
 
-#: apps/sales/models.py:302
+#: apps/sales/models.py:416
 msgid "change rounding residue, KGS"
 msgstr "остаток округления сдачи, сом"
 
-#: apps/sales/models.py:305
+#: apps/sales/models.py:420
 msgid "reviewed"
 msgstr "проверено"
 
-#: apps/sales/models.py:308
+#: apps/sales/models.py:423
 msgid "reviewed by"
 msgstr "проверил(а)"
 
-#: apps/sales/models.py:314
+#: apps/sales/models.py:429
 msgid "reviewed at"
 msgstr "дата проверки"
 
-#: apps/sales/models.py:317
+#: apps/sales/models.py:432
 msgid "reverses payment"
 msgstr "аннулирует платёж"
 
-#: apps/sales/models.py:322
+#: apps/sales/models.py:437
 msgid "Set automatically when this row voids an earlier payment."
 msgstr ""
 "Устанавливается автоматически, когда эта запись аннулирует более ранний "
 "платёж.Заполняется автоматически, когда эта запись аннулирует более ранний "
 "платёж."
 
-#: apps/sales/models.py:336
+#: apps/sales/models.py:451
 msgid "payments"
 msgstr "оплаты"
 
@@ -1423,69 +1544,75 @@ msgstr "Одобрить можно только ожидающую продаж
 msgid "Cannot approve a sale with no items."
 msgstr "Нельзя одобрить продажу без позиций."
 
-#: apps/sales/services.py:68
+#: apps/sales/services.py:80
 #, python-format
 msgid "Insufficient stock for %(sku)s: available %(have)s, requested %(need)s."
 msgstr ""
 "Недостаточно остатка по %(sku)s: доступно %(have)s, запрошено %(need)s."
 
-#: apps/sales/services.py:101
+#: apps/sales/services.py:114
 msgid "Only approved sales can be cancelled."
 msgstr "Отменить можно только одобрённую продажу."
 
-#: apps/sales/services.py:129
+#: apps/sales/services.py:142
 msgid "Only approved sales can have returns."
 msgstr "Возврат возможен только для проведённых продаж."
 
-#: apps/sales/services.py:133
+#: apps/sales/services.py:146
 msgid "Nothing to return."
 msgstr "Нечего возвращать."
 
-#: apps/sales/services.py:139
+#: apps/sales/services.py:152
 msgid "Unknown item in this sale."
 msgstr "Неизвестная позиция в этой продаже."
 
-#: apps/sales/services.py:142
+#: apps/sales/services.py:155
 #, python-format
 msgid "Cannot return %(qty)s of %(sku)s — only %(have)s were sold."
 msgstr "Нельзя вернуть %(qty)s шт. %(sku)s — продано только %(have)s."
 
-#: apps/sales/services.py:438
+#: apps/sales/services.py:467
 msgid "Укажите причину изменения суммы сдачи."
 msgstr ""
 
-#: apps/sales/services.py:444 apps/sales/services.py:453
+#: apps/sales/services.py:473 apps/sales/services.py:482
 #, fuzzy
 #| msgid "Оплата в другой валюте не засчитывается против остатка этого заказа."
 msgid "Сдача в этой валюте не может быть рассчитана по курсу платежа."
 msgstr "Оплата в другой валюте не засчитывается против остатка этого заказа."
 
-#: apps/sales/services.py:464
+#: apps/sales/services.py:493
 msgid "Нельзя выдать сдачу, пока по продаже остаётся долг."
 msgstr ""
 
-#: apps/sales/services.py:470
+#: apps/sales/services.py:499
 msgid "Неизвестный способ учёта излишка."
 msgstr ""
 
-#: apps/sales/services.py:488
+#: apps/sales/services.py:517
 #, python-format
 msgid "Сдача изменена вручную: %(reason)s"
 msgstr ""
 
-#: apps/sales/services.py:499
+#: apps/sales/services.py:528
 msgid "Only approved sales can be settled."
 msgstr "Погасить можно только одобрённую продажу."
 
-#: apps/sales/services.py:516
+#: apps/sales/services.py:551
 msgid "This payment is already a reversal — nothing to void."
 msgstr "Этот платёж уже является аннулированием — аннулировать нечего."
 
-#: apps/sales/services.py:518
+#: apps/sales/services.py:553
+#, fuzzy
+#| msgid "This request has already been handled."
+msgid "This payment has already been voided."
+msgstr "Эта заявка уже обработана."
+
+#: apps/sales/services.py:555
 msgid "Voiding a reviewed payment requires a superuser."
 msgstr "Аннулирование проверенного платежа требует прав суперпользователя."
 
-#: apps/sales/services.py:533
+#: apps/sales/services.py:571
 #, python-format
 msgid "Void of payment #%(id)s"
 msgstr "Аннулирование платежа №%(id)s"
@@ -1595,14 +1722,38 @@ msgstr "Количество"
 msgid "Reason"
 msgstr "Причина"
 
-#: templates/admin/inventory/stock_action.html:39
-msgid "Apply"
-msgstr "Применить"
+#: templates/admin/inventory/stock_action.html:50
+#: templates/admin/inventory/variant_change_form.html:36
+#: templates/admin/inventory/variant_change_form.html:39
+msgid "Списать"
+msgstr "Списать"
 
-#: templates/admin/inventory/stock_action.html:40
-#: templates/admin/sales/approve_sales.html:37
-msgid "Cancel"
-msgstr "Отменить"
+#: templates/admin/inventory/stock_action.html:52
+#, fuzzy
+#| msgid "Изменить"
+msgid "Применить пересчёт"
+msgstr "Изменить"
+
+#: templates/admin/inventory/stock_action.html:54
+#: templates/orders/partials/order_body.html:89
+#, fuzzy
+#| msgid "Receive stock (Принять на склад)"
+msgid "Принять на склад"
+msgstr "Принять на склад"
+
+#: templates/admin/inventory/stock_action.html:56 templates/notes/edit.html:15
+#: templates/orders/partials/deliver_modal.html:55
+#: templates/orders/partials/step_payment.html:47
+#: templates/orders/partials/variant_picker.html:29
+#: templates/pos/partials/client_section.html:25
+#: templates/pos/partials/client_section.html:41
+#: templates/pos/partials/client_section_new.html:29
+#: templates/pos/partials/rate_modal.html:52
+#: templates/pos/partials/variant_picker.html:20
+#: templates/pos/partials/variant_picker_new.html:20
+#: templates/pos/return.html:23
+msgid "Отмена"
+msgstr "Отмена"
 
 #: templates/admin/inventory/variant_change_form.html:11
 msgid "Остаток на складе"
@@ -1618,13 +1769,9 @@ msgstr "Принять"
 
 #: templates/admin/inventory/variant_change_form.html:28
 #: templates/notes/index.html:13 templates/pos/partials/variant_picker.html:19
+#: templates/pos/partials/variant_picker_new.html:19
 msgid "Добавить"
 msgstr "Добавить"
-
-#: templates/admin/inventory/variant_change_form.html:36
-#: templates/admin/inventory/variant_change_form.html:39
-msgid "Списать"
-msgstr "Списать"
 
 #: templates/admin/inventory/variant_change_form.html:47
 msgid "Пересчёт"
@@ -1652,10 +1799,6 @@ msgstr ""
 msgid "История"
 msgstr "История"
 
-#: templates/admin/inventory/variant_change_form.html:68
-msgid "Дата"
-msgstr "Дата"
-
 #: templates/admin/inventory/variant_change_form.html:69
 msgid "Операция"
 msgstr "Операция"
@@ -1663,13 +1806,6 @@ msgstr "Операция"
 #: templates/admin/inventory/variant_change_form.html:70
 msgid "Изменение"
 msgstr "Изменение"
-
-#: templates/admin/inventory/variant_change_form.html:71
-#: templates/orders/partials/order_body.html:196
-#: templates/orders/partials/step_payment.html:21
-#: templates/pos/partials/sale_body.html:186
-msgid "Остаток"
-msgstr "Остаток"
 
 #: templates/admin/inventory/variant_change_form.html:72
 #: templates/inbox/thread.html:51
@@ -1727,6 +1863,10 @@ msgstr ""
 #: templates/admin/sales/approve_sales.html:36
 msgid "Approve"
 msgstr "Одобрить"
+
+#: templates/admin/sales/approve_sales.html:37
+msgid "Cancel"
+msgstr "Отменить"
 
 #: templates/core/stats.html:6 templates/core/stats.html:13
 msgid "Statistics"
@@ -2000,7 +2140,7 @@ msgstr ""
 msgid "Отправить"
 msgstr "Добавить"
 
-#: templates/notes/edit.html:3 templates/orders/partials/order_body.html:124
+#: templates/notes/edit.html:3 templates/orders/partials/order_body.html:126
 #: templates/orders/partials/step_due.html:15
 msgid "Заметка"
 msgstr ""
@@ -2019,25 +2159,31 @@ msgstr ""
 msgid "Текст…"
 msgstr ""
 
-#: templates/notes/edit.html:14 templates/pos/partials/client_section.html:37
+#: templates/notes/edit.html:14 templates/pos/partials/client_section.html:38
+#: templates/pos/partials/client_section_new.html:26
 msgid "Сохранить"
 msgstr "Сохранить"
-
-#: templates/notes/edit.html:15 templates/orders/partials/deliver_modal.html:55
-#: templates/orders/partials/step_payment.html:47
-#: templates/orders/partials/variant_picker.html:29
-#: templates/pos/partials/client_section.html:25
-#: templates/pos/partials/client_section.html:40
-#: templates/pos/partials/rate_modal.html:32
-#: templates/pos/partials/variant_picker.html:20 templates/pos/return.html:23
-msgid "Отмена"
-msgstr "Отмена"
 
 #: templates/notes/edit.html:22 templates/orders/partials/step_due.html:20
 msgid "Назад"
 msgstr ""
 
 #: templates/notes/edit.html:34
+#, python-format
+msgid "Удалить заметку «%(title)s»? Восстановить будет нельзя."
+msgstr ""
+
+#: templates/notes/edit.html:36
+msgid "Удалить эту заметку? Восстановить будет нельзя."
+msgstr ""
+
+#: templates/notes/edit.html:38
+#, fuzzy
+#| msgid "Удалить"
+msgid "Да, удалить"
+msgstr "Удалить"
+
+#: templates/notes/edit.html:40
 #, fuzzy
 #| msgid "Удалить"
 msgid "Удалить заметку"
@@ -2073,9 +2219,9 @@ msgstr ""
 msgid "Закрепить"
 msgstr ""
 
-#: templates/notes/index.html:45 templates/pos/partials/sale_body.html:155
-#: templates/pos/partials/sale_body.html:162
-#: templates/pos/partials/sale_body.html:169
+#: templates/notes/index.html:45 templates/pos/partials/sale_body.html:218
+#: templates/pos/partials/sale_body.html:225
+#: templates/pos/partials/sale_body.html:232
 msgid "Изменить"
 msgstr "Изменить"
 
@@ -2101,13 +2247,8 @@ msgstr "Скачать за"
 msgid "просрочен"
 msgstr ""
 
-#: templates/orders/detail.html:27 templates/orders/detail.html:45
-#: templates/pos/sale_detail.html:30 templates/reports/storage.html:37
-msgid "Товары"
-msgstr "Товары"
-
 #: templates/orders/detail.html:28
-#: templates/orders/partials/order_body.html:122
+#: templates/orders/partials/order_body.html:124
 #: templates/orders/partials/step_due.html:13
 #: templates/reports/_dashboard_panel.html:249
 msgid "Срок"
@@ -2115,7 +2256,7 @@ msgstr "Срок"
 
 #: templates/orders/detail.html:29
 #: templates/orders/partials/step_payment.html:11
-#: templates/pos/partials/sale_body.html:31
+#: templates/pos/partials/sale_body.html:94
 msgid "Оплата"
 msgstr "Оплата"
 
@@ -2136,6 +2277,7 @@ msgid "Очередь →"
 msgstr ""
 
 #: templates/orders/detail.html:47 templates/pos/sale_detail.html:31
+#: templates/pos/sale_new.html:36
 msgid "Поиск по названию или артикулу"
 msgstr "Поиск по названию или артикулу"
 
@@ -2159,10 +2301,6 @@ msgstr "не продавалось"
 
 #: templates/orders/index.html:17 templates/pos/clients.html:23
 msgid "Показать"
-msgstr ""
-
-#: templates/orders/index.html:18
-msgid "Статус"
 msgstr ""
 
 #: templates/orders/index.html:19
@@ -2217,30 +2355,36 @@ msgid "Новый заказ — клиент"
 msgstr "+ Новый клиент"
 
 #: templates/orders/new.html:8 templates/pos/clients.html:9
-#: templates/pos/partials/client_section.html:44
+#: templates/pos/partials/client_section.html:45
+#: templates/pos/partials/client_section_new.html:33
 msgid "Телефон или имя"
 msgstr "Телефон или имя"
 
-#: templates/orders/new.html:16 templates/pos/partials/client_section.html:54
+#: templates/orders/new.html:16 templates/pos/partials/client_section.html:55
+#: templates/pos/partials/client_section_new.html:40
 msgid "+ Новый клиент"
 msgstr "+ Новый клиент"
 
 #: templates/orders/new.html:19 templates/pos/clients.html:17
-#: templates/pos/partials/client_section.html:29
+#: templates/pos/partials/client_section.html:30
+#: templates/pos/partials/client_section_new.html:19
 msgid "Имя"
 msgstr "Имя"
 
-#: templates/orders/new.html:21 templates/pos/partials/client_section.html:31
+#: templates/orders/new.html:21 templates/pos/partials/client_section.html:32
+#: templates/pos/partials/client_section_new.html:21
 #, fuzzy
 #| msgid "Изменение"
 msgid "Уточнение"
 msgstr "Изменение"
 
-#: templates/orders/new.html:23 templates/pos/partials/client_section.html:33
+#: templates/orders/new.html:23 templates/pos/partials/client_section.html:34
+#: templates/pos/partials/client_section_new.html:22
 msgid "напр. район или профессия"
 msgstr ""
 
-#: templates/orders/new.html:24 templates/pos/partials/client_section.html:34
+#: templates/orders/new.html:24 templates/pos/partials/client_section.html:35
+#: templates/pos/partials/client_section_new.html:23
 msgid "Телефон"
 msgstr "Телефон"
 
@@ -2253,12 +2397,14 @@ msgstr "Возврат по продаже"
 #: templates/orders/partials/client_results.html:14
 #: templates/orders/partials/product_grid.html:26
 #: templates/pos/partials/client_results.html:13
+#: templates/pos/partials/client_results_new.html:13
 #: templates/pos/partials/product_grid.html:31
+#: templates/pos/partials/product_grid_new.html:31
 msgid "Ничего не найдено"
 msgstr "Ничего не найдено"
 
 #: templates/orders/partials/deliver_modal.html:10
-#: templates/orders/partials/order_body.html:228
+#: templates/orders/partials/order_body.html:230
 #, fuzzy
 #| msgid "Скачать за"
 msgid "Выдать заказ"
@@ -2295,15 +2441,8 @@ msgstr[0] ""
 msgstr[1] ""
 msgstr[2] ""
 
-#: templates/orders/partials/deliver_modal.html:37
-#: templates/orders/partials/order_body.html:104
-#: templates/orders/partials/order_body.html:188
-#: templates/pos/partials/sale_body.html:177 templates/pos/result.html:25
-msgid "Итого"
-msgstr "Итого"
-
 #: templates/orders/partials/deliver_modal.html:39
-#: templates/orders/partials/order_body.html:192
+#: templates/orders/partials/order_body.html:194
 msgid "Аванс внесён"
 msgstr ""
 
@@ -2333,10 +2472,13 @@ msgid "принято на склад %(made)s из %(total)s шт · %(pct)s%%"
 msgstr ""
 
 #: templates/orders/partials/order_body.html:33
-#: templates/orders/partials/order_body.html:60 templates/orders/queue.html:123
+#: templates/orders/partials/order_body.html:62 templates/orders/queue.html:123
 #: templates/pos/partials/product_grid.html:27
-#: templates/pos/partials/variant_picker.html:10 templates/pos/result.html:19
-#: templates/pos/return.html:14 templates/reports/_dashboard_panel.html:74
+#: templates/pos/partials/product_grid_new.html:27
+#: templates/pos/partials/variant_picker.html:10
+#: templates/pos/partials/variant_picker_new.html:10
+#: templates/pos/result.html:19 templates/pos/return.html:14
+#: templates/reports/_dashboard_panel.html:74
 #: templates/reports/_dashboard_panel.html:103
 #: templates/reports/_dashboard_panel.html:163
 #: templates/reports/_dashboard_panel.html:223
@@ -2344,145 +2486,151 @@ msgstr ""
 msgid "шт"
 msgstr "шт"
 
+#: templates/orders/partials/order_body.html:40
+#, python-format
+msgid "Убрать «%(name)s» из заказа?"
+msgstr ""
+
 #: templates/orders/partials/order_body.html:41
-#: templates/pos/partials/sale_body.html:17
+#: templates/pos/partials/sale_body.html:41
+#, fuzzy
+#| msgid "Выбрать"
+msgid "Да, убрать"
+msgstr "Выбрать"
+
+#: templates/orders/partials/order_body.html:43
+#: templates/pos/partials/sale_body.html:39
 msgid "Удалить"
 msgstr "Удалить"
 
-#: templates/orders/partials/order_body.html:57
+#: templates/orders/partials/order_body.html:59
 #, python-format
 msgid "принято %(made)s из %(total)s · %(pct)s%%"
 msgstr ""
 
-#: templates/orders/partials/order_body.html:60
+#: templates/orders/partials/order_body.html:62
 #, fuzzy
 #| msgid "на складе"
 msgid "На складе сейчас"
 msgstr "на складе"
 
-#: templates/orders/partials/order_body.html:62
+#: templates/orders/partials/order_body.html:64
 #, python-format
 msgid "%(n)s шт обещано другим заказам"
 msgstr ""
 
-#: templates/orders/partials/order_body.html:63
+#: templates/orders/partials/order_body.html:65
 msgid "свободно"
 msgstr ""
 
-#: templates/orders/partials/order_body.html:66
+#: templates/orders/partials/order_body.html:68
 msgid "хватает для выдачи"
 msgstr ""
 
-#: templates/orders/partials/order_body.html:68
+#: templates/orders/partials/order_body.html:70
 #, python-format
 msgid "для выдачи не хватает %(n)s шт"
 msgstr ""
 
-#: templates/orders/partials/order_body.html:86
+#: templates/orders/partials/order_body.html:88
 msgid "Сколько готово"
 msgstr ""
 
-#: templates/orders/partials/order_body.html:87
-#, fuzzy
-#| msgid "Receive stock (Принять на склад)"
-msgid "Принять на склад"
-msgstr "Принять на склад"
-
-#: templates/orders/partials/order_body.html:91
+#: templates/orders/partials/order_body.html:93
 msgid "Пока пусто — найдите товар выше и добавьте его в заказ."
 msgstr ""
 
-#: templates/orders/partials/order_body.html:110
+#: templates/orders/partials/order_body.html:112
 #, fuzzy
 #| msgid "Способы оплаты"
 msgid "Далее: срок и оплата"
 msgstr "Способы оплаты"
 
-#: templates/orders/partials/order_body.html:112
+#: templates/orders/partials/order_body.html:114
 msgid "Добавьте хотя бы один товар, чтобы продолжить."
 msgstr ""
 
-#: templates/orders/partials/order_body.html:114
+#: templates/orders/partials/order_body.html:116
 #, fuzzy
 #| msgid "Отменить продажу"
 msgid "Отменить создание"
 msgstr "Отменить продажу"
 
-#: templates/orders/partials/order_body.html:119
-#: templates/orders/partials/order_body.html:141
+#: templates/orders/partials/order_body.html:121
+#: templates/orders/partials/order_body.html:143
 #, fuzzy
 #| msgid "Новая продажа"
 msgid "Срок и заметка"
 msgstr "Новая продажа"
 
-#: templates/orders/partials/order_body.html:126
+#: templates/orders/partials/order_body.html:128
 #: templates/orders/partials/step_due.html:17
 msgid "напр. подшить рукава"
 msgstr ""
 
-#: templates/orders/partials/order_body.html:135
+#: templates/orders/partials/order_body.html:137
 #, fuzzy
 #| msgid "Сохранить"
 msgid "Сохранить и закрыть"
 msgstr "Сохранить"
 
-#: templates/orders/partials/order_body.html:159
+#: templates/orders/partials/order_body.html:161
 msgid "Аванс не внесён"
 msgstr ""
 
-#: templates/orders/partials/order_body.html:165
+#: templates/orders/partials/order_body.html:167
 #, fuzzy
 #| msgid "Сумма"
 msgid "Сумма аванса"
 msgstr "Сумма"
 
-#: templates/orders/partials/order_body.html:169
-#: templates/orders/partials/step_payment.html:33
-#: templates/pos/partials/sale_body.html:39
-msgid "Валюта"
-msgstr "Валюта"
-
-#: templates/orders/partials/order_body.html:175
+#: templates/orders/partials/order_body.html:177
 #: templates/orders/partials/step_payment.html:39
-#: templates/pos/partials/sale_body.html:47
+#: templates/pos/partials/sale_body.html:110
 msgid "Способ"
 msgstr "Способ"
 
-#: templates/orders/partials/order_body.html:181
+#: templates/orders/partials/order_body.html:183
 msgid "Внести аванс"
 msgstr ""
 
-#: templates/orders/partials/order_body.html:204
+#: templates/orders/partials/order_body.html:206
 #, fuzzy
 #| msgid "клиент(ов)"
 msgid "К заказам"
 msgstr "клиент(ов)"
 
-#: templates/orders/partials/order_body.html:206
+#: templates/orders/partials/order_body.html:208
 #, fuzzy
 #| msgid "Отменить продажу"
 msgid "Открыть продажу"
 msgstr "Отменить продажу"
 
-#: templates/orders/partials/order_body.html:220
+#: templates/orders/partials/order_body.html:222
 #, fuzzy
 #| msgid "Изменение"
 msgid "Завершение"
 msgstr "Изменение"
 
-#: templates/orders/partials/order_body.html:222
+#: templates/orders/partials/order_body.html:224
 #, fuzzy
 #| msgid "Отменить эту продажу? Товар вернётся на склад."
 msgid "можно выдать и раньше, если товар есть на складе."
 msgstr "Отменить эту продажу? Товар вернётся на склад."
 
-#: templates/orders/partials/order_body.html:231
-#, fuzzy
+#: templates/orders/partials/order_body.html:234
+#, fuzzy, python-format
 #| msgid "Отменить эту продажу? Товар вернётся на склад."
-msgid "Отменить заказ? Резерв товара снимется."
+msgid "Отменить заказ №%(id)s на %(sum)s? Резерв товара снимется."
 msgstr "Отменить эту продажу? Товар вернётся на склад."
 
-#: templates/orders/partials/order_body.html:234
+#: templates/orders/partials/order_body.html:235
+#, fuzzy
+#| msgid "Отменить продажу"
+msgid "Да, отменить заказ"
+msgstr "Отменить продажу"
+
+#: templates/orders/partials/order_body.html:237
 #, fuzzy
 #| msgid "Отменить продажу"
 msgid "Отменить заказ"
@@ -2544,13 +2692,9 @@ msgstr "Отменить продажу"
 
 #: templates/orders/partials/variant_picker.html:15
 #: templates/pos/partials/variant_picker.html:5
+#: templates/pos/partials/variant_picker_new.html:5
 msgid "Вариант"
 msgstr "Вариант"
-
-#: templates/orders/partials/variant_picker.html:24
-#: templates/pos/partials/variant_picker.html:14
-msgid "Количество"
-msgstr "Количество"
 
 #: templates/orders/partials/variant_picker.html:26
 msgid "Остаток — только справка. Заказ оформляется и на непроизведённый товар."
@@ -2818,40 +2962,49 @@ msgid "Пока нет клиентов"
 msgstr "Пока нет записей"
 
 #: templates/pos/partials/client_results.html:2
+#: templates/pos/partials/client_results_new.html:2
 msgid "Последние клиенты"
 msgstr "Последние клиенты"
 
 #: templates/pos/partials/client_results.html:10
+#: templates/pos/partials/client_results_new.html:10
 msgid "Выбрать"
 msgstr "Выбрать"
 
 #: templates/pos/partials/client_section.html:3
+#: templates/pos/partials/client_section_new.html:3
 msgid "Клиент"
 msgstr "Клиент"
 
-#: templates/pos/partials/client_section.html:51
+#: templates/pos/partials/client_section.html:52
 msgid "Без клиента"
 msgstr "Без клиента"
 
 #: templates/pos/partials/product_grid.html:17
+#: templates/pos/partials/product_grid_new.html:17
 msgid "от"
 msgstr "от"
 
 #: templates/pos/partials/product_grid.html:20
+#: templates/pos/partials/product_grid_new.html:20
 msgid "нет в наличии"
 msgstr "нет в наличии"
 
 #: templates/pos/partials/product_grid.html:22
+#: templates/pos/partials/product_grid_new.html:22
 msgid "осталось"
 msgstr "осталось"
 
 #: templates/pos/partials/product_grid.html:24
+#: templates/pos/partials/product_grid_new.html:24
 #: templates/reports/storage.html:48
 msgid "в наличии"
 msgstr "в наличии"
 
 #: templates/pos/partials/product_grid.html:27
+#: templates/pos/partials/product_grid_new.html:27
 #: templates/pos/partials/variant_picker.html:10
+#: templates/pos/partials/variant_picker_new.html:10
 msgid "в заказах"
 msgstr ""
 
@@ -2863,28 +3016,38 @@ msgstr ""
 msgid "Сколько сомов стоит 1 единица валюты."
 msgstr ""
 
-#: templates/pos/partials/rate_modal.html:17
+#: templates/pos/partials/rate_modal.html:22
 msgid "Обновить автоматически (НБКР)"
 msgstr ""
 
-#: templates/pos/partials/rate_modal.html:19
+#: templates/pos/partials/rate_modal.html:23
+msgid "Обновляем курс…"
+msgstr ""
+
+#: templates/pos/partials/rate_modal.html:26
 msgid ""
 "Подтянет официальный курс НБКР. Значения ниже — на случай, если нужно\n"
 "   проверить или задать курс вручную."
 msgstr ""
 
-#: templates/pos/partials/rate_modal.html:28
+#: templates/pos/partials/rate_modal.html:44
 msgid "напр. 87.45"
 msgstr ""
 
-#: templates/pos/partials/rate_modal.html:31
+#: templates/pos/partials/rate_modal.html:48
 #, fuzzy
 #| msgid "Сохранить"
 msgid "Сохранить вручную"
 msgstr "Сохранить"
 
+#: templates/pos/partials/rate_modal.html:49
+#, fuzzy
+#| msgid "Сохранить"
+msgid "Сохраняем…"
+msgstr "Сохранить"
+
 #: templates/pos/partials/rates.html:7
-#: templates/pos/partials/sale_body.html:106
+#: templates/pos/partials/sale_body.html:169
 msgid "НБКР"
 msgstr ""
 
@@ -2896,157 +3059,209 @@ msgstr ""
 msgid "Курс не загружен — нажмите «Обновить»."
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:11
+#: templates/pos/partials/sale_body.html:20
 msgid "Позиции"
 msgstr "Позиции"
 
-#: templates/pos/partials/sale_body.html:34
+#: templates/pos/partials/sale_body.html:25
+#, fuzzy
+#| msgid "Отменить продажу"
+msgid "Отменить последнее действие"
+msgstr "Отменить продажу"
+
+#: templates/pos/partials/sale_body.html:26
+#, fuzzy
+#| msgid "Изменить"
+msgid "Отменить (⌘Z)"
+msgstr "Изменить"
+
+#: templates/pos/partials/sale_body.html:30
+#, fuzzy
+#| msgid "Вернуться к продажам"
+msgid "Вернуть отменённое"
+msgstr "Вернуться к продажам"
+
+#: templates/pos/partials/sale_body.html:31
+msgid "Вернуть (⇧⌘Z)"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:40
+#, fuzzy, python-format
+#| msgid "Возврат по продаже"
+msgid "Убрать «%(name)s» из продажи?"
+msgstr "Возврат по продаже"
+
+#: templates/pos/partials/sale_body.html:75
+#, fuzzy
+#| msgid "Изменить"
+msgid "Изменить скидку"
+msgstr "Изменить"
+
+#: templates/pos/partials/sale_body.html:75
+msgid "+ скидка"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:78
+#, fuzzy
+#| msgid "Без клиента"
+msgid "Без скидки"
+msgstr "Без клиента"
+
+#: templates/pos/partials/sale_body.html:84
+msgid "OK"
+msgstr ""
+
+#: templates/pos/partials/sale_body.html:97
 msgid "Сумма"
 msgstr "Сумма"
 
-#: templates/pos/partials/sale_body.html:57
+#: templates/pos/partials/sale_body.html:120
 msgid "Оплачено полностью"
 msgstr "Оплачено полностью"
 
-#: templates/pos/partials/sale_body.html:59
+#: templates/pos/partials/sale_body.html:122
 msgid "В долг"
 msgstr "В долг"
 
-#: templates/pos/partials/sale_body.html:64
+#: templates/pos/partials/sale_body.html:127
 #, fuzzy
 #| msgid "нет курса для"
 msgid "Свой курс (Владелец)"
 msgstr "нет курса для"
 
-#: templates/pos/partials/sale_body.html:65
+#: templates/pos/partials/sale_body.html:128
 msgid "Курс вручную"
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:68
+#: templates/pos/partials/sale_body.html:131
 msgid "напр. 89.00"
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:69
+#: templates/pos/partials/sale_body.html:132
 msgid "Оставьте пустым, чтобы использовать курс НБКР."
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:77
+#: templates/pos/partials/sale_body.html:140
 #, fuzzy
 #| msgid "Валюта"
 msgid "Валюта сдачи"
 msgstr "Валюта"
 
-#: templates/pos/partials/sale_body.html:86
+#: templates/pos/partials/sale_body.html:149
 #, fuzzy
 #| msgid "Отменить продажу"
 msgid "Изменить сумму сдачи"
 msgstr "Отменить продажу"
 
-#: templates/pos/partials/sale_body.html:87
+#: templates/pos/partials/sale_body.html:150
 #, fuzzy
 #| msgid "Сумма"
 msgid "Сумма сдачи"
 msgstr "Сумма"
 
-#: templates/pos/partials/sale_body.html:90
+#: templates/pos/partials/sale_body.html:153
 msgid ""
 "В пределах ±2 шагов округления без подтверждения владельца — требует причины."
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:91
+#: templates/pos/partials/sale_body.html:154
 #, fuzzy
 #| msgid "Продажа отменена"
 msgid "Причина изменения"
 msgstr "Продажа отменена"
 
-#: templates/pos/partials/sale_body.html:102
+#: templates/pos/partials/sale_body.html:165
 #, python-format
 msgid "Нет курса для %(c)s — оплата не пересчитана. Обновите курс выше."
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:106
-#: templates/pos/partials/sale_body.html:137
+#: templates/pos/partials/sale_body.html:169
+#: templates/pos/partials/sale_body.html:200
 msgid "курс вручную"
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:117
+#: templates/pos/partials/sale_body.html:180
 msgid "Клиент дал больше, чем нужно — что сделать с излишком?"
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:122
-#: templates/pos/partials/sale_body.html:125
+#: templates/pos/partials/sale_body.html:185
+#: templates/pos/partials/sale_body.html:188
 #, fuzzy
 #| msgid "Нужен код подтверждения."
 msgid "Нужен клиент на продаже"
 msgstr "Нужен код подтверждения."
 
-#: templates/pos/partials/sale_body.html:135
+#: templates/pos/partials/sale_body.html:198
 #, fuzzy
 #| msgid "Клиент"
 msgid "Клиент дал"
 msgstr "Клиент"
 
-#: templates/pos/partials/sale_body.html:137
+#: templates/pos/partials/sale_body.html:200
 msgid "Курс НБКР"
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:137
+#: templates/pos/partials/sale_body.html:200
 msgid "Курс Frankfurter"
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:138
+#: templates/pos/partials/sale_body.html:201
 msgid "Зачтено"
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:140
+#: templates/pos/partials/sale_body.html:203
 #, fuzzy
 #| msgid "Способы оплаты"
 msgid "Сумма к оплате"
 msgstr "Способы оплаты"
 
-#: templates/pos/partials/sale_body.html:146
+#: templates/pos/partials/sale_body.html:209
 #, fuzzy, python-format
 #| msgid "поступление"
 msgid "округление %(r)s"
 msgstr "поступление"
 
-#: templates/pos/partials/sale_body.html:149
+#: templates/pos/partials/sale_body.html:212
 msgid "Разные валюты — пересчитайте сдачу вручную перед выдачей."
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:158
+#: templates/pos/partials/sale_body.html:221
 msgid "Излишек будет зачтён в счёт других продаж клиента."
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:165
+#: templates/pos/partials/sale_body.html:228
 msgid "Излишек будет сохранён как аванс клиента."
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:182
-msgid "Оплачено"
-msgstr "Оплачено"
-
-#: templates/pos/partials/sale_body.html:192
-msgid "Подтвердить продажу?"
+#: templates/pos/partials/sale_body.html:262
+#, fuzzy, python-format
+#| msgid "Подтвердить продажу?"
+msgid "Подтвердить продажу на %(sum)s?"
 msgstr "Подтвердить продажу?"
 
-#: templates/pos/partials/sale_body.html:204
+#: templates/pos/partials/sale_body.html:263
+#, fuzzy
+#| msgid "Подтвердить продажу"
+msgid "Да, подтвердить"
+msgstr "Подтвердить продажу"
+
+#: templates/pos/partials/sale_body.html:275
 #, fuzzy
 #| msgid "Непроверенные платежи"
 msgid "Требуется подтверждение платежа:"
 msgstr "Непроверенные платежи"
 
-#: templates/pos/partials/sale_body.html:210
+#: templates/pos/partials/sale_body.html:281
 msgid "Понимаю риск, подтверждаю оплату на этих условиях"
 msgstr ""
 
-#: templates/pos/partials/sale_body.html:215
+#: templates/pos/partials/sale_body.html:286
 #, fuzzy
 #| msgid "Подтвердить продажу"
 msgid "Подтвердить и выдать сдачу"
 msgstr "Подтвердить продажу"
 
-#: templates/pos/partials/sale_body.html:215
+#: templates/pos/partials/sale_body.html:286
 msgid "Подтвердить продажу"
 msgstr "Подтвердить продажу"
 
@@ -3078,15 +3293,24 @@ msgstr "Отправить чек в WhatsApp"
 msgid "Оформить возврат"
 msgstr "Оформить возврат"
 
-#: templates/pos/result.html:88
-msgid "Отменить эту продажу? Товар вернётся на склад."
+#: templates/pos/result.html:89
+#, fuzzy, python-format
+#| msgid "Отменить эту продажу? Товар вернётся на склад."
+msgid "Отменить продажу №%(id)s на %(sum)s? Товар вернётся на склад."
 msgstr "Отменить эту продажу? Товар вернётся на склад."
 
-#: templates/pos/result.html:91
+#: templates/pos/result.html:90
+#, fuzzy
+#| msgid "Отменить продажу"
+msgid "Да, отменить продажу"
+msgstr "Отменить продажу"
+
+#: templates/pos/result.html:93
 msgid "Отменить продажу"
 msgstr "Отменить продажу"
 
-#: templates/pos/result.html:99 templates/pos/sale_detail.html:3
+#: templates/pos/result.html:101 templates/pos/sale_detail.html:3
+#: templates/pos/sale_new.html:3
 msgid "Новая продажа"
 msgstr "Новая продажа"
 
@@ -3115,17 +3339,17 @@ msgstr "продано"
 msgid "К возврату"
 msgstr "К возврату"
 
-#: templates/pos/sale_detail.html:6
+#: templates/pos/sale_detail.html:6 templates/pos/sale_new.html:13
 msgid "Курс"
 msgstr ""
 
-#: templates/pos/sale_detail.html:13
+#: templates/pos/sale_detail.html:13 templates/pos/sale_new.html:19
 #, fuzzy
 #| msgid "Изменить"
 msgid "Изменить курс"
 msgstr "Изменить"
 
-#: templates/pos/sale_detail.html:19
+#: templates/pos/sale_detail.html:19 templates/pos/sale_new.html:24
 msgid "Обновить курс НБКР"
 msgstr ""
 
@@ -3133,7 +3357,7 @@ msgstr ""
 msgid "Выручка сегодня"
 msgstr "Выручка сегодня"
 
-#: templates/pos/today.html:10 templates/pos/today.html:40
+#: templates/pos/today.html:10 templates/pos/today.html:35
 msgid "Пока нет продаж. Начните новую."
 msgstr "Пока нет продаж. Начните новую."
 
@@ -3145,19 +3369,15 @@ msgstr "нет курса для"
 msgid "продаж"
 msgstr "продаж"
 
-#: templates/pos/today.html:20
-msgid "Непроверенные платежи"
-msgstr "Непроверенные платежи"
-
-#: templates/pos/today.html:26
+#: templates/pos/today.html:21
 msgid "Скачать отчёт"
 msgstr "Скачать отчёт"
 
-#: templates/pos/today.html:30
+#: templates/pos/today.html:25
 msgid "Продажи сегодня"
 msgstr "Продажи сегодня"
 
-#: templates/pos/today.html:35
+#: templates/pos/today.html:30
 msgid "без клиента"
 msgstr "без клиента"
 
@@ -3547,6 +3767,25 @@ msgstr "коррект."
 #: templates/reports/storage.html:143
 msgid "мало"
 msgstr "мало"
+
+#~ msgid "Mark reviewed (Отметить проверенным)"
+#~ msgstr "Отметить проверенным"
+
+#~ msgid "Only a superuser can mark payments as reviewed."
+#~ msgstr "Только суперпользователь может отмечать платежи проверенными."
+
+#, python-format
+#~ msgid "Marked %(n)s payment(s) reviewed."
+#~ msgstr "Отмечено проверенными платежей: %(n)s."
+
+#~ msgid "payment review"
+#~ msgstr "проверка платежей"
+
+#~ msgid "Apply"
+#~ msgstr "Применить"
+
+#~ msgid "Непроверенные платежи"
+#~ msgstr "Непроверенные платежи"
 
 #~ msgid "photo"
 #~ msgstr "фото"

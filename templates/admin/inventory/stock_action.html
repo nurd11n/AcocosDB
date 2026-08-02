@@ -35,9 +35,24 @@
      <input type="text" name="reason" style="width:400px" required></label></p>
   {% endif %}
 
+  {% comment %}
+  Colour matches intent, not a generic "Apply" — same rule, and the same
+  green/red/neutral convention, as the single-variant inline buttons on the
+  variant change form (templates/admin/inventory/variant_change_form.html):
+  receiving stock is constructive (green), writing it off is destructive
+  (red) — it permanently removes stock, same class of action as a delete —
+  recounting is neither, it just sets the number to reality (neutral). The
+  table above already names every affected item; the button names the verb.
+  {% endcomment %}
   <div class="submit-row">
-   <button type="submit" class="default">{% trans "Apply" %}</button>
-   <a href="{% url 'admin:inventory_productvariant_changelist' %}" class="button cancel-link">{% trans "Cancel" %}</a>
+   {% if action_name == "writeoff_selected" %}
+   <button type="submit" class="btn btn-danger">{% trans "Списать" %}</button>
+   {% elif action_name == "recount_selected" %}
+   <button type="submit" class="btn btn-outline-secondary">{% trans "Применить пересчёт" %}</button>
+   {% else %}
+   <button type="submit" class="btn btn-success">{% trans "Принять на склад" %}</button>
+   {% endif %}
+   <a href="{% url 'admin:inventory_productvariant_changelist' %}" class="button cancel-link">{% trans "Отмена" %}</a>
   </div>
 </form>
 {% endblock %}

@@ -34,13 +34,27 @@
       '<p class="confirm-dialog__text"></p>' +
       '<div class="confirm-dialog__actions">' +
       '<button type="button" class="btn btn-ghost" data-confirm-no></button>' +
-      '<button type="button" class="btn btn-ghost btn-ghost--debt" data-confirm-yes></button>' +
+      '<button type="button" data-confirm-yes></button>' +
       "</div>";
     document.body.appendChild(el);
     return el;
   }
 
-  function ask(message, okLabel, cancelLabel) {
+  // Colour carries meaning here, not just the label: a destructive action
+  // (delete/cancel/void/write-off) stays red so it reads as irreversible; a
+  // constructive one (confirming a sale, approving something) must NOT be
+  // red — a red "yes" on a create action is exactly the "delete template
+  // leaking into an unrelated flow" bug this dialog exists to avoid. Callers
+  // say which via data-confirm-tone; "danger" is the default because most
+  // confirmations in this app guard a destructive action, so a call site that
+  // forgets to set it fails toward the safer (more alarming, not less) look
+  // rather than silently painting a delete red button on a save.
+  var TONE_CLASSES = {
+    danger: "btn btn-ghost btn-ghost--debt",
+    primary: "btn btn-primary",
+  };
+
+  function ask(message, okLabel, cancelLabel, tone) {
     if (!window.HTMLDialogElement || !document.body) {
       return Promise.resolve(window.confirm(message));
     }
@@ -48,7 +62,8 @@
     dialog.querySelector(".confirm-dialog__text").textContent = message;
     var yes = dialog.querySelector("[data-confirm-yes]");
     var no = dialog.querySelector("[data-confirm-no]");
-    yes.textContent = okLabel || "Да, удалить";
+    yes.className = TONE_CLASSES[tone] || TONE_CLASSES.danger;
+    yes.textContent = okLabel || "Да";
     no.textContent = cancelLabel || "Отмена";
 
     return new Promise(function (resolve) {
@@ -92,7 +107,12 @@
     var message = elt.getAttribute("data-confirm");
     if (!message) return;
     event.preventDefault();
-    ask(message, elt.getAttribute("data-confirm-ok")).then(function (ok) {
+    ask(
+      message,
+      elt.getAttribute("data-confirm-ok"),
+      null,
+      elt.getAttribute("data-confirm-tone")
+    ).then(function (ok) {
       if (ok) event.detail.issueRequest(true);
     });
   });
@@ -109,7 +129,12 @@
       var message = form.getAttribute("data-confirm");
       if (!message || form.dataset.confirmed === "1") return;
       event.preventDefault();
-      ask(message, form.getAttribute("data-confirm-ok")).then(function (ok) {
+      ask(
+        message,
+        form.getAttribute("data-confirm-ok"),
+        null,
+        form.getAttribute("data-confirm-tone")
+      ).then(function (ok) {
         if (!ok) return;
         form.dataset.confirmed = "1";
         if (typeof form.requestSubmit === "function") form.requestSubmit();

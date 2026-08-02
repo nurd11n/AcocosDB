@@ -6311,3 +6311,101 @@ def test_sale_admin_paid_column_unaffected_by_the_draft_visibility_exclude(varia
     request = RequestFactory().get("/")
     obj = admin_instance.get_queryset(request).get(pk=order.pk)
     assert admin_instance.paid_column(obj) == "300\N{NBSP}сом"
+
+
+# --- Confirmation dialog wording/colour (2026-08 audit) ----------------------
+# safety.js's shared dialog defaulted its "yes" button to "Да, удалить" (a
+# delete verb) styled red, for EVERY data-confirm site that didn't override
+# it — including «Подтвердить продажу?», a CREATE action with no override at
+# all. These pin the wording+colour(tone) for every fixed dialog directly in
+# the rendered HTML, so a careless future template edit that drops
+# data-confirm-ok/data-confirm-tone shows up as a failing test, not a support
+# ticket about a red "delete" button on the sale-confirm screen.
+
+
+def test_confirm_sale_dialog_is_worded_and_coloured_as_a_create_not_a_delete(
+    client, django_user_model, variant
+):
+    _login_editor(client, django_user_model, "dlg-confirm")
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(
+        created_by=django_user_model.objects.get(username="dlg-confirm")
+    )
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("500"))
+
+    body = client.get(f"/pos/sale/{order.pk}/").content.decode()
+    assert 'data-confirm-tone="primary"' in body, "confirm-sale must not use danger/red styling"
+    assert "Да, подтвердить" in body
+    assert "Подтвердить продажу на 500" in body, "must name the amount, not just 'are you sure?'"
+    assert "Да, удалить" not in body
+
+
+def test_cancel_sale_dialog_names_the_order_and_amount(client, django_user_model, variant):
+    _login_editor(client, django_user_model, "dlg-cancel")
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(
+        created_by=django_user_model.objects.get(username="dlg-cancel"), currency="KGS"
+    )
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("500"))
+    confirm_sale(order)
+
+    body = client.get(f"/pos/sale/{order.pk}/result/").content.decode()
+    assert f"Отменить продажу №{order.pk} на 500" in body
+    assert 'data-confirm-tone="danger"' in body
+    assert "Да, отменить продажу" in body
+
+
+def test_cancel_order_dialog_names_the_order_and_amount(client, django_user_model, variant):
+    from apps.orders.models import Order, OrderItem
+
+    _login_editor(client, django_user_model, "dlg-order")
+    owner = django_user_model.objects.create_superuser("dlg-order-owner", password="x" * 12)
+    client.force_login(owner)
+    buyer = Client.objects.create(first_name="DlgOrder", phone="+996700990601")
+    order = Order.objects.create(client=buyer, currency="KGS")
+    OrderItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("500"))
+
+    body = client.get(f"/orders/{order.pk}/").content.decode()
+    assert f"Отменить заказ №{order.pk} на 1\N{NBSP}000" in body
+    assert 'data-confirm-tone="danger"' in body
+    assert "Да, отменить заказ" in body
+
+
+def test_delete_note_dialog_names_the_note_and_stays_red(client, django_user_model):
+    from apps.notes.models import Note
+
+    owner = django_user_model.objects.create_superuser("dlg-note-owner", password="x" * 12)
+    client.force_login(owner)
+    note = Note.objects.create(title="Диалоговая проверка", body="x", created_by=owner)
+
+    body = client.get(f"/notes/{note.pk}/edit/").content.decode()
+    assert "Диалоговая проверка" in body
+    assert 'data-confirm-tone="danger"' in body
+    assert "Да, удалить" in body
+
+
+def test_stock_action_wizard_colours_writeoff_red_and_receive_green(
+    client, django_user_model, variant
+):
+    """The bulk stock-action wizard (admin/inventory/stock_action.html) used
+    one generic 'Apply' button for receive/writeoff/recount alike — writeoff
+    is destructive (removes stock permanently) and must read that way, same
+    as the single-variant inline buttons already do. Goes through the real
+    admin action (selecting the action, no `apply` yet) rather than rendering
+    the template in isolation, since it needs a real admin request context."""
+    owner = django_user_model.objects.create_superuser("dlg-stock-owner", password="x" * 12)
+    client.force_login(owner)
+    changelist = "/panel/inventory/productvariant/"
+
+    writeoff = client.post(
+        changelist, {"action": "writeoff_selected", "_selected_action": [variant.pk]}
+    )
+    receive = client.post(
+        changelist, {"action": "receive_stock_selected", "_selected_action": [variant.pk]}
+    )
+    writeoff_html = writeoff.content.decode()
+    receive_html = receive.content.decode()
+    assert "btn-danger" in writeoff_html
+    assert "btn-success" in receive_html
+    assert "btn-danger" not in receive_html
+    assert "btn-success" not in writeoff_html

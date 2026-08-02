@@ -27,7 +27,12 @@
     var confirmText = form.getAttribute("data-confirm");
     if (!confirmText) return send();
     var asked = window.posConfirm
-      ? window.posConfirm(confirmText, form.getAttribute("data-confirm-ok"))
+      ? window.posConfirm(
+          confirmText,
+          form.getAttribute("data-confirm-ok"),
+          null,
+          form.getAttribute("data-confirm-tone")
+        )
       : Promise.resolve(window.confirm(confirmText));
     asked.then(function (ok) {
       if (ok) send();

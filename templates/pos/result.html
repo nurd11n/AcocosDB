@@ -84,7 +84,9 @@
  <a class="btn btn-ghost" href="{% url 'pos:sale_return' order.pk %}" style="margin-top:var(--space-4)">
    {% trans "Оформить возврат" %}</a>
  <form method="post" action="{% url 'pos:sale_cancel' order.pk %}"
-   data-network-safe data-confirm="{% trans "Отменить эту продажу? Товар вернётся на склад." %}" data-error-target="cancel-error"
+   data-network-safe data-error-target="cancel-error"
+   data-confirm="{% blocktrans with id=order.pk sum=order.total|money:order.currency %}Отменить продажу №{{ id }} на {{ sum }}? Товар вернётся на склад.{% endblocktrans %}"
+   data-confirm-ok="{% trans "Да, отменить продажу" %}" data-confirm-tone="danger"
    style="margin-top:var(--space-2)">
   {% csrf_token %}
   <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Отменить продажу" %}</button>

@@ -37,6 +37,7 @@
       <span class="line-row__name">{{ item.variant.product.name }}</span>
       <button type="button" class="line-row__remove" aria-label="{% trans "Удалить" %}"
         data-confirm="{% blocktrans with name=item.variant %}Убрать «{{ name }}» из продажи?{% endblocktrans %}"
+        data-confirm-ok="{% trans "Да, убрать" %}" data-confirm-tone="danger"
         hx-post="{% url 'pos:item_remove' order.pk item.pk %}" hx-target="#sale-body" hx-swap="innerHTML">✕</button>
     </div>
     {% if item.variant.size or item.variant.color %}
@@ -254,7 +255,9 @@
  </div>
 
  <form method="post" action="{% url 'pos:sale_confirm' order.pk %}"
-   data-network-safe data-confirm="{% trans "Подтвердить продажу?" %}" data-error-target="confirm-error">
+   data-network-safe data-error-target="confirm-error"
+   data-confirm="{% blocktrans with sum=total|money:order.currency %}Подтвердить продажу на {{ sum }}?{% endblocktrans %}"
+   data-confirm-ok="{% trans "Да, подтвердить" %}" data-confirm-tone="primary">
   {% csrf_token %}
   <input type="hidden" name="amount" value="{% if payment_amount is not None %}{{ payment_amount }}{% else %}0{% endif %}">
   <input type="hidden" name="currency" value="{{ payment_currency|default:order.currency }}">

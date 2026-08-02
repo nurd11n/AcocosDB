@@ -30,8 +30,12 @@ another's note. The view enforces it too; this only hides a dead button.
 {% endcomment %}
 {% if can_delete %}
 <form method="post" action="{% url 'notes:delete' note.pk %}"
+  {% if note.title %}
+  data-confirm="{% blocktrans with title=note.title %}Удалить заметку «{{ title }}»? Восстановить будет нельзя.{% endblocktrans %}"
+  {% else %}
   data-confirm="{% trans "Удалить эту заметку? Восстановить будет нельзя." %}"
-  data-confirm-ok="{% trans "Удалить" %}">
+  {% endif %}
+  data-confirm-ok="{% trans "Да, удалить" %}" data-confirm-tone="danger">
  {% csrf_token %}
  <button type="submit" class="btn btn-ghost btn-ghost--debt"><svg class="ic"><use href="#i-close"/></svg>{% trans "Удалить заметку" %}</button>
 </form>

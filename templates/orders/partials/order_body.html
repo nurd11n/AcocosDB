@@ -38,7 +38,7 @@ order is a question with no meaning.
   <form hx-post="{% url 'orders:item_remove' order.pk row.item.pk %}"
     hx-target="#order-body" hx-swap="innerHTML" class="oline__remove"
     data-confirm="{% blocktrans with name=row.item.variant %}Убрать «{{ name }}» из заказа?{% endblocktrans %}"
-    data-confirm-ok="{% trans "Убрать" %}">
+    data-confirm-ok="{% trans "Да, убрать" %}" data-confirm-tone="danger">
     {% csrf_token %}
     <button type="submit" class="btn btn-ghost btn-icon" aria-label="{% trans "Удалить" %}">✕</button>
   </form>
@@ -227,8 +227,9 @@ swapped body, the moment the last item is taken into stock.
    hx-target="#order-modal" hx-swap="innerHTML">{% trans "Выдать заказ" %}</button>
  {% if request.user.is_superuser %}
  <form method="post" action="{% url 'orders:cancel' order.pk %}"
-   data-network-safe data-confirm="{% trans "Отменить заказ? Резерв товара снимется." %}"
-   data-error-target="cancel-error">
+   data-network-safe data-error-target="cancel-error"
+   data-confirm="{% blocktrans with id=order.pk sum=order.total|money:order.currency %}Отменить заказ №{{ id }} на {{ sum }}? Резерв товара снимется.{% endblocktrans %}"
+   data-confirm-ok="{% trans "Да, отменить заказ" %}" data-confirm-tone="danger">
   {% csrf_token %}
   <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Отменить заказ" %}</button>
  </form>
