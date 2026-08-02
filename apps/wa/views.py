@@ -97,9 +97,12 @@ def webhook(request):
         return HttpResponseNotFound()
 
     if request.method == "GET":
-        if (
-            settings.WHATSAPP_VERIFY_TOKEN
-            and request.GET.get("hub.verify_token") == settings.WHATSAPP_VERIFY_TOKEN
+        # compare_digest, not ==: the verify token is a shared secret, and a
+        # plain string compare short-circuits on the first differing byte,
+        # leaking its length and prefix to anyone who can time the endpoint.
+        # Same discipline as the POST signature check below.
+        if settings.WHATSAPP_VERIFY_TOKEN and hmac.compare_digest(
+            request.GET.get("hub.verify_token", ""), settings.WHATSAPP_VERIFY_TOKEN
         ):
             return HttpResponse(request.GET.get("hub.challenge", ""))
         return HttpResponseForbidden()

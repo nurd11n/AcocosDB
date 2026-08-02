@@ -5492,3 +5492,219 @@ def test_daily_report_query_count_does_not_scale_with_sales(settings):
         assert big[name] == small[name], (
             f"{name}: {small[name]} -> {big[name]} queries as rows grew 9x — N+1 is back"
         )
+
+
+# --- Regressions found in the 2026-08 project review -------------------------
+# Each of these reproduced a real defect on main before the fix in the same
+# commit: stock driven negative, a client's debt driven negative, a 500 on an
+# ordinary return, and a report overstating cash taken.
+
+
+def test_confirm_sale_caps_duplicate_variant_lines_against_the_combined_total(variant):
+    """The same variant on TWO lines must be checked against the SUM, not each
+    line separately. 6 + 6 against 10 available passed line-by-line and drove
+    on_hand to −2 — the guard of last resort was weaker than the cart cap in
+    front of it."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 10)
+    client = Client.objects.create(first_name="Дуб", phone="+996700990001")
+    order = SaleOrder.objects.create(client=client, currency=variant.currency)
+    SaleItem.objects.create(order=order, variant=variant, quantity=6, unit_price=Decimal("3200"))
+    SaleItem.objects.create(order=order, variant=variant, quantity=6, unit_price=Decimal("3200"))
+
+    with pytest.raises(ValidationError):
+        confirm_sale(order)
+
+    order.refresh_from_db()
+    assert order.status == SaleOrder.DRAFT
+    assert variant.stock == 10, "a rejected oversell must not move stock at all"
+
+
+def test_handover_of_an_order_listing_one_variant_twice_cannot_oversell(variant):
+    """The reachable route to the bug above: hand_over copies OrderItems into
+    SaleItems one-for-one and nothing merges them, so a production order with
+    the same variant on two lines produced exactly that duplicate-line sale."""
+    from apps.orders.services import create_order, hand_over
+
+    add_movement(variant, StockMovement.PURCHASE_IN, 10)
+    client = Client.objects.create(first_name="Заказ", phone="+996700990002")
+    order = create_order(
+        client=client,
+        items=[
+            {"variant": variant, "quantity": 6, "unit_price": Decimal("3200")},
+            {"variant": variant, "quantity": 6, "unit_price": Decimal("3200")},
+        ],
+    )
+    with pytest.raises(ValidationError):
+        hand_over(order)
+    assert variant.stock >= 0, f"stock went negative: {variant.stock}"
+
+
+def test_a_payment_can_be_voided_only_once(variant):
+    """A double-tapped void wrote two reversal rows, each subtracting the
+    amount, so the client ended up with a phantom credit."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client = Client.objects.create(first_name="Возврат", phone="+996700990003")
+    order = SaleOrder.objects.create(client=client, currency=variant.currency)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    payment = record_payment(order, Decimal("3200"))
+
+    void_payment(payment)
+    order.refresh_from_db()
+    assert order.paid_amount == Decimal("0.00")
+
+    with pytest.raises(ValidationError):
+        void_payment(payment)
+
+    order.refresh_from_db()
+    assert order.paid_amount == Decimal("0.00"), "a second void must not move the balance"
+    assert client_debt(client).get("KGS") == Decimal("3200.00")
+
+
+def test_db_rejects_a_second_reversal_even_via_bulk_create(variant):
+    """The service check above is row-locked, but the constraint is what makes
+    a double void impossible — same convention as every other money rule here."""
+    from django.db import IntegrityError
+
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client = Client.objects.create(first_name="Балк", phone="+996700990004")
+    order = SaleOrder.objects.create(client=client, currency=variant.currency)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    payment = record_payment(order, Decimal("3200"))
+    void_payment(payment)
+
+    with pytest.raises(IntegrityError):
+        Payment.objects.bulk_create(
+            [
+                Payment(
+                    client=client,
+                    order=order,
+                    amount=-payment.amount,
+                    currency=payment.currency,
+                    rate_to_kgs=payment.rate_to_kgs,
+                    reversed_payment=payment,
+                )
+            ]
+        )
+
+
+def test_partial_return_of_a_fixed_discount_line_scales_the_discount(variant):
+    """Returning 1 of 2 units on a line with a сом-amount discount used to hit
+    the saleitem_discount_fixed_lte_subtotal CheckConstraint and 500. The
+    discount belongs to the whole line, so it shrinks with it: the client keeps
+    exactly the per-unit price they actually paid."""
+    from apps.sales.services import return_items
+
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client = Client.objects.create(first_name="Скидка", phone="+996700990005")
+    order = SaleOrder.objects.create(client=client, currency=variant.currency)
+    item = SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=2,
+        unit_price=Decimal("500.00"),
+        discount_type=SaleItem.DISCOUNT_FIXED,
+        discount_value=Decimal("800.00"),
+    )
+    confirm_sale(order)
+    assert order.total == Decimal("200.00")  # 1000 − 800, i.e. 100 per unit
+
+    return_items(order, {item.pk: 1})
+
+    order.refresh_from_db()
+    item.refresh_from_db()
+    assert item.quantity == 1
+    assert item.discount_value == Decimal("400.00"), "half returned, half the discount"
+    assert order.total == Decimal("100.00"), "the one kept unit still costs what it did"
+    assert variant.stock == 4
+
+
+def test_percent_discount_needs_no_rescaling_on_a_partial_return(variant):
+    """The other half of the rule: a percentage is proportional already, so it
+    must survive a return untouched."""
+    from apps.sales.services import return_items
+
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client = Client.objects.create(first_name="Процент", phone="+996700990006")
+    order = SaleOrder.objects.create(client=client, currency=variant.currency)
+    item = SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=2,
+        unit_price=Decimal("500.00"),
+        discount_type=SaleItem.DISCOUNT_PERCENT,
+        discount_value=Decimal("20"),
+    )
+    confirm_sale(order)
+    assert order.total == Decimal("800.00")
+
+    return_items(order, {item.pk: 1})
+
+    order.refresh_from_db()
+    item.refresh_from_db()
+    assert item.discount_value == Decimal("20")
+    assert order.total == Decimal("400.00")
+
+
+def test_dashboard_payment_methods_report_net_cash_not_the_note_tendered(variant):
+    """«Способы оплаты» summed the gross amount, so a 5 000 сом note handed over
+    for a 3 000 сом sale was reported as 5 000 сом of cash taken — 2 000 of it
+    went straight back out of the till as change."""
+    from apps.reports.dashboard import dashboard_data
+
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client = Client.objects.create(first_name="Сдача", phone="+996700990007")
+    order = SaleOrder.objects.create(client=client, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3000"))
+    confirm_sale(order)
+    record_payment(
+        order,
+        Decimal("5000"),
+        method=Payment.CASH,
+        excess_disposition=Payment.DISPOSITION_CHANGE,
+    )
+
+    methods = {row["label"]: row["value"] for row in dashboard_data("month")["methods"]}
+    assert sum(methods.values()) == Decimal("3000.00"), (
+        f"expected the 3 000 сом that stayed in the till, got {methods}"
+    )
+
+
+def test_a_walk_in_cash_sale_is_settled_not_a_debt(variant):
+    """A walk-in has no client, so services.record_payment records nothing and
+    no Payment row can exist (Payment.client is non-nullable). Deriving the
+    status from paid_amount=0 branded the shop's commonest transaction «долг» —
+    on the POS result screen and in the owner's nightly Продажи sheet, where a
+    day of cash sales read as a day of unpaid debt."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(client=None, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    assert record_payment(order, Decimal("3200")) is None  # nothing to record
+    assert order.payment_status == SaleOrder.PAID
+    assert order.balance == Decimal("0")
+
+
+def test_a_walk_in_sale_still_never_appears_in_anyone_s_debt(variant):
+    """The other half: settling the walk-in must not invent a client debt or
+    leak into the debtors report."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(client=None, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    assert debtors_report_rows() == []
+
+
+def test_daily_report_does_not_list_a_walk_in_cash_sale_as_unpaid(variant):
+    """End-to-end on the sheet the owner actually reads every evening."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(client=None, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    rows = [str(cell) for row in _sales_sheet().rows for cell in row]
+    assert "долг" not in rows, f"walk-in cash sale reported as debt: {rows}"
+    assert "оплачено" in rows

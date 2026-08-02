@@ -2,8 +2,9 @@
 `request.user.is_verified()` when settings.OTP_ENABLED, not just
 `is_authenticated` — see apps.core.otp.verified.
 
-The rest of the suite runs with OTP_ENABLED=False (config/settings/dev.py's
-default, per pytest.ini), which is itself the "OTP_ENABLED=False leaves dev
+The rest of the suite runs with OTP_ENABLED=False (pinned in
+config/settings/test.py, the module pyproject.toml points pytest at), which is
+itself the "OTP_ENABLED=False leaves dev
 unaffected" guarantee: every other test file's force_login()-based flow keeps
 passing unmodified. These tests explicitly flip OTP_ENABLED=True to exercise
 the gate itself, and confirm the flag genuinely toggles it back off too.

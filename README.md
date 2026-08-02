@@ -211,6 +211,22 @@ three off; nothing else breaks (see `tests/test_prod_flags.py`). Off means:
 
 Flip a flag to `True` in `.env`, then `docker compose -f docker-compose.prod.yml up -d` to pick it up — only once that channel is actually staffed and ready (a real Telegram bot token / Meta WhatsApp app / an approved broadcast plan), not before.
 
+### Running the tests
+
+```bash
+pytest
+```
+
+Tests run under `config/settings/test.py`, **not** `config/settings/dev.py`.
+That module hard-pins the three feature flags ON, `OTP_ENABLED` off, the money
+thresholds, a local sqlite database, and a locmem cache — deliberately ignoring
+`.env`. Before it existed the suite read those values from the environment, so a
+developer whose `.env` mirrored production (all three flags `False`, the shipped
+default) got 11 red tests on a clean checkout, and a green suite was a property
+of an untracked local file rather than of the code. `tests/test_prod_flags.py`
+still sets the flags `False` explicitly — that stays the one place the gating
+itself is verified.
+
 ## Data import
 
 She already has stock — `import_catalog` loads it from an `.xlsx` price list
