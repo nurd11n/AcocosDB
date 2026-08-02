@@ -16,11 +16,6 @@
  <p class="muted">{{ summary.orders }} {% trans "продаж" %} · {{ summary.items }} {% trans "товаров" %}</p>
 </div>
 
-<div class="card">
- <h2>{% trans "Непроверенные платежи" %}</h2>
- <p class="num" style="font-size:22px;font-weight:500">{{ unreviewed_count }}</p>
-</div>
-
 {% if request.user.is_superuser %}
 <a class="btn btn-primary" href="{% url 'report-download' %}?format=xlsx" style="margin-bottom:var(--space-3)">
   ⬇ {% trans "Скачать отчёт" %}</a>

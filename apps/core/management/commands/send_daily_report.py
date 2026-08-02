@@ -1,7 +1,7 @@
 """Daily report: one .xlsx (or four .csv, with --format csv) covering today's
-confirmed sales, current stock, outstanding client debts, and today's
-unreviewed payments. Emailed to REPORT_RECIPIENTS and sent as a Telegram
-document to every BotUser flagged receives_reports=True.
+confirmed sales, current stock, outstanding client debts, and open production
+orders. Emailed to REPORT_RECIPIENTS and sent as a Telegram document to every
+BotUser flagged receives_reports=True.
 
 The report is ALWAYS in Russian, regardless of the UI language of whoever
 triggers it — sheet names, headers, and the email subject are hardcoded here,
@@ -273,39 +273,6 @@ def _debts_sheet() -> export.Sheet:
     return export.Sheet(_DEBTS_COLUMNS, rows, totals)
 
 
-_UNREVIEWED_COLUMNS = [
-    export.Column("Время", export.TIME),
-    export.Column("Клиент", export.TEXT),
-    export.Column("Заказ", export.TEXT),
-    export.Column("Сумма", export.MONEY),
-    export.Column("Валюта", export.TEXT),
-    export.Column("Способ", export.TEXT),
-    export.Column("Создал", export.TEXT),
-]
-
-
-def _unreviewed_sheet() -> export.Sheet:
-    today = timezone.localdate()
-    qs = (
-        Payment.objects.filter(created_at__date=today, reviewed=False)
-        .select_related("client", "order", "created_by")
-        .order_by("created_at")
-    )
-    rows = [
-        [
-            timezone.localtime(p.created_at),
-            p.client.name if p.client else "—",
-            f"#{p.order_id}" if p.order_id else "—",
-            p.amount,
-            p.currency,
-            p.get_method_display(),
-            p.created_by.username if p.created_by else "—",
-        ]
-        for p in qs
-    ]
-    return export.Sheet(_UNREVIEWED_COLUMNS, rows)
-
-
 _ORDERS_COLUMNS = [
     export.Column("№", export.INT),
     export.Column("Клиент", export.TEXT),
@@ -370,7 +337,6 @@ def _sheets() -> dict[str, export.Sheet]:
         "Продажи": _sales_sheet(),
         "Остаток": _stock_sheet(),
         "Долги": _debts_sheet(),
-        "Не проверено": _unreviewed_sheet(),
         "Заказы": _orders_sheet(),
     }
 
@@ -383,7 +349,6 @@ _CSV_FILENAMES = {
     "Продажи": "prodazhi",
     "Остаток": "ostatok",
     "Долги": "dolgi",
-    "Не проверено": "ne_provereno",
     "Заказы": "zakazy",
 }
 

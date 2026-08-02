@@ -446,6 +446,17 @@ JAZZMIN_SETTINGS = {
     # never wires up the iframe's `.opener`, so Django's own close/update
     # callback throws unreachable. See the file for the full diagnosis.
     "custom_js": "core/jazzmin-overrides.js",
+    # "reports" (verbose_name «Отчёты») used to anchor its own sidebar group —
+    # DailyReview, the payment-review queue's proxy Payment admin, was its
+    # only registered model. Removed 2026-08 along with the whole review
+    # feature; Jazzmin only lists an app in the sidebar if it has at least one
+    # admin-registered model the user can see (custom_links alone can't
+    # conjure a group for an app with zero — see get_side_menu in
+    # jazzmin/templatetags/jazzmin.py, which only synthesizes a fake app entry
+    # for a custom_links key that ISN'T a real installed app; "reports" is a
+    # real app, so that fallback never fires for it). Дашборд/Склад moved into
+    # "core" (verbose_name «Система») below, next to Statistics, so they don't
+    # silently vanish from the sidebar along with the review queue.
     "order_with_respect_to": [
         "sales",
         "sales.SaleOrder",
@@ -458,8 +469,6 @@ JAZZMIN_SETTINGS = {
         "clients.Interaction",
         "campaigns",
         "campaigns.Campaign",
-        "reports",
-        "reports.DailyReview",
         "core",
         "auth",
         "axes",
@@ -477,17 +486,14 @@ JAZZMIN_SETTINGS = {
         "clients.Client": "fas fa-address-book",
         "clients.Interaction": "fas fa-comments",
         "campaigns.Campaign": "fas fa-bullhorn",
-        "reports.DailyReview": "fas fa-clipboard-check",
         "core.BotUser": "fas fa-robot",
         "core.BotMessage": "fab fa-whatsapp",
         "core.ExchangeRate": "fas fa-money-bill-transfer",
     },
     "custom_links": {
-        "reports": [
+        "core": [
             {"name": "Дашборд", "url": "dashboard", "icon": "fas fa-chart-area"},
             {"name": "Склад", "url": "storage", "icon": "fas fa-warehouse"},
-        ],
-        "core": [
             {"name": "Statistics", "url": "stats", "icon": "fas fa-chart-line"},
         ],
     },

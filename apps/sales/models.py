@@ -286,9 +286,17 @@ class SaleItem(models.Model):
 
 class Payment(models.Model):
     """Counts immediately toward revenue and debt the moment it's saved — no
-    approval blocking. `reviewed` is the day-end checklist flag, not a gate on
-    whether the payment counts. Never deleted: voiding creates a reversing
-    entry (see services.void_payment) so the audit trail stays intact."""
+    approval blocking. Never deleted: voiding creates a reversing entry (see
+    services.void_payment) so the audit trail stays intact.
+
+    `reviewed`/`reviewed_by`/`reviewed_at` were the day-end checklist flag —
+    the review QUEUE, its admin action, and every UI surface that wrote these
+    are gone (2026-08). DEPRECATED, kept only so historical data and the
+    audit trail stay intact and the fields cost nothing to bring back: never
+    written to anymore, but still READ in two places to protect whatever a
+    payment was already marked before removal — PaymentInlineForm's edit-lock
+    and services.void_payment's superuser-only guard for an already-reviewed
+    payment. Do not resurrect the write path without re-reading this."""
 
     CASH = "cash"
     MBANK = "mbank"
@@ -408,6 +416,7 @@ class Payment(models.Model):
         _("change rounding residue, KGS"), max_digits=12, decimal_places=2, default=Decimal("0")
     )
     note = models.CharField(_("note"), max_length=255, blank=True)
+    # DEPRECATED — see the class docstring. Nothing writes these anymore.
     reviewed = models.BooleanField(_("reviewed"), default=False)
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

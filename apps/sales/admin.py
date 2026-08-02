@@ -38,9 +38,12 @@ class PaymentInlineForm(forms.ModelForm):
     """Two things live here that plain model validation can't express:
     - a payment that would overpay the order needs an explicit tick, not a
       silent accept (the "much larger than the total" guardrail);
-    - once a payment is reviewed, only a superuser may still edit it — enforced
-      by disabling the fields, since Django inlines can't gate permissions
-      per-row (has_change_permission only sees the parent SaleOrder).
+    - a payment already marked Payment.reviewed (a deprecated flag — see that
+      model's docstring; nothing writes it anymore) stays locked to
+      superuser-only edits, protecting whatever history already exists —
+      enforced by disabling the fields, since Django inlines can't gate
+      permissions per-row (has_change_permission only sees the parent
+      SaleOrder).
     """
 
     confirm_overpayment = forms.BooleanField(
@@ -114,14 +117,13 @@ class PaymentInline(admin.TabularInline):
         "method",
         "note",
         "change_display",
-        "reviewed",
         "created_by",
         "created_at",
     ]
     # Change is COMPUTED, never freely typed (see CLAUDE.md) — the admin inline
     # only ever DISPLAYS it (via /pos/, the one place it's actually computed
     # and recorded), never lets it be hand-entered here.
-    readonly_fields = ["change_display", "reviewed", "created_by", "created_at"]
+    readonly_fields = ["change_display", "created_by", "created_at"]
     autocomplete_fields = ["client"]
     verbose_name_plural = _("payments (for loans / partial payment)")
 
@@ -371,10 +373,9 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         "change_column",
         "method",
         "order",
-        "reviewed",
         "created_by",
     ]
-    list_filter = ["method", "currency", "rate_source", "excess_disposition", "reviewed"]
+    list_filter = ["method", "currency", "rate_source", "excess_disposition"]
     search_fields = ["client__first_name", "client__descriptor", "client__phone"]
     search_help_text = "Имя клиента, уточнение или телефон"
     date_hierarchy = "created_at"
