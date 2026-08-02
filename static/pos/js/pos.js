@@ -51,6 +51,24 @@
     }
   });
 
+  // --- Close a panel only AFTER its request finishes (data-clear-after) ---
+  // data-clear-target above clears on the CLICK, which is right for a plain
+  // «Отмена» but wrong for a button that fires a request: it tears the button
+  // out of the DOM before htmx can put .htmx-request on it, so the busy label
+  // never paints and the dialog just vanishes. The rate then lands a second
+  // later with nothing in between, which reads as "the button did nothing".
+  // Waiting for the response keeps the spinner visible for exactly as long as
+  // the work takes, and makes the panel closing the confirmation that it
+  // worked. A FAILED request deliberately leaves the panel open, so the error
+  // is visible and the tap can be retried.
+  document.addEventListener("htmx:afterRequest", function (event) {
+    var el = event.target;
+    if (!el || !el.getAttribute || !el.hasAttribute("data-clear-after")) return;
+    if (!(event.detail && event.detail.successful)) return;
+    var target = document.getElementById(el.getAttribute("data-clear-after"));
+    if (target) target.innerHTML = "";
+  });
+
   // --- Variant picker: quantity clamps to the selected variant's available
   // stock (Part 1a). Client-side only for instant feedback — the server
   // clamps and re-explains regardless, since this is UX, not the defence. ---
