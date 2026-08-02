@@ -1407,20 +1407,47 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   gap: var(--space-2);
 }
 .items-card__head h2 { margin-bottom: 0; }
-.undo-bar { display: flex; gap: var(--space-1); flex: none; }
-.undo-bar__btn {
-  width: 32px;
-  height: 32px;
-  padding: 0;
+
+/* Segmented pill — ONE control holding two directions, the way a paired
+   back/forward always reads best: a single outlined capsule, the two halves
+   split by a hairline rather than each carrying its own border and floating
+   apart. Kept generic (.segbtn, not .undo-*) so any other prev/next pair can
+   reuse it. */
+.segbtn {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
   border: 1px solid var(--border);
-  border-radius: var(--radius-control);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  overflow: hidden; /* clips the halves' corners to the capsule */
+}
+.segbtn__half {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 34px;
+  padding: 0;
+  border: 0;
   background: transparent;
   color: var(--text-2);
-  font-size: 16px;
-  line-height: 1;
   cursor: pointer;
 }
+/* The hairline divider belongs to the second half, so there's exactly one
+   between them and none on the capsule's outer edges. */
+.segbtn__half + .segbtn__half { border-left: 1px solid var(--border); }
+.segbtn__half .ic { width: 17px; height: 17px; }
+/* --border, not --rule: --rule inverts to near-white in dark mode and would
+   flash the button white on hover. --border is the one that stays a step away
+   from the surface in BOTH themes. */
 @media (hover: hover) {
-  .undo-bar__btn:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
+  .segbtn__half:not(:disabled):hover { color: var(--text); background: var(--border); }
 }
-.undo-bar__btn:disabled { opacity: 0.35; cursor: default; }
+.segbtn__half:not(:disabled):active { background: var(--border); }
+/* Dimmed, not hidden: "there is nothing to undo yet" is information, and a
+   control that vanishes and reappears makes the header jump. */
+.segbtn__half:disabled { opacity: 0.3; cursor: default; }
+/* The capsule's own corners must not square off when a half is pressed or
+   focused — the ring follows the inner shape, inset so it stays visible. */
+.segbtn__half:focus-visible { outline-offset: -3px; }
