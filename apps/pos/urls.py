@@ -13,6 +13,24 @@ urlpatterns = [
     path("today/", views.today, name="today"),
     path("clients/", views.clients, name="clients"),
     path("clients/<int:pk>/", views.client_detail, name="client_detail"),
+    # The empty terminal — no SaleOrder exists yet (see views.index/sale_new).
+    # "new" never collides with <int:pk> below (the int converter only
+    # matches digits), but these are still listed first for readability.
+    path("sale/new/", views.sale_new, name="sale_new"),
+    path("sale/new/clients/search/", views.client_search_new, name="client_search_new"),
+    path("sale/new/clients/new/", views.client_new_form_new, name="client_new_form_new"),
+    path(
+        "sale/new/clients/reset/", views.client_section_reset_new, name="client_section_reset_new"
+    ),
+    path("sale/new/clients/create/", views.client_create_new, name="client_create_new"),
+    path("sale/new/client/<int:client_id>/set/", views.client_set_new, name="client_set_new"),
+    path("sale/new/products/", views.product_grid_new, name="product_grid_new"),
+    path(
+        "sale/new/products/<int:product_id>/variants/",
+        views.variant_picker_new,
+        name="variant_picker_new",
+    ),
+    path("sale/new/items/add/", views.item_add_new, name="item_add_new"),
     path("sale/<int:pk>/", views.sale_detail, name="sale_detail"),
     path("sale/<int:pk>/clients/search/", views.client_search, name="client_search"),
     path("sale/<int:pk>/clients/new/", views.client_new_form, name="client_new_form"),

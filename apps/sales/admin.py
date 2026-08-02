@@ -142,6 +142,29 @@ class PaymentInline(admin.TabularInline):
         return formset
 
 
+class DraftVisibilityFilter(admin.SimpleListFilter):
+    """An empty draft (no client, no items — the same definition
+    cleanup_draft_sales purges) is created lazily now, on the first real
+    action in /pos/ (see apps.pos.views.sale_new) rather than the moment the
+    terminal is opened, so this is already a narrow edge case (every item
+    removed again after creation) rather than routine clutter. It's still
+    worth keeping OUT of the default changelist rather than back in front of
+    the Owner every time — this filter's ONE choice puts them back, on
+    request, never permanently hidden."""
+
+    title = _("show empty drafts")
+    parameter_name = "show_drafts"
+
+    def lookups(self, request, model_admin):
+        return [("yes", _("Черновики (пустые)"))]
+
+    def queryset(self, request, queryset):
+        # No filtering of its OWN — get_queryset below reads request.GET
+        # directly to decide whether to exclude empty drafts in the first
+        # place. This class exists to put the choice in the sidebar UI.
+        return queryset
+
+
 @admin.register(SaleOrder)
 class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     list_display = [
@@ -156,7 +179,7 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         "created_at",
         "confirmed_at",
     ]
-    list_filter = ["status", "channel", "currency"]
+    list_filter = [DraftVisibilityFilter, "status", "channel", "currency"]
     search_fields = ["id", "client__first_name", "client__descriptor", "client__phone"]
     search_help_text = "Номер продажи, имя клиента, уточнение или телефон"
     date_hierarchy = "confirmed_at"
@@ -191,7 +214,7 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
             / F("rate_to_kgs"),
             output_field=DecimalField(max_digits=20, decimal_places=6),
         )
-        return (
+        qs = (
             super()
             .get_queryset(request)
             .annotate(
@@ -203,6 +226,12 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
             )
             .prefetch_related("payments")
         )
+        # Empty drafts hidden by default (DraftVisibilityFilter puts them
+        # back on request) — never for a CONFIRMED/CANCELLED order, whose
+        # client/items reflect a real, closed sale regardless of channel.
+        if request.GET.get("show_drafts") != "yes":
+            qs = qs.exclude(status=SaleOrder.DRAFT, client__isnull=True, items__isnull=True)
+        return qs
 
     @admin.display(description=_("total"), ordering="total")
     def total_display(self, obj):

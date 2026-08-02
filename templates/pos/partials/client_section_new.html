@@ -1,0 +1,42 @@
+{% load i18n %}
+<div class="card">
+ <h2>{% trans "Клиент" %}</h2>
+ {% comment %}
+ Only the "no order yet" states live here — a client can never already be
+ attached (there is no order to attach one to), so client_section.html's
+ first branch (order.client) has no equivalent, and there's no "Без клиента"
+ button either: with no order, no client picked IS already the whole state,
+ nothing to explicitly opt out of yet. The moment client_create_new succeeds
+ OR bounces with a validation error, the order is real either way, and any
+ further re-render goes through client_create's OWN, unmodified
+ client_section.html partial from that point on (see views.client_create_new)
+ — this template never needs to represent an error state of its own.
+ {% endcomment %}
+ {% if new_client_open %}
+   <form hx-post="{% url 'pos:client_create_new' %}" hx-target="#client-section" hx-swap="innerHTML"
+     data-autosave="pos-client-new" data-undo>
+     <label>{% trans "Имя" %}</label>
+     <input name="first_name" required>
+     <label>{% trans "Уточнение" %}</label>
+     <input name="descriptor" placeholder="{% trans "напр. район или профессия" %}">
+     <label>{% trans "Телефон" %}</label>
+     <input name="phone" type="tel" inputmode="tel" required>
+     <div class="row" style="margin-top:var(--space-3)">
+       <button type="submit" class="btn btn-primary">{% trans "Сохранить" %}</button>
+       <button type="button" class="btn btn-ghost"
+         hx-get="{% url 'pos:client_section_reset_new' %}" hx-target="#client-section" hx-swap="innerHTML">
+         {% trans "Отмена" %}</button>
+     </div>
+   </form>
+ {% else %}
+   <input type="search" name="q" placeholder="{% trans "Телефон или имя" %}" inputmode="tel"
+     hx-get="{% url 'pos:client_search_new' %}" hx-trigger="keyup changed delay:300ms, load"
+     hx-target="#client-results" hx-swap="innerHTML">
+   <div id="client-results" style="margin-top:var(--space-2)"></div>
+   <div class="row" style="margin-top:var(--space-3)">
+     <button type="button" class="btn btn-ghost"
+       hx-get="{% url 'pos:client_new_form_new' %}" hx-target="#client-section" hx-swap="innerHTML">
+       {% trans "+ Новый клиент" %}</button>
+   </div>
+ {% endif %}
+</div>

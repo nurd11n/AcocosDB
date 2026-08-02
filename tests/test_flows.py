@@ -893,7 +893,7 @@ def test_both_rate_sources_down_keeps_last_rate_and_a_sale_still_completes(
     )
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
-    order_id = int(client.get("/pos/").url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
     resp = client.post(
         f"/pos/sale/{order_id}/confirm/", {"amount": "3200", "currency": "KGS", "method": "cash"}
@@ -918,7 +918,7 @@ def test_ui_never_shows_nbkr_label_for_a_manually_entered_rate(client, django_us
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    order_id = int(client.get("/pos/").url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="Hon", phone="+996700000831")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     resp = client.get(f"/pos/sale/{order_id}/")
@@ -1025,7 +1025,7 @@ def test_foreign_payment_preview_converts_balance_and_shows_note(
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    order_id = int(client.get("/pos/").url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
     # variant sells for 3200 сом; pay 10 USD (= 870 сом) -> remaining 2330 сом.
     resp = client.post(
@@ -1275,7 +1275,7 @@ def test_pos_viewer_blocked_from_selling_but_can_read(client, django_user_model)
     assert client.get("/pos/sale/1/").status_code in (403, 404)
 
     client.force_login(editor)
-    assert client.get("/pos/").status_code == 302  # lands on a fresh draft
+    assert client.get("/pos/").status_code == 302  # lands on the empty terminal (sale_new)
     assert client.get("/pos/today/").status_code == 200
 
 
@@ -1286,8 +1286,7 @@ def test_pos_new_sale_flow_is_idempotent_end_to_end(client, django_user_model, v
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
 
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 2})
     resp = client.post(
@@ -1449,8 +1448,7 @@ def test_item_discount_view_clamps_percent_and_fixed_server_side(
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
     item = SaleItem.objects.get(order_id=order_id)
 
@@ -1699,8 +1697,7 @@ def test_pos_draft_survives_reload(client, django_user_model, variant):
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
 
     # Simulate a dropped connection / reload: hitting /pos/ again reuses the
@@ -1723,8 +1720,7 @@ def test_pos_oversell_shows_error_and_keeps_basket(client, django_user_model, va
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 5})
     add_movement(variant, StockMovement.WRITEOFF_OUT, 3)  # stock 5 -> 2, AFTER adding to cart
 
@@ -1758,8 +1754,7 @@ def test_pos_cancel_view_returns_stock(client, django_user_model, variant):
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 2})
     client.post(
         f"/pos/sale/{order_id}/confirm/", {"amount": "6400", "currency": "KGS", "method": "cash"}
@@ -2140,8 +2135,7 @@ def _grid_query_count(client, django_user_model, n):
 
     editor = _seed_grid(n, django_user_model)
     client.force_login(editor)
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     cache.clear()  # measure the cache-MISS path — the real query cost
     with CaptureQueriesContext(connection) as ctx:
         client.get(f"/pos/sale/{order_id}/products/")
@@ -2180,8 +2174,7 @@ def test_product_grid_stays_flat_with_real_multi_image_products(
             ProductImage.objects.create(product=product, image=_tiny_image(f"g{i}.png"), position=i)
 
     client.force_login(editor)
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     cache.clear()
     with CaptureQueriesContext(connection) as ctx:
         client.get(f"/pos/sale/{order_id}/products/")
@@ -2209,8 +2202,7 @@ def test_stale_grid_cache_never_causes_an_oversell(client, django_user_model, va
     editor = django_user_model.objects.create_user("staler", password="x" * 12, is_staff=True)
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     client.get(f"/pos/sale/{order_id}/products/")  # warms grid cache (stock=1)
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
 
@@ -2254,8 +2246,7 @@ def test_confirm_query_budget(client, django_user_model, variant):
     editor = django_user_model.objects.create_user("confirmer", password="x" * 12, is_staff=True)
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 2})
 
     with CaptureQueriesContext(connection) as ctx:
@@ -2605,57 +2596,31 @@ def test_cleanup_draft_sales_deletes_only_old_drafts():
     assert not SaleOrder.objects.filter(pk=old.pk).exists()
 
 
-def test_cleanup_draft_sales_purges_a_truly_empty_draft_within_the_hour(variant):
-    """A draft with neither a client nor an item is pure noise from the
-    moment /pos/ is opened — nothing in it survives a reload to lose, so it
-    doesn't wait for the 24h grace period a real in-progress cart gets."""
-    empty_old = SaleOrder.objects.create()
-    SaleOrder.objects.filter(pk=empty_old.pk).update(
-        created_at=timezone.now() - timezone.timedelta(hours=2)
-    )
-    empty_fresh = SaleOrder.objects.create()  # just opened — must survive
-
-    call_command("cleanup_draft_sales")
-
-    assert not SaleOrder.objects.filter(pk=empty_old.pk).exists()
-    assert SaleOrder.objects.filter(pk=empty_fresh.pk).exists()
-
-
-def test_cleanup_draft_sales_keeps_an_in_progress_cart_for_the_full_grace_period(variant):
-    """A draft with an item (or a client) attached is real work, not noise —
-    it keeps the original 24h window even though it's well past the 1h
-    empty-draft threshold."""
+def test_cleanup_draft_sales_keeps_a_draft_with_an_item_even_past_24h(variant):
+    """Only a TRULY empty draft (no client, no items, no payments) qualifies —
+    with lazy creation this is already a narrow edge case (every item removed
+    again after creation), not the routine clutter it used to be, but it must
+    still never purge real in-progress work."""
     add_movement(variant, StockMovement.PURCHASE_IN, 5)
     working = SaleOrder.objects.create(currency=variant.currency)
     SaleItem.objects.create(order=working, variant=variant, quantity=1, unit_price=Decimal("100"))
     SaleOrder.objects.filter(pk=working.pk).update(
-        created_at=timezone.now() - timezone.timedelta(hours=3)
+        created_at=timezone.now() - timezone.timedelta(hours=25)
     )
 
     client_only = SaleOrder.objects.create(
         client=Client.objects.create(first_name="Draft", phone="+996700990301")
     )
     SaleOrder.objects.filter(pk=client_only.pk).update(
-        created_at=timezone.now() - timezone.timedelta(hours=3)
-    )
-
-    call_command("cleanup_draft_sales")
-
-    assert SaleOrder.objects.filter(pk=working.pk).exists(), "3h-old cart with an item was purged"
-    assert SaleOrder.objects.filter(pk=client_only.pk).exists(), (
-        "3h-old draft with a client was purged"
-    )
-
-
-def test_cleanup_draft_sales_purges_an_in_progress_cart_past_24h(variant):
-    add_movement(variant, StockMovement.PURCHASE_IN, 5)
-    order = SaleOrder.objects.create(currency=variant.currency)
-    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("100"))
-    SaleOrder.objects.filter(pk=order.pk).update(
         created_at=timezone.now() - timezone.timedelta(hours=25)
     )
+
     call_command("cleanup_draft_sales")
-    assert not SaleOrder.objects.filter(pk=order.pk).exists()
+
+    assert SaleOrder.objects.filter(pk=working.pk).exists(), "25h-old cart with an item was purged"
+    assert SaleOrder.objects.filter(pk=client_only.pk).exists(), (
+        "25h-old draft with a client was purged"
+    )
 
 
 def test_cleanup_draft_sales_never_touches_a_confirmed_or_cancelled_order(variant):
@@ -3170,8 +3135,7 @@ def test_owner_rate_override_is_stored_with_official_rate_for_spread(
     owner = django_user_model.objects.create_superuser("owner_ov", "o@e.com", "x" * 12)
     client.force_login(owner)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=owner, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="Own", phone="+996700000811")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
@@ -3207,8 +3171,7 @@ def test_manual_rate_deviating_from_official_warns_but_never_blocks(
     owner = django_user_model.objects.create_superuser("owner_dev", "o@e.com", "x" * 12)
     client.force_login(owner)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=owner, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="Dev", phone="+996700000812")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
@@ -3284,33 +3247,11 @@ def test_scheduler_runs_fetch_rates_daily_and_before_the_report():
     automatic for reliability, manual for control."""
     import scheduler as scheduler_module
 
-    # RATES_HOUR's own slot also picks up the hourly cleanup_draft_sales entry
-    # now (see DRAFT_CLEANUP_HOURS), so it's no longer bare ["fetch_rates"] —
-    # what must hold is that SOME job runs fetch_rates without also running
-    # the report (the separate daily pull), and that job is not the report job.
-    rates_job = next(
-        cmds
-        for _, cmds in scheduler_module.JOBS
-        if "fetch_rates" in cmds and "send_daily_report" not in cmds
-    )
-    assert "fetch_rates" in rates_job
+    job_commands = [cmds for _, cmds in scheduler_module.JOBS]
+    assert ["fetch_rates"] in job_commands
     report_job = next(cmds for _, cmds in scheduler_module.JOBS if "send_daily_report" in cmds)
     assert "fetch_rates" in report_job
     assert "cleanup_draft_sales" in report_job
-
-
-def test_scheduler_purges_empty_drafts_hourly_not_just_at_report_hour():
-    """An EMPTY draft (someone just opened /pos/) used to wait up to 24h,
-    visible in the Продажи list the whole time — cleanup_draft_sales now runs
-    every hour, not once a day, so it's gone within the hour instead."""
-    import scheduler as scheduler_module
-
-    times_running_cleanup = {
-        hhmm for hhmm, cmds in scheduler_module.JOBS if "cleanup_draft_sales" in cmds
-    }
-    assert len(times_running_cleanup) >= 23, (
-        f"expected roughly hourly coverage, got {sorted(times_running_cleanup)}"
-    )
 
 
 def test_refresh_rates_writes_audit_log_and_skips_noop_refresh(
@@ -3408,8 +3349,7 @@ def test_fresh_small_foreign_payment_confirms_without_risk_ack(
     manager.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(manager)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=manager, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="Fresh", phone="+996700000820")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
@@ -3434,8 +3374,7 @@ def test_stale_rate_payment_requires_explicit_risk_ack(
     manager.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(manager)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=manager, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="Stale", phone="+996700000821")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
@@ -3474,8 +3413,7 @@ def test_large_converted_payment_requires_explicit_risk_ack(
     manager.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(manager)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=manager, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="Big", phone="+996700000822")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
@@ -3509,8 +3447,7 @@ def test_missing_rate_at_confirm_shows_russian_error_and_saves_nothing(
     client.force_login(manager)
     assert not ExchangeRate.objects.filter(currency="USD").exists()
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=manager, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="NoRate", phone="+996700000823")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
@@ -3556,8 +3493,7 @@ def test_same_currency_as_order_payment_uses_rate_one_and_skips_conversion_ui(
     client.force_login(manager)
     assert not ExchangeRate.objects.filter(currency="USD").exists()
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=manager, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
     assert SaleOrder.objects.get(pk=order_id).currency == "USD"
 
@@ -3949,8 +3885,7 @@ def test_manager_out_of_band_change_amount_gets_403(client, django_user_model, v
     manager.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(manager)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=manager, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="Band", phone="+996700001011")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
@@ -3992,8 +3927,7 @@ def test_owner_can_adjust_change_beyond_the_band(client, django_user_model, vari
     owner = django_user_model.objects.create_superuser("owner_chg", "o@e.com", "x" * 12)
     client.force_login(owner)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=owner, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="OwnerBand", phone="+996700001012")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
@@ -4027,8 +3961,7 @@ def test_overpayment_requires_explicit_disposition_never_auto_picked(
     manager.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(manager)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=manager, channel=SaleOrder.SHOP).pk
     cust = Client.objects.create(first_name="Fork", phone="+996700001013")
     client.post(f"/pos/sale/{order_id}/client/{cust.pk}/set/")
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
@@ -4080,8 +4013,7 @@ def test_debt_credit_fork_buttons_disabled_for_walkin(client, django_user_model,
     manager.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(manager)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=manager, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
 
     resp = client.post(f"/pos/sale/{order_id}/recalc/", {"amount": "4000", "currency": "KGS"})
@@ -4178,8 +4110,7 @@ def test_cart_cap_applies_across_all_lines_of_the_same_variant(client, django_us
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 7})
     resp = client.post(
         f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 7}
@@ -4200,8 +4131,7 @@ def test_zero_available_tile_cannot_be_added_even_via_crafted_post(
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     resp = client.post(
         f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1}
     )
@@ -4225,8 +4155,7 @@ def test_crafted_post_above_stock_is_clamped_not_saved_beyond_available(
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     resp = client.post(
         f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 999999}
     )
@@ -4272,8 +4201,7 @@ def test_product_grid_tile_shows_reserved_badge(client, django_user_model, varia
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     resp = client.get(f"/pos/sale/{order_id}/products/")
     body = resp.content.decode()
     assert "7" in body  # 10 - 3 reserved = 7 available
@@ -4312,8 +4240,7 @@ def test_sale_screen_renders_formatted_money_not_raw_currency_code(
     editor.groups.add(Group.objects.get(name=EDITOR))
     client.force_login(editor)
 
-    resp = client.get("/pos/")
-    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     resp = client.post(
         f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1}
     )
@@ -4337,8 +4264,7 @@ def test_cart_rail_keeps_confirm_button_and_money_bar_at_25_items(
     client.force_login(editor)
 
     cat = Category.objects.create(name="Rail")
-    order_resp = client.get("/pos/")
-    order_id = int(order_resp.url.rstrip("/").rsplit("/", 1)[-1])
+    order_id = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP).pk
     for i in range(25):
         p = Product.objects.create(category=cat, name=f"RailProduct{i}")
         v = ProductVariant.objects.create(
@@ -6085,3 +6011,331 @@ def test_order_admin_total_and_paid_use_money_formatting(variant):
     assert order.total == Decimal("6800")
     assert admin_instance.total_display(order) == "6\N{NBSP}800\N{NBSP}сом"
     assert admin_instance.paid_display(order) == "0\N{NBSP}сом"
+
+
+# --- Lazy draft creation (2026-08 review, F1) ---------------------------------
+# /pos/ used to create a SaleOrder the instant the page was opened, leaving an
+# empty "Ожидает / 0.00 / —" row in the admin for anyone who ever visited it.
+# The draft is now created lazily, on the FIRST real action — adding an item
+# or picking/creating a client — via a session-token-guarded get_or_create
+# (apps.pos.views._get_or_create_pending_draft) so a double-tap race still
+# produces exactly one order. Everything after that first action (undo/redo,
+# autosave, confirm, cancel) is completely unchanged — these endpoints hand
+# off to the ordinary, unmodified per-order views and never duplicate their
+# logic.
+
+
+def _login_editor(client, django_user_model, username):
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user(username, password="x" * 12, is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(user)
+    return user
+
+
+def test_opening_pos_creates_zero_database_rows(client, django_user_model):
+    _login_editor(client, django_user_model, "lazy-open")
+    assert SaleOrder.objects.count() == 0
+    resp = client.get("/pos/", follow=True)
+    assert resp.redirect_chain[-1][0] == "/pos/sale/new/"
+    assert SaleOrder.objects.count() == 0
+
+
+def test_visiting_sale_new_directly_creates_zero_rows(client, django_user_model):
+    _login_editor(client, django_user_model, "lazy-new")
+    resp = client.get("/pos/sale/new/")
+    assert resp.status_code == 200
+    assert SaleOrder.objects.count() == 0
+
+
+def test_browsing_products_and_search_before_any_action_creates_zero_rows(
+    client, django_user_model, variant
+):
+    _login_editor(client, django_user_model, "lazy-browse")
+    client.get("/pos/sale/new/")
+    client.get("/pos/sale/new/products/")
+    client.get(f"/pos/sale/new/products/{variant.product_id}/variants/")
+    client.get("/pos/sale/new/clients/search/", {"q": "test"})
+    client.get("/pos/sale/new/clients/new/")
+    assert SaleOrder.objects.count() == 0
+
+
+def test_adding_the_first_item_creates_exactly_one_order(client, django_user_model, variant):
+    _login_editor(client, django_user_model, "lazy-add")
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client.get("/pos/sale/new/")
+
+    resp = client.post("/pos/sale/new/items/add/", {"variant_id": variant.pk, "quantity": "2"})
+    assert resp.status_code == 200
+    assert resp["HX-Redirect"].startswith("/pos/sale/")
+
+    assert SaleOrder.objects.count() == 1
+    order = SaleOrder.objects.get()
+    assert order.items.count() == 1
+    assert order.items.get().quantity == 2
+    assert resp["HX-Redirect"] == f"/pos/sale/{order.pk}/"
+
+
+def test_picking_an_existing_client_first_creates_exactly_one_order(client, django_user_model):
+    _login_editor(client, django_user_model, "lazy-pick")
+    buyer = Client.objects.create(first_name="Первый", phone="+996700990401")
+    client.get("/pos/sale/new/")
+
+    resp = client.post(f"/pos/sale/new/client/{buyer.pk}/set/")
+    assert resp.status_code == 200
+    assert resp["HX-Redirect"].startswith("/pos/sale/")
+
+    assert SaleOrder.objects.count() == 1
+    order = SaleOrder.objects.get()
+    assert order.client_id == buyer.pk
+
+
+def test_creating_a_new_client_first_creates_exactly_one_order(client, django_user_model):
+    _login_editor(client, django_user_model, "lazy-create")
+    client.get("/pos/sale/new/")
+
+    resp = client.post(
+        "/pos/sale/new/clients/create/",
+        {"first_name": "Новая", "phone": "+996700990402"},
+    )
+    assert resp.status_code == 200
+    assert resp["HX-Redirect"].startswith("/pos/sale/")
+
+    assert SaleOrder.objects.count() == 1
+    order = SaleOrder.objects.get()
+    assert order.client is not None
+    assert order.client.phone == "+996700990402"
+
+
+def test_new_client_validation_error_does_not_lose_the_form_or_redirect(client, django_user_model):
+    """A duplicate phone / missing field is a real validation bounce, not a
+    reason to strand the manager on a freshly-created, client-less order with
+    no explanation — the inline error must survive, same as it does today."""
+    _login_editor(client, django_user_model, "lazy-badclient")
+    Client.objects.create(first_name="Existing", phone="+996700990403")
+    client.get("/pos/sale/new/")
+
+    resp = client.post(
+        "/pos/sale/new/clients/create/",
+        {"first_name": "Дубликат", "phone": "+996700990403"},
+    )
+    assert resp.status_code == 200
+    assert "HX-Redirect" not in resp
+    assert "уже есть" in resp.content.decode()
+
+    # The order WAS created (lazily, before validation ran) but has no client —
+    # a retry through the now-real, ordinary client_create must still work.
+    assert SaleOrder.objects.count() == 1
+    order = SaleOrder.objects.get()
+    assert order.client_id is None
+    assert f"/pos/sale/{order.pk}/clients/create/" in resp.content.decode()
+
+
+def test_reload_after_the_first_action_restores_the_cart(client, django_user_model, variant):
+    _login_editor(client, django_user_model, "lazy-reload")
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client.get("/pos/sale/new/")
+    client.post("/pos/sale/new/items/add/", {"variant_id": variant.pk, "quantity": "1"})
+    order = SaleOrder.objects.get()
+
+    resp = client.get("/pos/", follow=True)
+    assert resp.redirect_chain[-1][0] == f"/pos/sale/{order.pk}/"
+    assert SaleOrder.objects.count() == 1
+
+
+def test_confirming_after_lazy_creation_works_exactly_as_before(client, django_user_model, variant):
+    _login_editor(client, django_user_model, "lazy-confirm")
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client.get("/pos/sale/new/")
+    client.post("/pos/sale/new/items/add/", {"variant_id": variant.pk, "quantity": "1"})
+    order = SaleOrder.objects.get()
+
+    resp = client.post(f"/pos/sale/{order.pk}/confirm/", {"amount": ""})
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CONFIRMED
+    assert resp.status_code == 302
+
+
+def test_starting_a_second_sale_after_confirming_the_first_gets_its_own_order(
+    client, django_user_model, variant
+):
+    """A later, separate visit to the empty terminal must never reattach to a
+    stale, already-consumed session token — it mints a fresh one."""
+    _login_editor(client, django_user_model, "lazy-second")
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client.get("/pos/sale/new/")
+    client.post("/pos/sale/new/items/add/", {"variant_id": variant.pk, "quantity": "1"})
+    first = SaleOrder.objects.get()
+    client.post(f"/pos/sale/{first.pk}/confirm/", {"amount": ""})
+
+    resp = client.get("/pos/", follow=True)
+    assert resp.redirect_chain[-1][0] == "/pos/sale/new/"
+    client.post("/pos/sale/new/items/add/", {"variant_id": variant.pk, "quantity": "1"})
+
+    assert SaleOrder.objects.count() == 2
+    second = SaleOrder.objects.exclude(pk=first.pk).get()
+    assert second.pk != first.pk
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_simultaneous_first_actions_race_on_pending_token_to_one_order(django_user_model):
+    """The actual mechanism under test: two threads calling get_or_create with
+    the SAME pending_token (exactly what two near-simultaneous requests do,
+    once sale_new's GET has minted one shared token into the session — see
+    _get_or_create_pending_draft) must produce exactly one row, never two.
+
+    Deliberately calls the ORM directly rather than going through the full
+    HTTP request cycle: a real request also writes to django_session (twice —
+    once for the initial GET, then again per POST) and to sales_saleitem/
+    inventory_stockmovement, and sqlite locks the whole FILE per writer, not
+    per row — stacking all of that onto two genuinely concurrent threads
+    reliably trips sqlite's coarse locking on tables that have nothing to do
+    with the property being verified here. Postgres (prod's real DB) uses
+    row-level MVCC and wouldn't contend on any of that; isolating the test to
+    the one write that actually matters — the get_or_create race itself —
+    proves the real guarantee without fighting the test DB's own limits.
+
+    One more sqlite-only wrinkle handled below: get_or_create's own documented
+    safety net retries on IntegrityError (a genuine duplicate-key rejection —
+    the case that actually matters, and what Postgres would produce for the
+    loser of a real race). sqlite can ALSO reject a write immediately with
+    OperationalError("database is locked") purely from whole-file contention,
+    before either thread even reaches the uniqueness check — a busy_timeout is
+    configured (config/settings/test.py), but two threads opening brand-new
+    connections concurrently can still occasionally lose that race outright.
+    That failure mode doesn't exist under Postgres's row-level locking, so a
+    small retry-on-OperationalError loop below is test-environment
+    accommodation, not a weakening of what's being proven: every attempt that
+    DOES complete must land on the same row.
+    """
+    import threading
+    import time
+
+    from django.db import transaction as txn
+    from django.db.utils import OperationalError
+
+    call_command("setup_roles")
+    user = django_user_model.objects.create_user("lazy-race", password="x" * 12, is_staff=True)
+    user.groups.add(Group.objects.get(name=EDITOR))
+
+    token = "race-token-0123456789abcdef"
+    results = []
+    barrier = threading.Barrier(2)
+
+    def fire():
+        barrier.wait(timeout=5)
+        for attempt in range(8):
+            try:
+                with txn.atomic():
+                    order, created = SaleOrder.objects.get_or_create(
+                        created_by=user,
+                        pending_token=token,
+                        defaults={"channel": SaleOrder.SHOP},
+                    )
+                results.append((order.pk, created))
+                return
+            except OperationalError:
+                time.sleep(0.05 * (attempt + 1))
+        raise AssertionError("gave up retrying after sqlite whole-file lock contention")
+
+    threads = [threading.Thread(target=fire) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+
+    assert len(results) == 2
+    pks = {pk for pk, _ in results}
+    assert len(pks) == 1, f"expected both threads to land on ONE order, got {pks}"
+    assert sum(1 for _, created in results if created) == 1, "expected exactly one real INSERT"
+    assert SaleOrder.objects.filter(pending_token=token).count() == 1
+
+
+def test_lazy_creation_reads_but_never_relies_on_a_stale_session_token(
+    client, django_user_model, variant
+):
+    """A POST arriving with no prior GET /pos/sale/new/ (no token minted yet —
+    e.g. a stale bookmark) must still work, minting its own token on the fly."""
+    _login_editor(client, django_user_model, "lazy-notoken")
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    assert "pending_sale_token" not in client.session
+
+    resp = client.post("/pos/sale/new/items/add/", {"variant_id": variant.pk, "quantity": "1"})
+    assert resp.status_code == 200
+    assert SaleOrder.objects.count() == 1
+
+
+def test_viewer_cannot_reach_any_lazy_creation_endpoint(client, django_user_model, variant):
+    call_command("setup_roles")
+    viewer = django_user_model.objects.create_user("lazy-viewer", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
+
+    assert client.get("/pos/sale/new/").status_code == 403
+    assert (
+        client.post(
+            "/pos/sale/new/items/add/", {"variant_id": variant.pk, "quantity": "1"}
+        ).status_code
+        == 403
+    )
+    assert SaleOrder.objects.count() == 0
+
+
+# --- Admin: empty drafts hidden by default (F1) ------------------------------
+
+
+def test_sale_admin_hides_empty_drafts_by_default(django_user_model):
+    SaleOrder.objects.create()  # empty — no client, no items
+    real_draft = SaleOrder.objects.create(
+        client=Client.objects.create(first_name="Real", phone="+996700990501")
+    )
+
+    admin_instance = site._registry[SaleOrder]
+    request = RequestFactory().get("/")
+    pks = set(admin_instance.get_queryset(request).values_list("pk", flat=True))
+    assert real_draft.pk in pks
+    assert len(pks) == 1, f"expected only the real draft, got {pks}"
+
+
+def test_sale_admin_shows_empty_drafts_with_the_filter_applied():
+    empty = SaleOrder.objects.create()
+
+    admin_instance = site._registry[SaleOrder]
+    request = RequestFactory().get("/", {"show_drafts": "yes"})
+    pks = set(admin_instance.get_queryset(request).values_list("pk", flat=True))
+    assert empty.pk in pks
+
+
+def test_sale_admin_default_hide_never_touches_a_confirmed_walkin(variant):
+    """A confirmed walk-in has status=confirmed (not draft) with no client —
+    the exclude is scoped to status=DRAFT specifically so this must never
+    be swept up by accident."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(currency=variant.currency)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("100"))
+    confirm_sale(order)
+    order.items.all().delete()  # contrived: now client=None AND items=None, but CONFIRMED
+
+    admin_instance = site._registry[SaleOrder]
+    request = RequestFactory().get("/")
+    pks = set(admin_instance.get_queryset(request).values_list("pk", flat=True))
+    assert order.pk in pks
+
+
+def test_sale_admin_paid_column_unaffected_by_the_draft_visibility_exclude(variant):
+    """The exclude() joins `items`; the existing _paid annotation joins
+    `payments` — proves the two don't fan out against each other (a payment
+    Sum inflating because of an unrelated items join is exactly the kind of
+    bug two independent to-many joins on one queryset can cause)."""
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    client = Client.objects.create(first_name="ДваСтроки", phone="+996700990502")
+    order = SaleOrder.objects.create(client=client, currency=variant.currency)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("100"))
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("200"))
+    confirm_sale(order)
+    record_payment(order, Decimal("300"))
+
+    admin_instance = site._registry[SaleOrder]
+    request = RequestFactory().get("/")
+    obj = admin_instance.get_queryset(request).get(pk=order.pk)
+    assert admin_instance.paid_column(obj) == "300\N{NBSP}сом"
