@@ -1314,6 +1314,384 @@ def test_pos_new_sale_flow_is_idempotent_end_to_end(client, django_user_model, v
     assert SaleOrder.objects.filter(status=SaleOrder.CONFIRMED).count() == 1
 
 
+# ---------------------------------------------------------------------------
+# Per-line discounts (percent / fixed) on SaleItem
+# ---------------------------------------------------------------------------
+
+
+def test_saleitem_line_total_reflects_percent_and_fixed_discount(variant):
+    order = SaleOrder.objects.create(currency="KGS")
+    percent_item = SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=2,
+        unit_price=Decimal("3200.00"),
+        discount_type=SaleItem.DISCOUNT_PERCENT,
+        discount_value=Decimal("10"),
+    )
+    # 3200 × 2 = 6400 subtotal; 10% off = 640 off -> 5760.
+    assert percent_item.discount_amount == Decimal("640.00")
+    assert percent_item.line_total == Decimal("5760.00")
+
+    fixed_item = SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=1,
+        unit_price=Decimal("3200.00"),
+        discount_type=SaleItem.DISCOUNT_FIXED,
+        discount_value=Decimal("500"),
+    )
+    assert fixed_item.discount_amount == Decimal("500.00")
+    assert fixed_item.line_total == Decimal("2700.00")
+
+    no_discount_item = SaleItem.objects.create(
+        order=order, variant=variant, quantity=1, unit_price=Decimal("3200.00")
+    )
+    assert no_discount_item.discount_amount == Decimal("0")
+    assert no_discount_item.line_total == Decimal("3200.00")
+
+
+def test_saleitem_discount_never_exceeds_subtotal_even_read_only(variant):
+    """A fixed discount bigger than the line itself must never produce a
+    negative line_total — the property clamps even before any server-side
+    view validation or DB constraint gets a chance to."""
+    order = SaleOrder.objects.create(currency="KGS")
+    item = SaleItem(
+        order=order,
+        variant=variant,
+        quantity=1,
+        unit_price=Decimal("100.00"),
+        discount_type=SaleItem.DISCOUNT_FIXED,
+        discount_value=Decimal("999.00"),  # bigger than the 100 subtotal
+    )
+    assert item.discount_amount == Decimal("100.00")  # clamped, not 999
+    assert item.line_total == Decimal("0.00")  # never negative
+
+
+def test_db_rejects_bad_discount_even_via_bulk_create(variant):
+    """DB CheckConstraints, not just the view's clamp — must survive
+    bulk_create, same discipline as every other money constraint in this
+    project (see test_db_constraints_reject_bad_data_even_via_bulk_create)."""
+    from django.db import IntegrityError, transaction
+
+    order = SaleOrder.objects.create(currency="KGS")
+    with transaction.atomic(), pytest.raises(IntegrityError):
+        SaleItem.objects.bulk_create(
+            [
+                SaleItem(
+                    order=order,
+                    variant=variant,
+                    quantity=1,
+                    unit_price=Decimal("100.00"),
+                    discount_type=SaleItem.DISCOUNT_PERCENT,
+                    discount_value=Decimal("150"),  # >100%
+                )
+            ]
+        )
+    with transaction.atomic(), pytest.raises(IntegrityError):
+        SaleItem.objects.bulk_create(
+            [
+                SaleItem(
+                    order=order,
+                    variant=variant,
+                    quantity=1,
+                    unit_price=Decimal("100.00"),
+                    discount_type=SaleItem.DISCOUNT_FIXED,
+                    discount_value=Decimal("101"),  # > the 100 subtotal
+                )
+            ]
+        )
+    with transaction.atomic(), pytest.raises(IntegrityError):
+        SaleItem.objects.bulk_create(
+            [
+                SaleItem(
+                    order=order,
+                    variant=variant,
+                    quantity=1,
+                    unit_price=Decimal("100.00"),
+                    discount_value=Decimal("-1"),  # negative, any type
+                )
+            ]
+        )
+
+
+def test_confirm_sale_total_includes_line_discounts(variant):
+    """confirm_sale needed ZERO changes for this to work — it sums
+    item.line_total, which already accounts for the discount. This test is
+    the guarantee that stays true."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=2,
+        unit_price=Decimal("3200.00"),
+        discount_type=SaleItem.DISCOUNT_PERCENT,
+        discount_value=Decimal("25"),
+    )
+    confirm_sale(order)
+    order.refresh_from_db()
+    # 6400 subtotal, 25% off = 1600 off -> 4800.
+    assert order.total == Decimal("4800.00")
+
+
+def test_item_discount_view_clamps_percent_and_fixed_server_side(
+    client, django_user_model, variant
+):
+    """Never trusts the client — a crafted POST asking for 500% or a fixed
+    amount bigger than the line is clamped, not saved at face value, the same
+    discipline as the cart-time stock cap (CLAUDE.md Part 1c/1d)."""
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    editor = django_user_model.objects.create_user(
+        "editor_discount1", password="x" * 12, is_staff=True
+    )
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    resp = client.get("/pos/")
+    order_id = int(resp.url.rstrip("/").rsplit("/", 1)[-1])
+    client.post(f"/pos/sale/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 1})
+    item = SaleItem.objects.get(order_id=order_id)
+
+    client.post(
+        f"/pos/sale/{order_id}/items/{item.pk}/discount/",
+        {"discount_type": "percent", "discount_value": "500"},
+    )
+    item.refresh_from_db()
+    assert item.discount_value == Decimal("100.00")  # clamped to 100%
+    assert item.line_total == Decimal("0.00")
+
+    client.post(
+        f"/pos/sale/{order_id}/items/{item.pk}/discount/",
+        {"discount_type": "fixed", "discount_value": "999999"},
+    )
+    item.refresh_from_db()
+    assert item.discount_value == Decimal("3200.00")  # clamped to the subtotal
+    assert item.line_total == Decimal("0.00")
+
+    # Switching back to "none" zeroes discount_value out, not just ignores it.
+    client.post(
+        f"/pos/sale/{order_id}/items/{item.pk}/discount/",
+        {"discount_type": "none", "discount_value": "50"},
+    )
+    item.refresh_from_db()
+    assert item.discount_type == SaleItem.DISCOUNT_NONE
+    assert item.discount_value == Decimal("0")
+    assert item.line_total == Decimal("3200.00")
+
+
+def test_item_discount_view_is_owner_and_editor_reachable_not_viewer(
+    client, django_user_model, variant
+):
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    item = SaleItem.objects.create(
+        order=order, variant=variant, quantity=1, unit_price=Decimal("100")
+    )
+
+    viewer = django_user_model.objects.create_user(
+        "viewer_discount1", password="x" * 12, is_staff=True
+    )
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
+    resp = client.post(
+        f"/pos/sale/{order.pk}/items/{item.pk}/discount/",
+        {"discount_type": "percent", "discount_value": "10"},
+    )
+    assert resp.status_code == 403
+    item.refresh_from_db()
+    assert item.discount_type == SaleItem.DISCOUNT_NONE  # untouched
+
+
+def test_receipt_spells_out_discount_only_when_present(variant):
+    from apps.pos.messaging import receipt_text
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    text = receipt_text(order)
+    assert "−" not in text  # no discount marker on a plain line
+
+    order2 = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(
+        order=order2,
+        variant=variant,
+        quantity=1,
+        unit_price=Decimal("3200"),
+        discount_type=SaleItem.DISCOUNT_FIXED,
+        discount_value=Decimal("200"),
+    )
+    confirm_sale(order2)
+    text2 = receipt_text(order2)
+    assert "−200" in text2
+    assert "3000" in text2  # the discounted line_total
+
+
+def test_dashboard_top_products_revenue_reflects_discount_not_sticker_price(variant):
+    """The dashboard's 'top products' ranking must show what was actually
+    charged, not the undiscounted price — a raw unit_price×quantity SQL
+    expression here would silently overstate revenue for anything sold at
+    a discount (see apps.reports.dashboard._LINE_KGS)."""
+    from apps.reports.dashboard import _top_products
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=2,
+        unit_price=Decimal("3200.00"),
+        discount_type=SaleItem.DISCOUNT_PERCENT,
+        discount_value=Decimal("50"),
+    )
+    confirm_sale(order)
+    today = timezone.localdate()
+    rows = _top_products(today, today)
+    assert len(rows) == 1
+    # 6400 subtotal, 50% off -> 3200 actual revenue, not 6400.
+    assert rows[0]["revenue"] == Decimal("3200.00")
+
+
+# ---------------------------------------------------------------------------
+# Per-client Excel export (apps.reports.client_export)
+# ---------------------------------------------------------------------------
+
+
+def _load_export(content: bytes):
+    import io
+
+    from openpyxl import load_workbook
+
+    return load_workbook(io.BytesIO(content))
+
+
+def test_client_export_empty_client_has_zeroed_summary_not_an_error():
+    from apps.reports.client_export import client_workbook_bytes
+
+    cust = Client.objects.create(first_name="Пусто", phone="+996700000901")
+    content = client_workbook_bytes([cust])
+    wb = _load_export(content)
+    ws = wb.active
+    # Header row only — no transaction rows — then a zeroed summary block.
+    assert ws["A1"].value == "Дата"
+    values = [row[0].value for row in ws.iter_rows(min_row=2)]
+    assert any("ВСЕГО КУПЛЕНО" in str(v) for v in values if v)
+    assert any("ЗАДОЛЖЕННОСТЬ" in str(v) for v in values if v)
+    debt_row = next(
+        r for r in ws.iter_rows(min_row=2) if r[0].value and "ЗАДОЛЖЕННОСТЬ" in str(r[0].value)
+    )
+    assert debt_row[1].value == Decimal("0")
+
+
+def test_client_export_transaction_row_and_summary_math(variant):
+    from apps.reports.client_export import client_workbook_bytes
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Purchases", phone="+996700000902")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=2,
+        unit_price=Decimal("3200.00"),
+        discount_type=SaleItem.DISCOUNT_FIXED,
+        discount_value=Decimal("400"),
+    )
+    confirm_sale(order)
+    record_payment(order, Decimal("3000"), currency="KGS")
+
+    wb = _load_export(client_workbook_bytes([cust]))
+    ws = wb.active
+    row = [c.value for c in ws[2]]
+    # Subtotal 6400, discount 400, total 6000, paid 3000, balance 3000.
+    assert row[3] == 2  # quantity
+    assert row[4] == Decimal("6400.00")  # subtotal
+    assert row[5] == Decimal("400.00")  # discount
+    assert row[6] == Decimal("6000.00")  # total
+    assert row[7] == Decimal("3000.00")  # paid
+    assert row[8] == Decimal("3000.00")  # balance
+    assert row[9] == "KGS"
+
+    debt_row = next(
+        r for r in ws.iter_rows(min_row=2) if r[0].value and "ЗАДОЛЖЕННОСТЬ" in str(r[0].value)
+    )
+    assert debt_row[1].value == Decimal("3000.00")
+
+
+def test_client_export_never_sums_debt_across_currencies(variant):
+    from apps.reports.client_export import client_workbook_bytes
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="MultiCcy", phone="+996700000903")
+    kgs_order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(
+        order=kgs_order, variant=variant, quantity=1, unit_price=Decimal("3200")
+    )
+    confirm_sale(kgs_order)
+
+    usd_variant_order = SaleOrder.objects.create(client=cust, currency="USD")
+    SaleItem.objects.create(
+        order=usd_variant_order, variant=variant, quantity=1, unit_price=Decimal("40")
+    )
+    confirm_sale(usd_variant_order)
+
+    wb = _load_export(client_workbook_bytes([cust]))
+    ws = wb.active
+    labels = [str(r[0].value) for r in ws.iter_rows(min_row=2) if r[0].value]
+    kgs_debt_labels = [label for label in labels if "ЗАДОЛЖЕННОСТЬ" in label and "KGS" in label]
+    usd_debt_labels = [label for label in labels if "ЗАДОЛЖЕННОСТЬ" in label and "USD" in label]
+    assert len(kgs_debt_labels) == 1
+    assert len(usd_debt_labels) == 1  # two SEPARATE blocks, never combined into one number
+
+
+def test_client_export_bulk_action_writes_one_sheet_per_client(variant):
+    from apps.reports.client_export import client_workbook_bytes
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    a = Client.objects.create(first_name="Alpha", phone="+996700000904")
+    b = Client.objects.create(first_name="Beta", phone="+996700000905")
+    content = client_workbook_bytes([a, b])
+    wb = _load_export(content)
+    assert len(wb.sheetnames) == 2
+    assert "Alpha" in wb.sheetnames
+    assert "Beta" in wb.sheetnames
+
+
+def test_client_export_filename_uses_first_name_never_the_descriptor():
+    from apps.reports.client_export import client_export_filename
+
+    cust = Client.objects.create(
+        first_name="Айгуль", descriptor="сестра Розы", phone="+996700000906"
+    )
+    filename = client_export_filename(cust)
+    assert filename.startswith("Айгуль_")
+    assert "Розы" not in filename
+    assert "сестра" not in filename
+
+
+def test_client_export_admin_view_reachable_by_editor_and_viewer(
+    client, django_user_model, variant
+):
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Reach", phone="+996700000907")
+
+    viewer = django_user_model.objects.create_user(
+        "viewer_export1", password="x" * 12, is_staff=True
+    )
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
+    resp = client.get(f"/panel/clients/client/{cust.pk}/export/")
+    assert resp.status_code == 200
+    assert resp["Content-Type"] == (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "filename*=UTF-8''" in resp["Content-Disposition"]
+
+
 def test_pos_draft_survives_reload(client, django_user_model, variant):
     call_command("setup_roles")
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)

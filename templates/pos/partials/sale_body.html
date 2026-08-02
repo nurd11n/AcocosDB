@@ -21,6 +21,31 @@
       <span class="line-row__qty muted num">{{ item.quantity }}×{{ item.unit_price|money:order.currency }}</span>
       <span class="line-row__total num">{{ item.line_total|money:order.currency }}</span>
     </div>
+    {% comment %}
+    Native <details>/<summary> — no JS needed to expand, same pattern as the
+    "Свой курс (Владелец)" toggle further down this file. Collapsed by
+    default so a line with no discount stays visually one row, matching the
+    cart's "one row per line" density goal (CLAUDE.md).
+    {% endcomment %}
+    <details class="line-row__discount">
+     <summary class="muted">
+      {% if item.discount_amount > 0 %}
+        {% trans "Скидка" %}: −{{ item.discount_amount|money:order.currency }}{% if item.discount_type == "percent" %} ({{ item.discount_value|floatformat:0 }}%){% endif %}
+      {% else %}
+        {% trans "+ скидка" %}
+      {% endif %}
+     </summary>
+     <form hx-post="{% url 'pos:item_discount' order.pk item.pk %}" hx-target="#sale-body" hx-swap="innerHTML" class="row">
+      <select name="discount_type">
+       <option value="none" {% if item.discount_type == "none" %}selected{% endif %}>{% trans "Без скидки" %}</option>
+       <option value="percent" {% if item.discount_type == "percent" %}selected{% endif %}>%</option>
+       <option value="fixed" {% if item.discount_type == "fixed" %}selected{% endif %}>{{ order.currency|currency_symbol }}</option>
+      </select>
+      <input type="text" name="discount_value" inputmode="decimal"
+        value="{% if item.discount_value %}{{ item.discount_value }}{% endif %}" placeholder="0">
+      <button type="submit" class="btn btn-ghost btn-sm">{% trans "OK" %}</button>
+     </form>
+    </details>
   </div>
   {% endfor %}
  </div>
@@ -173,6 +198,12 @@
 </div>{# /.cart-scroll #}
 
 <div class="money-bar{% if not items %} money-bar--empty{% endif %}">
+ {% if total_discount > 0 %}
+ <div class="money-bar__row">
+  <span class="money-bar__label">{% trans "Скидка" %}</span>
+  <span class="money-bar__amount num">−{{ total_discount|money:order.currency }}</span>
+ </div>
+ {% endif %}
  <div class="money-bar__row">
   <span class="money-bar__label">{% trans "Итого" %}</span>
   <span class="money-bar__amount num">{{ total|money:order.currency }}

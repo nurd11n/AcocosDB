@@ -56,7 +56,23 @@ DEAD_STOCK_DAYS = 90
 _MONEY = DecimalField(max_digits=18, decimal_places=2)
 # сом value of a payment / sale line, from the FROZEN rate — pure DB expression.
 _PAY_KGS = F("amount") * F("rate_to_kgs")
-_LINE_KGS = F("unit_price") * F("quantity") * F("order__rate_to_kgs")
+_LINE_SUBTOTAL = F("unit_price") * F("quantity")
+# Mirrors SaleItem.discount_amount in SQL — this must stay a DB expression
+# (not the Python property) because it feeds a grouped .annotate()/Sum() over
+# many rows, not a single loaded instance. A SaleItem's own CheckConstraints
+# already guarantee discount_value can never make this go negative, so no
+# extra clamping is needed here.
+_LINE_DISCOUNT = Case(
+    When(discount_type=SaleItem.DISCOUNT_PERCENT, then=_LINE_SUBTOTAL * F("discount_value") / 100),
+    When(discount_type=SaleItem.DISCOUNT_FIXED, then=F("discount_value")),
+    default=Value(Decimal("0")),
+    output_field=_MONEY,
+)
+# "Top products by revenue" must rank by what was actually charged, not the
+# sticker price — an unchanged _LINE_KGS here would overstate revenue (and
+# rank) for anything sold at a discount, while the main revenue metric
+# (SaleOrder.total_kgs, summed elsewhere) already correctly nets it out.
+_LINE_KGS = (_LINE_SUBTOTAL - _LINE_DISCOUNT) * F("order__rate_to_kgs")
 _LINE_COGS = F("variant__cost_price") * F("quantity")
 
 

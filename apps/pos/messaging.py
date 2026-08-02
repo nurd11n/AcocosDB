@@ -27,7 +27,15 @@ def receipt_text(order) -> str:
     report rather than being a second, drifting copy."""
     lines = [_("Спасибо за покупку в ACOCOS! 🌸"), ""]
     for item in order.items.select_related("variant__product"):
-        lines.append(f"• {item.variant} — {item.quantity} × {item.unit_price} {order.currency}")
+        line = f"• {item.variant} — {item.quantity} × {item.unit_price} {order.currency}"
+        # Only spelled out when a discount actually applies — for the common
+        # undiscounted line, qty × unit_price already equals what "Итого"
+        # sums, so adding "= line_total" here would just repeat it.
+        if item.discount_amount > 0:
+            line += (
+                f" (−{item.discount_amount} {order.currency}) = {item.line_total} {order.currency}"
+            )
+        lines.append(line)
     lines.append("")
     lines.append(_("Итого: %(total)s %(cur)s") % {"total": order.total, "cur": order.currency})
 

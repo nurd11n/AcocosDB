@@ -8,6 +8,15 @@ from simple_history.models import HistoricalRecords
 
 from apps.core.currency import CENTS, CURRENCY_CHOICES
 
+# Module-level (not SaleItem class attributes) so SaleItem.Meta.constraints
+# can reference them directly — a nested Meta class body can't see its
+# enclosing class's namespace by bare name, only via an already-built class
+# object, which doesn't exist yet while SaleItem itself is still being
+# defined. Mirrors apps.inventory.models' INTAKE_TYPES/OUTGOING_TYPES.
+DISCOUNT_NONE = "none"
+DISCOUNT_PERCENT = "percent"
+DISCOUNT_FIXED = "fixed"
+
 
 class SaleOrder(models.Model):
     # DB values kept stable; only the labels shown to users changed to the
@@ -147,6 +156,18 @@ class SaleOrder(models.Model):
 
 
 class SaleItem(models.Model):
+    # Same values as the module-level constants above — kept as class
+    # attributes too so callers can write SaleItem.DISCOUNT_PERCENT, the
+    # usual convention in this codebase (see StockMovement.PRODUCTION_IN).
+    DISCOUNT_NONE = DISCOUNT_NONE
+    DISCOUNT_PERCENT = DISCOUNT_PERCENT
+    DISCOUNT_FIXED = DISCOUNT_FIXED
+    DISCOUNT_TYPE_CHOICES = [
+        (DISCOUNT_NONE, _("No discount")),
+        (DISCOUNT_PERCENT, _("Percent")),
+        (DISCOUNT_FIXED, _("Fixed amount")),
+    ]
+
     order = models.ForeignKey(
         SaleOrder, verbose_name=_("sale order"), on_delete=models.CASCADE, related_name="items"
     )
@@ -157,7 +178,22 @@ class SaleItem(models.Model):
         related_name="sale_items",
     )
     quantity = models.PositiveIntegerField(_("quantity"), default=1)
+    # The undiscounted per-unit price — never itself reduced for a discount,
+    # so "what did this actually sell for" (unit_price) and "what discount
+    # was given" (discount_type/discount_value) stay two separate, auditable
+    # facts rather than one number that's silently already-discounted.
     unit_price = models.DecimalField(_("unit price"), max_digits=12, decimal_places=2)
+    discount_type = models.CharField(
+        _("discount type"), max_length=10, choices=DISCOUNT_TYPE_CHOICES, default=DISCOUNT_NONE
+    )
+    # Percent: 0-100 (percentage points). Fixed: a сом/currency amount taken
+    # off the LINE (unit_price × quantity), not per unit. Meaningless and
+    # always 0 when discount_type=none — see services / the POS view that
+    # writes this, which always zeroes it out for that case rather than
+    # trusting whatever was left over from a previous discount.
+    discount_value = models.DecimalField(
+        _("discount value"), max_digits=12, decimal_places=2, default=Decimal("0")
+    )
 
     class Meta:
         verbose_name = _("sale item")
@@ -168,14 +204,46 @@ class SaleItem(models.Model):
         ]
         constraints = [
             models.CheckConstraint(condition=Q(quantity__gt=0), name="saleitem_quantity_positive"),
+            models.CheckConstraint(
+                condition=Q(discount_value__gte=0), name="saleitem_discount_value_nonneg"
+            ),
+            models.CheckConstraint(
+                condition=~Q(discount_type=DISCOUNT_PERCENT) | Q(discount_value__lte=100),
+                name="saleitem_discount_percent_max_100",
+            ),
+            # A fixed discount can never exceed the line it's discounting —
+            # DB-level, so even a bulk_create/bulk_update bypassing the view's
+            # own clamp can't write a negative line_total. See CLAUDE.md's
+            # money-constraint testing convention (bulk_create must be caught
+            # too, not just full_clean()).
+            models.CheckConstraint(
+                condition=~Q(discount_type=DISCOUNT_FIXED)
+                | Q(discount_value__lte=F("unit_price") * F("quantity")),
+                name="saleitem_discount_fixed_lte_subtotal",
+            ),
         ]
 
     def __str__(self):
         return f"{self.variant} × {self.quantity}"
 
     @property
+    def discount_amount(self) -> Decimal:
+        """How much this line's discount actually takes off, in the order's
+        currency — always >= 0, always <= the undiscounted subtotal (clamped
+        here too, not just by the DB constraint, so a property read is never
+        the thing that goes negative even mid-transaction before a save)."""
+        subtotal = self.unit_price * self.quantity
+        if self.discount_type == self.DISCOUNT_PERCENT and self.discount_value:
+            amount = subtotal * self.discount_value / Decimal("100")
+        elif self.discount_type == self.DISCOUNT_FIXED and self.discount_value:
+            amount = self.discount_value
+        else:
+            amount = Decimal("0")
+        return min(amount, subtotal).quantize(CENTS, rounding=ROUND_HALF_UP)
+
+    @property
     def line_total(self) -> Decimal:
-        return self.unit_price * self.quantity
+        return self.unit_price * self.quantity - self.discount_amount
 
 
 class Payment(models.Model):

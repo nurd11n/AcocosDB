@@ -22,7 +22,7 @@
    {% endwith %}
    <button class="btn btn-ghost" type="button" style="margin-top:var(--space-3)"
      hx-post="{% url 'pos:client_clear' order.pk %}" hx-target="#client-section" hx-swap="innerHTML">
-     {% trans "Изменить" %}</button>
+     {% trans "Отмена" %}</button>
  {% elif new_client_open %}
    <form hx-post="{% url 'pos:client_create' order.pk %}" hx-target="#client-section" hx-swap="innerHTML">
      {% if new_client_error %}<div class="error">{{ new_client_error }}</div>{% endif %}
