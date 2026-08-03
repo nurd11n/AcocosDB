@@ -1,0 +1,71 @@
+{% load i18n static pos_extras %}
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% trans "Чек" %} №{{ order.pk }} — ACOCOS</title>
+{% if not for_pdf %}
+<link rel="stylesheet" href="{% static 'pos/receipt.css' %}">
+{% endif %}
+</head>
+<body>
+<div class="receipt">
+ <div class="receipt__head">
+  <span class="receipt__date">{% if date %}{{ date|date:"d.m.Y" }}{% endif %}</span>
+  <span class="receipt__client">{{ client_name }}</span>
+ </div>
+
+ <table class="receipt__table">
+  <thead>
+   <tr>
+    <th>{% trans "Товар" %}</th>
+    <th>{% trans "Размер" %}</th>
+    <th>{% trans "Цвет" %}</th>
+    <th class="num">{% trans "Кол-во" %}</th>
+    <th class="num">{% trans "Цена" %}</th>
+    <th class="num">{% trans "Сумма" %}</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for group in groups %}
+    {% for row in group.rows %}
+    <tr>
+     <td>{% if forloop.first %}{{ group.product.name }}{% endif %}</td>
+     <td>{% if forloop.first %}{{ group.size }}{% endif %}</td>
+     <td>{{ row.color }}</td>
+     <td class="num">{{ row.quantity }}</td>
+     <td class="num">{{ row.unit_price|money:currency }}</td>
+     <td class="num">{{ row.line_total|money:currency }}</td>
+    </tr>
+    {% endfor %}
+   {% empty %}
+   <tr><td colspan="6" class="receipt__empty">{% trans "Нет позиций" %}</td></tr>
+   {% endfor %}
+  </tbody>
+  <tfoot>
+   <tr class="receipt__total">
+    <td colspan="3">{% trans "ИТОГО" %}:</td>
+    <td class="num">{{ total_quantity }}</td>
+    <td></td>
+    <td class="num">{{ total_money|money:currency }}</td>
+   </tr>
+  </tfoot>
+ </table>
+
+ {% if discount or paid or balance %}
+ <div class="receipt__summary">
+  {% if discount %}<p class="receipt__line"><span>{% trans "Скидка" %}</span><span class="num">{{ discount|money:currency }}</span></p>{% endif %}
+  {% if paid %}<p class="receipt__line"><span>{% trans "Оплачено" %}</span><span class="num">{{ paid|money:currency }}</span></p>{% endif %}
+  {% if balance %}<p class="receipt__line receipt__line--debt"><span>{% trans "Остаток" %}</span><span class="num">{{ balance|money:currency }}</span></p>{% endif %}
+ </div>
+ {% endif %}
+
+ {% if not for_pdf %}
+ <a class="receipt__pdf" href="{% url 'receipt-pdf' token %}">{% trans "Скачать PDF" %}</a>
+ {% endif %}
+
+ <p class="receipt__footer">ACOCOS</p>
+</div>
+</body>
+</html>

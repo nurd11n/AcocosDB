@@ -41,8 +41,8 @@ class SaleOrder(models.Model):
     SHOP = "shop"
     WHOLESALE = "wholesale"
     CHANNEL_CHOICES = [
-        (INSTAGRAM, "Instagram"),
-        (WHATSAPP, "WhatsApp"),
+        (INSTAGRAM, _("Instagram")),
+        (WHATSAPP, _("WhatsApp")),
         (SHOP, _("Shop")),
         (WHOLESALE, _("Wholesale")),
     ]
@@ -224,6 +224,16 @@ class SaleItem(models.Model):
     discount_value = models.DecimalField(
         _("discount value"), max_digits=12, decimal_places=2, default=Decimal("0")
     )
+    # FROZEN at confirm_sale (never touched after — same treatment as
+    # SaleOrder.rate_to_kgs). Profit must reflect what this unit actually cost
+    # THEN, not what ProductVariant.cost_price happens to say today — reading
+    # the live variant field here would let a cost-price edit next month
+    # silently rewrite last month's profit. NULL until confirmed (a draft
+    # line hasn't been costed yet); apps.reports.dashboard reads this field,
+    # never variant.cost_price, for every profit/COGS figure.
+    cost_price = models.DecimalField(
+        _("cost price at sale"), max_digits=12, decimal_places=2, null=True, blank=True
+    )
 
     class Meta:
         verbose_name = _("sale item")
@@ -250,6 +260,10 @@ class SaleItem(models.Model):
                 condition=~Q(discount_type=DISCOUNT_FIXED)
                 | Q(discount_value__lte=F("unit_price") * F("quantity")),
                 name="saleitem_discount_fixed_lte_subtotal",
+            ),
+            models.CheckConstraint(
+                condition=Q(cost_price__isnull=True) | Q(cost_price__gte=0),
+                name="saleitem_cost_price_nonneg",
             ),
         ]
 
@@ -496,6 +510,19 @@ class Payment(models.Model):
                 fields=["reversed_payment"],
                 condition=Q(reversed_payment__isnull=False),
                 name="payment_one_reversal_per_payment",
+            ),
+            # A payment must be tied to something real — a sale (order) or a
+            # production-order deposit (production_order) — never floating
+            # with both null. Without this, the standalone Payment admin (see
+            # PaymentAdmin) could write a "ghost" row that counts toward
+            # nothing and shows up nowhere except a raw admin list. A
+            # reversal is exempt: it must be able to mirror whatever its
+            # original had (including a deposit that never got linked).
+            models.CheckConstraint(
+                condition=Q(order__isnull=False)
+                | Q(production_order__isnull=False)
+                | Q(reversed_payment__isnull=False),
+                name="payment_must_be_linked_to_order_or_deposit",
             ),
         ]
 

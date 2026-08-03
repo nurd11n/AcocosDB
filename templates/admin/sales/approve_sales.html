@@ -1,5 +1,5 @@
 {% extends "admin/base_site.html" %}
-{% load i18n %}
+{% load i18n pos_extras %}
 
 {% block content %}
 <form method="post">{% csrf_token %}
@@ -13,7 +13,7 @@
    {% for o in orders %}
    <li>#{{ o.id }} —
      {% if o.client %}{{ o.client }}{% else %}<em>{% trans "walk-in" %}</em>{% endif %}
-     — {{ o.total }} {{ o.currency }}</li>
+     — {{ o.total|money:o.currency }}</li>
    {% endfor %}
   </ul>
 

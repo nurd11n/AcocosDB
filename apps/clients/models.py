@@ -10,8 +10,8 @@ class Client(models.Model):
     SHOP = "shop"
     WHOLESALE = "wholesale"
     SOURCE_CHOICES = [
-        (INSTAGRAM, "Instagram"),
-        (WHATSAPP, "WhatsApp"),
+        (INSTAGRAM, _("Instagram")),
+        (WHATSAPP, _("WhatsApp")),
         (SHOP, _("Shop")),
         (WHOLESALE, _("Wholesale")),
     ]

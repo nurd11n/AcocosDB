@@ -68,72 +68,60 @@ def _superuser_required(view):
     return wrapper
 
 
-def _normalize_to_kgs(by_currency: dict, on_date) -> Decimal:
-    """Sum a {currency: amount} dict into one base-currency total, skipping any
-    currency that has no exchange rate on or before `on_date` (its contribution
-    is simply omitted rather than guessed at)."""
-    from apps.core.currency import to_base
-
-    total = Decimal("0")
-    for cur, amt in by_currency.items():
-        kgs = to_base(amt, cur, on_date)
-        if kgs is not None:
-            total += kgs
-    return total
-
-
 def _business_snapshot() -> dict:
     """Business snapshot normalized to the base currency (KGS), cached 60s.
     The view converts these base-currency numbers into whatever currency the
-    user picked — see stats_view."""
+    user picked — see stats_view.
+
+    Every KGS figure here is a SUM of already-frozen values (SaleOrder.total_kgs,
+    Payment's own net-applied amount) — never a live-rate conversion of a
+    per-currency total. A same-day (or later) exchange-rate refresh must not
+    move these, the same rule apps.reports.dashboard follows; see
+    apps.sales.services.today_revenue_kgs/revenue_last_n_days_kgs/
+    sales_by_channel_kgs and apps.clients.services.client_debts_kgs.
+    """
     from django.db.models import Sum
 
-    from apps.clients.services import debtors_report_rows, total_outstanding_debt
-    from apps.core.currency import to_base
+    from apps.clients.models import Client
+    from apps.clients.services import client_debts_kgs
     from apps.inventory.models import ProductVariant
     from apps.inventory.services import stock_totals
     from apps.sales.services import (
         pending_orders_count,
-        revenue_last_n_days,
-        sales_by_channel,
+        revenue_last_n_days_kgs,
+        sales_by_channel_kgs,
+        today_revenue_kgs,
         today_summary,
         units_sold_by_variant,
     )
 
-    today = timezone.localdate()
+    revenue_today_kgs = today_revenue_kgs()
 
-    revenue_today_kgs = _normalize_to_kgs(today_summary()["revenue_by_currency"], today)
-
-    revenue_7d = []
-    for d in revenue_last_n_days(7):
-        revenue_7d.append(
-            {"day": d["day"], "revenue_kgs": _normalize_to_kgs(d["by_currency"], today)}
-        )
+    revenue_7d = revenue_last_n_days_kgs(7)
     rev_max = max((d["revenue_kgs"] for d in revenue_7d), default=Decimal("0")) or Decimal("1")
     for d in revenue_7d:
         d["pct"] = int(d["revenue_kgs"] / rev_max * 100)
 
-    channels = []
-    for c in sales_by_channel(30):
-        channels.append(
-            {"label": c["label"], "revenue_kgs": _normalize_to_kgs(c["by_currency"], today)}
-        )
+    channels = sales_by_channel_kgs(30)
     channels.sort(key=lambda c: c["revenue_kgs"], reverse=True)
     ch_max = max((c["revenue_kgs"] for c in channels), default=Decimal("0")) or Decimal("1")
     for c in channels:
         c["pct"] = int(c["revenue_kgs"] / ch_max * 100)
 
-    debt_total_kgs = _normalize_to_kgs(total_outstanding_debt(), today)
+    debts_by_client = client_debts_kgs()
+    debt_total_kgs = sum(debts_by_client.values(), Decimal("0"))
 
-    debtors = []
-    for client, currency, debt, _last_payment in debtors_report_rows()[:5]:
-        debtors.append(
-            {
-                "name": client.name,
-                "phone": client.phone,
-                "debt_kgs": to_base(debt, currency, today) or Decimal("0"),
-            }
-        )
+    top_debtor_ids = sorted(debts_by_client, key=lambda cid: debts_by_client[cid], reverse=True)[:5]
+    clients_by_id = {c.pk: c for c in Client.objects.filter(pk__in=top_debtor_ids)}
+    debtors = [
+        {
+            "name": clients_by_id[cid].name,
+            "phone": clients_by_id[cid].phone,
+            "debt_kgs": debts_by_client[cid],
+        }
+        for cid in top_debtor_ids
+        if cid in clients_by_id
+    ]
 
     # Bestsellers vs. slow movers over 30 days — units, not money, so shown as
     # plain counts. Slow movers = still-in-stock variants that barely (or never)

@@ -3,7 +3,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import F, Max, Sum, Value
+from django.db.models import DecimalField, ExpressionWrapper, F, Max, Sum, Value
 from django.db.models.functions import Replace
 from django.utils import timezone
 
@@ -199,6 +199,41 @@ def client_credits(client: Client) -> dict[str, Decimal]:
     positive «Аванс» figure, never as a negative debt."""
     debts = client_debts_by_currency().get(client.pk, {})
     return {cur: -amt for cur, amt in debts.items() if amt < 0}
+
+
+def client_debts_kgs() -> dict[int, Decimal]:
+    """{client_id: outstanding debt, in KGS} — same frozen-value methodology
+    as apps.reports.dashboard._debt() (total_kgs minus each payment's own
+    net_applied_kgs, summed per order then per client), never a live-rate
+    conversion of client_debts_by_currency's per-currency figures. Debt
+    surfaces that need ONE KGS number (not a per-currency breakdown) must
+    read this, not re-derive it — see apps.core.views._business_snapshot."""
+    from apps.sales.models import Payment, SaleOrder
+
+    orders = list(
+        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, client__isnull=False).values(
+            "id", "client_id", "total_kgs"
+        )
+    )
+    pay_kgs = ExpressionWrapper(
+        F("amount") * F("rate_to_kgs") - F("change_amount_kgs"),
+        output_field=DecimalField(max_digits=20, decimal_places=6),
+    )
+    paid_by_order: dict[int, Decimal] = defaultdict(Decimal)
+    for row in (
+        Payment.objects.filter(order__isnull=False, order__client__isnull=False)
+        .annotate(kgs=pay_kgs)
+        .values("order_id")
+        .annotate(t=Sum("kgs"))
+    ):
+        paid_by_order[row["order_id"]] = row["t"] or Decimal("0")
+
+    debt_by_client: dict[int, Decimal] = defaultdict(Decimal)
+    for o in orders:
+        outstanding = o["total_kgs"] - paid_by_order.get(o["id"], Decimal("0"))
+        if outstanding > 0:
+            debt_by_client[o["client_id"]] += outstanding
+    return dict(debt_by_client)
 
 
 def total_outstanding_debt() -> dict[str, Decimal]:

@@ -479,6 +479,30 @@ def test_daily_report_rows_are_russian_and_reflect_current_data(variant):
     )
 
 
+def test_daily_report_totals_sheet_matches_the_dashboard(variant, settings):
+    """The download must never disagree with the page: Итоги's three figures
+    are the SAME dashboard_data("today")["metrics"] the /dashboard/ page
+    itself renders, not a second computation."""
+    from apps.core.management.commands.send_daily_report import _totals_sheet
+    from apps.reports.dashboard import dashboard_data
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    client_ = Client.objects.create(first_name="Itogi", phone="+996700000303")
+    order = SaleOrder.objects.create(client=client_, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3000"))
+    confirm_sale(order)
+    record_payment(order, Decimal("1000"))  # partial
+
+    itogi = dict(_totals_sheet().rows)
+    m = dashboard_data("today")["metrics"]
+    assert itogi["Выручка (начислено), сом"] == float(m["revenue"]["value"])
+    assert itogi["Получено, сом"] == float(m["received"]["value"])
+    assert itogi["Ожидается, сом"] == float(m["expected"]["value"])
+    assert itogi["Получено, сом"] == 1000.0
+    assert itogi["Ожидается, сом"] == 2000.0
+
+
 def test_send_daily_report_command_skips_network_when_unconfigured(capsys):
     call_command("send_daily_report")
     out = capsys.readouterr().out.lower()
@@ -1117,6 +1141,251 @@ def test_walkin_order_records_no_payment(variant):
     assert order.payments.count() == 0
 
 
+def _payment_inline_management_form(total=1):
+    return {
+        "payments-TOTAL_FORMS": str(total),
+        "payments-INITIAL_FORMS": "0",
+        "payments-MIN_NUM_FORMS": "0",
+        "payments-MAX_NUM_FORMS": "1000",
+    }
+
+
+def _payment_inline_row(prefix="payments-0-", **overrides):
+    row = {
+        "amount": "500",
+        "currency": "KGS",
+        "method": Payment.CASH,
+        "note": "",
+        "confirm_overpayment": "",
+    }
+    row.update(overrides)
+    return {f"{prefix}{k}": v for k, v in row.items()}
+
+
+def _payment_inline_formset(order, data, django_user_model):
+    """Builds the exact formset class/instance PaymentInline uses in the real
+    admin change view (same get_formset() call, same _order_client_id
+    class-attribute wiring) — exercising the real validation code path
+    without needing to fabricate an entire SaleOrderAdmin change-form POST."""
+    from apps.sales.admin import PaymentInline
+
+    inline = PaymentInline(SaleOrder, site)
+    request = RequestFactory().post("/")
+    request.user = django_user_model.objects.filter(
+        is_superuser=True
+    ).first() or django_user_model.objects.create_superuser(
+        "inline_admin", "inline_admin@example.com", "x" * 12
+    )
+    FormSet = inline.get_formset(request, obj=order)
+    return FormSet(data=data, instance=order, prefix="payments")
+
+
+def test_payment_inline_client_prefilled_and_locked_for_a_sale_with_a_client(
+    variant, django_user_model
+):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    c = Client.objects.create(first_name="Aisha", phone="+996700000201")
+    order = SaleOrder.objects.create(client=c)
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    empty_data = _payment_inline_management_form(total=0)
+    form = _payment_inline_formset(order, empty_data, django_user_model).empty_form
+    assert form.fields["client"].initial == c.pk
+    assert form.fields["client"].widget.attrs.get("disabled") == "disabled"
+
+    # A real browser never submits a value for a disabled field — the row
+    # arrives with "payments-0-client" simply absent from POST data.
+    data = {**_payment_inline_management_form(), **_payment_inline_row()}
+    formset = _payment_inline_formset(order, data, django_user_model)
+    assert formset.is_valid(), formset.errors
+    saved = formset.save(commit=False)
+    assert len(saved) == 1
+    assert saved[0].client_id == c.pk
+
+
+def test_payment_inline_rejects_a_crafted_post_with_a_different_client(variant, django_user_model):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    c = Client.objects.create(first_name="Cholpon", phone="+996700000202")
+    other = Client.objects.create(first_name="Someone Else", phone="+996700000203")
+    order = SaleOrder.objects.create(client=c)
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    data = {
+        **_payment_inline_management_form(),
+        **_payment_inline_row(client=str(other.pk)),
+    }
+    formset = _payment_inline_formset(order, data, django_user_model)
+    assert not formset.is_valid()
+    assert any(
+        "должен совпадать" in str(e)
+        for form in formset.forms
+        for e in form.errors.get("client", [])
+    )
+
+
+def test_payment_inline_allows_choosing_a_client_for_a_walk_in_sale(variant, django_user_model):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    someone = Client.objects.create(first_name="Chosen", phone="+996700000204")
+    order = SaleOrder.objects.create()  # walk-in, no client
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    data = {
+        **_payment_inline_management_form(),
+        **_payment_inline_row(client=str(someone.pk)),
+    }
+    formset = _payment_inline_formset(order, data, django_user_model)
+    assert formset.is_valid(), formset.errors
+    saved = formset.save(commit=False)
+    assert saved[0].client_id == someone.pk
+
+
+def test_payment_inline_leaves_an_existing_payment_untouched_by_the_client_lock(
+    variant, django_user_model
+):
+    # A row that already has a pk keeps whatever client it was recorded
+    # with, even if SaleOrder.client (not readonly in this admin) is later
+    # edited to point elsewhere — the lock/enforcement only governs a NEW
+    # row, never re-validates history.
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    original = Client.objects.create(first_name="Original", phone="+996700000205")
+    order = SaleOrder.objects.create(client=original)
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    payment = Payment.objects.create(client=original, order=order, amount=Decimal("500"))
+
+    order.client = Client.objects.create(first_name="Reassigned", phone="+996700000206")
+    order.save(update_fields=["client"])
+
+    data = {
+        **_payment_inline_management_form(total=1),
+        "payments-INITIAL_FORMS": "1",
+        "payments-0-id": str(payment.pk),
+        **_payment_inline_row(client=str(original.pk), amount="500", currency="KGS"),
+    }
+    formset = _payment_inline_formset(order, data, django_user_model)
+    assert formset.is_valid(), formset.errors
+
+
+def _saleorder_admin_post_data(response):
+    """Reconstructs a full, valid changeform POST payload from a real GET
+    response's rendered form/formset state — every field at its CURRENT
+    value — so a test can crank open exactly one field to prove server-side
+    enforcement, the same way a crafted request would, without hand-modeling
+    every other required field on SaleOrder/SaleItem/Payment."""
+    ctx = response.context
+    data = {}
+    for name, field in ctx["adminform"].form.fields.items():
+        val = ctx["adminform"].form.initial.get(name)
+        if val is None:
+            continue
+        data[name] = val.pk if hasattr(val, "pk") else val
+    for inline in ctx["inline_admin_formsets"]:
+        fs = inline.formset
+        prefix = fs.prefix
+        for k, v in fs.management_form.initial.items():
+            data[f"{prefix}-{k}"] = v
+        for i, form in enumerate(fs.forms):
+            if form.instance.pk:
+                data[f"{prefix}-{i}-id"] = form.instance.pk
+            for name, field in form.fields.items():
+                val = form.initial.get(name)
+                if val is None:
+                    continue
+                data[f"{prefix}-{i}-{name}"] = val.pk if hasattr(val, "pk") else val
+    return data
+
+
+def test_admin_rejects_a_crafted_post_editing_a_confirmed_sales_item(
+    client, django_user_model, variant
+):
+    """The bug this locks shut: editing a CONFIRMED sale's line item via
+    /panel/ used to silently succeed while leaving order.total/total_kgs
+    stale and never touching stock. Enforced via SaleItemInline's real
+    has_change_permission (a Django admin permission check the changeform
+    view itself consults, not a widget) — Django's standard behaviour for a
+    permission-denied inline is to keep the 302 "saved" redirect but skip
+    that formset's save entirely, so the assertion that matters is the DATA
+    staying untouched, not the HTTP status."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("saleitem_lock", "s@e.com", "x" * 12)
+    order = SaleOrder.objects.create(currency="KGS")
+    item = SaleItem.objects.create(
+        order=order, variant=variant, quantity=2, unit_price=Decimal("3000")
+    )
+    confirm_sale(order)
+    order.refresh_from_db()
+    stock_before = variant.stock
+
+    client.force_login(owner)
+    resp = client.get(f"/panel/sales/saleorder/{order.pk}/change/")
+    data = _saleorder_admin_post_data(resp)
+    item_prefix = next(
+        inline.formset.prefix
+        for inline in resp.context["inline_admin_formsets"]
+        if inline.formset.model is SaleItem
+    )
+    data[f"{item_prefix}-0-quantity"] = 5  # the crafted change
+
+    client.post(f"/panel/sales/saleorder/{order.pk}/change/", data)
+
+    order.refresh_from_db()
+    item.refresh_from_db()
+    variant.refresh_from_db()
+    assert item.quantity == 2  # unchanged
+    assert order.total == Decimal("6000.00")  # unchanged
+    assert variant.stock == stock_before  # unchanged — no phantom stock movement
+
+
+def test_admin_can_still_edit_items_on_a_draft_sale(client, django_user_model, variant):
+    """The lock is confirmed-only — a draft (not yet approved) sale's items
+    stay fully editable via /panel/, matching the DRAFT-only exception."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("saleitem_draft", "d@e.com", "x" * 12)
+    order = SaleOrder.objects.create(currency="KGS")
+    item = SaleItem.objects.create(
+        order=order, variant=variant, quantity=2, unit_price=Decimal("3000")
+    )
+    assert order.status == SaleOrder.DRAFT
+
+    client.force_login(owner)
+    resp = client.get(f"/panel/sales/saleorder/{order.pk}/change/")
+    data = _saleorder_admin_post_data(resp)
+    item_prefix = next(
+        inline.formset.prefix
+        for inline in resp.context["inline_admin_formsets"]
+        if inline.formset.model is SaleItem
+    )
+    data[f"{item_prefix}-0-quantity"] = 5
+
+    client.post(f"/panel/sales/saleorder/{order.pk}/change/", data)
+    item.refresh_from_db()
+    assert item.quantity == 5  # a draft sale is still a normal editable form
+
+
+def test_saleitem_cost_price_is_hidden_from_editor_in_admin(client, django_user_model, variant):
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    editor = django_user_model.objects.create_user(
+        "saleitem_editor", password="x" * 12, is_staff=True
+    )
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3000"))
+
+    client.force_login(editor)
+    resp = client.get(f"/panel/sales/saleorder/{order.pk}/change/")
+    assert resp.status_code == 200
+    item_formset = next(
+        inline.formset
+        for inline in resp.context["inline_admin_formsets"]
+        if inline.formset.model is SaleItem
+    )
+    assert "cost_price" not in item_formset.forms[0].fields
+
+
 def test_void_payment_creates_reversing_entry_not_a_delete(variant):
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     c = Client.objects.create(first_name="Zarina", phone="+996700000013")
@@ -1181,6 +1450,67 @@ def test_void_reviewed_payment_requires_superuser(variant, django_user_model):
     root = django_user_model.objects.create_superuser("root2", "r2@e.com", "x" * 12)
     reversal = void_payment(payment, user=root)  # does not raise
     assert reversal.reversed_payment_id == payment.pk
+
+
+def test_standalone_payment_admin_cannot_add_or_change_even_for_owner(django_user_model):
+    """The ghost-payment bug: the standalone Payment admin (never a sidebar
+    entry, but reachable by direct URL) had no has_add_permission override,
+    so anyone with sales.add_payment could POST a Payment with no order and
+    no production_order straight from a blank form — no sale, no deposit,
+    counted toward nothing, visible nowhere except a raw admin list. It must
+    stay reachable ONLY for voiding/read-only auditing (see class docstring),
+    for every role including the Owner — the sanctioned way to create or edit
+    a payment is always through a sale (PaymentInline) or a deposit
+    (services.record_deposit)."""
+    owner = django_user_model.objects.create_superuser("owner_pay", "o@e.com", "x" * 12)
+    request = RequestFactory().get("/")
+    request.user = owner
+    model_admin = site._registry[Payment]
+    assert model_admin.has_add_permission(request) is False
+    assert model_admin.has_change_permission(request) is False
+    assert model_admin.has_view_permission(request) is True  # auditing still works
+
+
+def test_standalone_payment_admin_add_url_is_blocked_end_to_end(client, django_user_model):
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("owner_pay2", "o2@e.com", "x" * 12)
+    client.force_login(owner)
+    resp = client.get("/panel/sales/payment/add/")
+    assert resp.status_code == 403
+    assert Payment.objects.count() == 0
+
+    resp = client.post(
+        "/panel/sales/payment/add/",
+        {"client": "1", "amount": "500", "currency": "KGS", "method": Payment.CASH},
+    )
+    assert resp.status_code == 403
+    assert Payment.objects.count() == 0
+
+
+def test_payment_inline_rejects_zero_amount_with_russian_message(variant, django_user_model):
+    """Layer 2 of the ghost-payment fix: the DB CheckConstraint already
+    rejects amount<=0 (payment_amount_positive_unless_reversal), but a raw
+    IntegrityError is a 500, not a usable admin error — the form must catch
+    it first with a clean Russian message."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    c = Client.objects.create(first_name="Zero", phone="+996700000210")
+    order = SaleOrder.objects.create(client=c)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    for bad_amount in ("0", "-5"):
+        data = {
+            **_payment_inline_management_form(),
+            **_payment_inline_row(amount=bad_amount),
+        }
+        formset = _payment_inline_formset(order, data, django_user_model)
+        assert not formset.is_valid()
+        assert any(
+            "больше нуля" in str(e)
+            for form in formset.forms
+            for e in form.errors.get("amount", [])
+        )
+    assert not order.payments.exists()
 
 
 def test_debtors_report_rows_group_by_currency(variant):
@@ -1476,15 +1806,14 @@ def test_item_discount_view_is_owner_and_editor_reachable_not_viewer(
     assert item.discount_type == SaleItem.DISCOUNT_NONE  # untouched
 
 
-def test_receipt_spells_out_discount_only_when_present(variant):
-    from apps.pos.messaging import receipt_text
+def test_receipt_context_shows_discount_only_when_present(variant):
+    from apps.pos.receipts import receipt_context
 
     add_movement(variant, StockMovement.PRODUCTION_IN, 5)
     order = SaleOrder.objects.create(currency="KGS")
     SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
     confirm_sale(order)
-    text = receipt_text(order)
-    assert "−" not in text  # no discount marker on a plain line
+    assert receipt_context(order)["discount"] is None
 
     order2 = SaleOrder.objects.create(currency="KGS")
     SaleItem.objects.create(
@@ -1496,9 +1825,236 @@ def test_receipt_spells_out_discount_only_when_present(variant):
         discount_value=Decimal("200"),
     )
     confirm_sale(order2)
-    text2 = receipt_text(order2)
-    assert "−200" in text2
-    assert "3000" in text2  # the discounted line_total
+    ctx = receipt_context(order2)
+    assert ctx["discount"] == Decimal("200")
+    assert ctx["groups"][0]["rows"][0]["line_total"] == Decimal("3000")  # discounted
+
+
+# ---- Receipt format: grouped by product+size, colours nested; signed link -
+
+
+def _make_receipt_variant(product, size, color, sale_price=Decimal("1550")):
+    return ProductVariant.objects.create(
+        product=product,
+        sku=f"{product.name}-{size}-{color}",
+        size=size,
+        color=color,
+        sale_price=sale_price,
+        cost_price=Decimal("500"),
+        currency="KGS",
+    )
+
+
+def test_receipt_groups_by_product_and_size_with_colours_nested(variant):
+    """Matches the reference format: one product+size header row, one row per
+    COLOUR nested beneath it — never a flat per-line list."""
+    from apps.pos.receipts import receipt_context
+
+    cat = Category.objects.create(name="ReceiptCat")
+    product = Product.objects.create(category=cat, name="МИМИ 2-КА")
+    black = _make_receipt_variant(product, "50-56", "ЧЁРНЫЙ")
+    brown = _make_receipt_variant(product, "50-56", "КОРИЧНЕВЫЙ")
+    for v in (black, brown):
+        add_movement(v, StockMovement.PRODUCTION_IN, 20)
+
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=black, quantity=16, unit_price=Decimal("1550"))
+    SaleItem.objects.create(order=order, variant=brown, quantity=16, unit_price=Decimal("1550"))
+    confirm_sale(order)
+
+    ctx = receipt_context(order)
+    assert len(ctx["groups"]) == 1  # ONE product+size group
+    group = ctx["groups"][0]
+    assert group["product"] == product
+    assert group["size"] == "50-56"
+    colors = {row["color"]: row for row in group["rows"]}
+    assert set(colors) == {"ЧЁРНЫЙ", "КОРИЧНЕВЫЙ"}
+    for row in colors.values():
+        assert row["quantity"] == 16
+        assert row["unit_price"] == Decimal("1550.00")
+        assert row["line_total"] == Decimal("24800")
+
+    # Both unit total AND money total — wholesale, units matter as much as sum.
+    assert ctx["total_quantity"] == 32
+    assert ctx["total_money"] == Decimal("49600")
+
+
+def test_receipt_groups_different_sizes_of_same_product_separately(variant):
+    from apps.pos.receipts import receipt_context
+
+    cat = Category.objects.create(name="ReceiptCat2")
+    product = Product.objects.create(category=cat, name="Платье")
+    small = _make_receipt_variant(product, "S", "СИНИЙ")
+    large = _make_receipt_variant(product, "L", "СИНИЙ")
+    for v in (small, large):
+        add_movement(v, StockMovement.PRODUCTION_IN, 10)
+
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=small, quantity=2, unit_price=Decimal("1000"))
+    SaleItem.objects.create(order=order, variant=large, quantity=3, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    ctx = receipt_context(order)
+    assert len(ctx["groups"]) == 2  # different sizes -> separate groups
+    sizes = {g["size"]: g for g in ctx["groups"]}
+    assert sizes["S"]["quantity"] == 2
+    assert sizes["L"]["quantity"] == 3
+    assert ctx["total_quantity"] == 5
+    assert ctx["total_money"] == Decimal("5000")
+
+
+def test_receipt_merges_duplicate_cart_lines_of_the_same_variant(variant):
+    """Two SaleItem rows for the SAME variant (never merged at add-time)
+    combine into ONE colour row on the receipt, quantity and money summed."""
+    from apps.pos.receipts import receipt_context
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("1000"))
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    ctx = receipt_context(order)
+    assert len(ctx["groups"]) == 1
+    assert len(ctx["groups"][0]["rows"]) == 1  # one merged colour row, not two
+    row = ctx["groups"][0]["rows"][0]
+    assert row["quantity"] == 3
+    assert row["line_total"] == Decimal("3000")
+
+
+def test_receipt_public_page_renders_grouped_layout_and_writes_no_db_rows(variant):
+    from django.test import Client as DjangoTestClient
+
+    from apps.pos.receipts import make_receipt_token
+
+    cat = Category.objects.create(name="ReceiptCat3")
+    product = Product.objects.create(category=cat, name="МИМИ 2-КА")
+    black = _make_receipt_variant(product, "50-56", "ЧЁРНЫЙ")
+    add_movement(black, StockMovement.PRODUCTION_IN, 20)
+    cust = Client.objects.create(first_name="Aichurek", phone="+996700006001")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=black, quantity=16, unit_price=Decimal("1550"))
+    confirm_sale(order)
+
+    token = make_receipt_token(order)
+    web = DjangoTestClient()
+
+    payment_before = Payment.objects.count()
+    order_before = SaleOrder.objects.count()
+    interaction_before = Interaction.objects.count()
+
+    resp = web.get(f"/r/{token}/")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "МИМИ 2-КА" in body
+    assert "ЧЁРНЫЙ" in body
+    assert "50-56" in body
+    assert "Aichurek" in body  # first_name only
+    assert "ИТОГО" in body
+    assert "Скачать PDF" in body
+
+    # No login, no session/db writes of any kind — a pure read.
+    assert Payment.objects.count() == payment_before
+    assert SaleOrder.objects.count() == order_before
+    assert Interaction.objects.count() == interaction_before
+
+
+def test_receipt_token_expired_or_tampered_404s(variant, settings):
+    from django.core import signing
+
+    from apps.pos.receipts import RECEIPT_SALT, resolve_receipt_token
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    # Tampered signature.
+    assert resolve_receipt_token("not-a-real-token") is None
+
+    # Expired: sign as if it happened 8 days ago (past the 7-day window).
+    import time
+
+    real_time = time.time
+    try:
+        time.time = lambda: real_time() - 8 * 24 * 60 * 60
+        expired_token = signing.dumps({"sale_id": order.pk}, salt=RECEIPT_SALT)
+    finally:
+        time.time = real_time
+    assert resolve_receipt_token(expired_token) is None
+
+    from django.test import Client as DjangoTestClient
+
+    web = DjangoTestClient()
+    assert web.get("/r/garbage-token/").status_code == 404
+    assert web.get(f"/r/{expired_token}/").status_code == 404
+    assert web.get("/r/garbage-token/pdf/").status_code == 404
+
+
+def test_receipt_token_cannot_reveal_a_different_sale(variant):
+    from apps.pos.receipts import make_receipt_token
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order_a = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order_a, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order_a)
+
+    order_b = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order_b, variant=variant, quantity=1, unit_price=Decimal("2000"))
+    confirm_sale(order_b)
+
+    token_a = make_receipt_token(order_a)
+
+    from django.test import Client as DjangoTestClient
+    from apps.core.currency import format_money
+
+    resp = DjangoTestClient().get(f"/r/{token_a}/")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    # Order A's own total (1000) renders; order B's (2000) never leaks in.
+    assert format_money(order_a.total, "KGS") in body
+    assert format_money(order_b.total, "KGS") not in body
+
+
+def test_receipt_pdf_downloads_and_writes_no_db_rows(variant):
+    from django.test import Client as DjangoTestClient
+
+    from apps.pos.receipts import make_receipt_token
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    token = make_receipt_token(order)
+
+    payment_before = Payment.objects.count()
+    resp = DjangoTestClient().get(f"/r/{token}/pdf/")
+    assert resp.status_code == 200
+    assert resp["Content-Type"] == "application/pdf"
+    assert resp.content[:4] == b"%PDF"
+    assert Payment.objects.count() == payment_before
+
+
+def test_share_receipt_sends_short_message_with_link_not_itemised_text(
+    client, django_user_model, variant
+):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("rcpt_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Sharer", phone="+996700006002")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    resp = client.post(f"/pos/sale/{order.pk}/receipt/")
+    assert resp.status_code == 302
+    location = resp["Location"]
+    assert "wa.me" in location
+    from urllib.parse import unquote
+
+    text = unquote(location.split("text=", 1)[1])
+    assert "/r/" in text  # points at the receipt page
+    assert "3200" not in text  # no itemised breakdown pasted into the chat
 
 
 def test_dashboard_top_products_revenue_reflects_discount_not_sticker_price(variant):
@@ -1524,6 +2080,242 @@ def test_dashboard_top_products_revenue_reflects_discount_not_sticker_price(vari
     assert len(rows) == 1
     # 6400 subtotal, 50% off -> 3200 actual revenue, not 6400.
     assert rows[0]["revenue"] == Decimal("3200.00")
+
+
+def test_dashboard_top_products_revenue_is_rounded_to_cents_like_the_order_total(variant):
+    """Same awkward-percent case as the metrics regression test above: the
+    per-line SQL discount expression must round to cents (matching
+    SaleItem.discount_amount's ROUND_HALF_UP) before subtracting from the
+    subtotal, not carry a raw 4-decimal-place division result forward."""
+    from apps.reports.dashboard import _top_products
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=3,
+        unit_price=Decimal("999.99"),
+        discount_type=SaleItem.DISCOUNT_PERCENT,
+        discount_value=Decimal("15.00"),
+    )
+    confirm_sale(order)
+    order.refresh_from_db()
+    today = timezone.localdate()
+    rows = _top_products(today, today)
+    assert len(rows) == 1
+    assert rows[0]["revenue"] == order.total  # 2549.97, not 2549.9745
+
+
+def test_confirm_sale_freezes_cost_price_onto_the_line(variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    item = SaleItem.objects.create(
+        order=order, variant=variant, quantity=2, unit_price=Decimal("3200")
+    )
+    assert item.cost_price is None  # not yet costed — the order hasn't been confirmed
+    confirm_sale(order)
+    item.refresh_from_db()
+    assert item.cost_price == variant.cost_price
+
+
+def test_dashboard_profit_is_unaffected_by_a_later_cost_price_change(variant):
+    """The whole point of freezing cost_price on the SaleItem: raising the
+    variant's cost price THIS month must never rewrite a sale CONFIRMED last
+    month. Reading apps.inventory.models.ProductVariant.cost_price live in
+    the dashboard's COGS calc — instead of the frozen SaleItem.cost_price —
+    would silently move historical profit every time a cost changes."""
+    from apps.reports.dashboard import dashboard_data
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    m_before = dashboard_data("today")["metrics"]
+    original_cost = variant.cost_price
+
+    variant.cost_price = original_cost + Decimal("500")  # the cost went up today
+    variant.save(update_fields=["cost_price"])
+
+    m_after = dashboard_data("today")["metrics"]
+    assert m_after["profit"]["value"] == m_before["profit"]["value"]
+    # And it must be computed from the FROZEN cost, not silently zeroed or
+    # left at the new one: 3200*2 revenue - (frozen cost * 2) profit.
+    assert m_after["profit"]["value"] == Decimal("6400") - original_cost * 2
+
+
+def test_dashboard_profit_and_margin_are_computed_after_discount(variant):
+    """SaleOrder.total (and total_kgs) are already net of discount — see
+    SaleItem.line_total / confirm_sale — so the dashboard's revenue/profit/
+    margin must reflect the discounted price actually charged, not the
+    sticker subtotal. cost_price 1200 x 2 = 2400 COGS either way; revenue
+    should be 3200 (discounted), never 6400 (sticker)."""
+    from apps.reports.dashboard import dashboard_data
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=2,
+        unit_price=Decimal("3200.00"),
+        discount_type=SaleItem.DISCOUNT_PERCENT,
+        discount_value=Decimal("50"),
+    )
+    confirm_sale(order)
+
+    m = dashboard_data("today")["metrics"]
+    assert m["revenue"]["value"] == Decimal("3200.00")
+    assert m["profit"]["value"] == Decimal("3200.00") - variant.cost_price * 2
+    expected_margin = int(
+        round((Decimal("3200.00") - variant.cost_price * 2) / Decimal("3200.00") * 100)
+    )
+    assert m["profit"]["margin"] == expected_margin
+
+
+def test_dashboard_discount_metric_totals_what_was_given_away(variant):
+    from apps.reports.dashboard import dashboard_data
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order_a = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(
+        order=order_a,
+        variant=variant,
+        quantity=2,
+        unit_price=Decimal("3200.00"),
+        discount_type=SaleItem.DISCOUNT_PERCENT,
+        discount_value=Decimal("50"),  # 3200 off
+    )
+    confirm_sale(order_a)
+
+    order_b = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(
+        order=order_b,
+        variant=variant,
+        quantity=1,
+        unit_price=Decimal("3200.00"),
+        discount_type=SaleItem.DISCOUNT_FIXED,
+        discount_value=Decimal("500"),  # 500 off
+    )
+    confirm_sale(order_b)
+
+    order_c = SaleOrder.objects.create(currency="KGS")  # no discount at all
+    SaleItem.objects.create(order=order_c, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order_c)
+
+    m = dashboard_data("today")["metrics"]
+    assert m["discount"]["value"] == Decimal("3700.00")  # 3200 + 500
+    # Sticker total = 6400 + 3200 + 3200 = 12800; discount 3700 -> ~28.9%.
+    assert m["discount"]["pct"] == int(round(Decimal("3700") / Decimal("12800") * 100))
+
+
+def test_dashboard_discount_metric_is_zero_with_no_discounts(variant):
+    from apps.reports.dashboard import dashboard_data
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    m = dashboard_data("today")["metrics"]
+    assert m["discount"]["value"] == Decimal("0")
+    assert m["discount"]["pct"] == 0
+
+
+def test_dashboard_discount_and_revenue_are_exact_for_an_awkward_percent(variant, settings):
+    """Regression test: a percent discount whose subtotal*value/100 doesn't
+    land on a clean 2-decimal figure (here: 2999.97 * 15% = 449.9955) used to
+    leak into the dashboard's SQL aggregates unrounded, drifting a fraction
+    of a сом from what confirm_sale actually froze onto SaleOrder.total —
+    and revenue + discount silently failed to add back up to the sticker
+    subtotal. Both must now be EXACT, matching order.total to the cent."""
+    from apps.reports.dashboard import dashboard_data
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    item = SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=3,
+        unit_price=Decimal("999.99"),
+        discount_type=SaleItem.DISCOUNT_PERCENT,
+        discount_value=Decimal("15.00"),
+    )
+    confirm_sale(order)
+    order.refresh_from_db()
+    assert order.total == Decimal("2549.97")  # sanity: the authoritative figure
+
+    m = dashboard_data("today")["metrics"]
+    assert m["revenue"]["value"] == order.total_kgs
+    assert m["discount"]["value"] == item.subtotal - order.total
+    assert m["revenue"]["value"] + m["discount"]["value"] == item.subtotal
+
+
+def test_dashboard_booked_vs_received_vs_expected(variant, settings):
+    """The exact scenario requested: a confirmed-but-unpaid sale raises
+    Выручка (booked) and Ожидается (expected) but NOT Получено (received);
+    a later payment moves the split without double-counting anything."""
+    from apps.reports.dashboard import dashboard_data
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    client_ = Client.objects.create(first_name="Debtor", phone="+996700000301")
+    order = SaleOrder.objects.create(client=client_, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3000"))
+    confirm_sale(order)  # 6000 booked, nothing paid
+
+    m1 = dashboard_data("today")["metrics"]
+    assert m1["revenue"]["value"] == Decimal("6000.00")
+    assert m1["received"]["value"] == Decimal("0")
+    assert m1["expected"]["value"] == Decimal("6000.00")
+
+    record_payment(order, Decimal("6000"))  # paid in full, same day
+
+    m2 = dashboard_data("today")["metrics"]
+    assert m2["revenue"]["value"] == Decimal("6000.00")  # unchanged — still booked
+    assert m2["received"]["value"] == Decimal("6000.00")  # now in hand
+    assert m2["expected"]["value"] == Decimal("0")  # nothing left owed
+    # No double-counting: booked always equals received + expected.
+    assert m2["revenue"]["value"] == m2["received"]["value"] + m2["expected"]["value"]
+
+
+def test_dashboard_walkin_sale_counts_as_received_immediately(variant, settings):
+    """A walk-in never gets a Payment row (record_payment returns None with
+    no client — CLAUDE.md), but the cash still changed hands over the
+    counter. Without the walk-in special case, Ожидается would wrongly show
+    every walk-in as forever-unpaid."""
+    from apps.reports.dashboard import dashboard_data
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")  # walk-in, no client
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3000"))
+    confirm_sale(order)
+    assert order.payments.count() == 0
+
+    m = dashboard_data("today")["metrics"]
+    assert m["revenue"]["value"] == Decimal("3000.00")
+    assert m["received"]["value"] == Decimal("3000.00")
+    assert m["expected"]["value"] == Decimal("0")
+
+
+def test_dashboard_received_nets_a_voided_payment_to_zero(variant, settings):
+    from apps.reports.dashboard import dashboard_data
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    client_ = Client.objects.create(first_name="Voider", phone="+996700000302")
+    order = SaleOrder.objects.create(client=client_, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3000"))
+    confirm_sale(order)
+    payment = record_payment(order, Decimal("3000"))
+    void_payment(payment)
+
+    m = dashboard_data("today")["metrics"]
+    assert m["received"]["value"] == Decimal("0")  # original + reversal net to zero
+    assert m["expected"]["value"] == Decimal("3000.00")  # back to owed
 
 
 # ---------------------------------------------------------------------------
@@ -2011,7 +2803,8 @@ def test_payment_freezes_its_rate_and_void_cancels_exactly(variant, settings):
     settings.CURRENCY = "KGS"
     ExchangeRate.objects.create(currency="RUB", date=timezone.localdate(), rate=Decimal("1.50"))
     cust = Client.objects.create(first_name="R", phone="+996700000700")
-    p = Payment.objects.create(client=cust, amount=Decimal("200"), currency="RUB")
+    order = SaleOrder.objects.create(client=cust, currency="RUB")
+    p = Payment.objects.create(client=cust, order=order, amount=Decimal("200"), currency="RUB")
     assert p.rate_to_kgs == Decimal("1.500000")  # snapshotted on save
     assert p.amount_kgs == Decimal("300.00")  # 200 × 1.50
     reversal = void_payment(p)
@@ -2046,9 +2839,22 @@ def test_db_constraints_reject_bad_data_even_via_bulk_create(variant):
 def test_db_constraint_allows_negative_reversal(variant):
     # The one legitimate negative payment: a reversal linked to what it voids.
     c = Client.objects.create(first_name="B", phone="+996700000902")
-    p = Payment.objects.create(client=c, amount=Decimal("10"))
+    order = SaleOrder.objects.create(client=c)
+    p = Payment.objects.create(client=c, order=order, amount=Decimal("10"))
     reversal = Payment.objects.create(client=c, amount=Decimal("-10"), reversed_payment=p)
     assert reversal.pk is not None
+
+
+def test_db_rejects_a_payment_with_no_order_and_no_deposit_even_via_bulk_create(variant):
+    """The ghost-payment bug: a Payment tied to nothing (no sale, no
+    production-order deposit) used to be creatable through the standalone
+    Payment admin. The DB CheckConstraint is the backstop that survives even
+    a bulk_create/raw insert, not just the admin's has_add_permission=False."""
+    from django.db import IntegrityError, transaction
+
+    c = Client.objects.create(first_name="Ghost", phone="+996700000903")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Payment.objects.bulk_create([Payment(client=c, amount=Decimal("500"))])
 
 
 def test_argon2_is_default_and_pbkdf2_upgrades_on_login(client, django_user_model, settings):
@@ -2231,7 +3037,11 @@ def test_confirm_query_budget(client, django_user_model, variant):
     writes_and_reads = [
         q for q in ctx.captured_queries if any(t in q["sql"] for t in ("sales_", "inventory_"))
     ]
-    assert len(writes_and_reads) <= 10
+    # Budget raised 10 -> 11: confirm_sale now freezes SaleItem.cost_price (the
+    # cost basis AT THE TIME of sale, so a later cost_price edit can't rewrite
+    # historical profit — see apps.reports.dashboard._LINE_COGS) via one
+    # bulk_update, a single query regardless of item count.
+    assert len(writes_and_reads) <= 11
 
 
 def test_500_handler_renders_without_db_and_shows_correlation_id(rf, django_assert_num_queries):
@@ -2556,6 +3366,37 @@ def test_catalog_version_bump_survives_absent_key():
     cat = Category.objects.create(name="Cache-Cat")
     Product.objects.create(category=cat, name="Cache-Prod")  # signal path, no raise
     assert catalog_version() >= 1
+
+
+def test_audit_stale_totals_reports_a_clean_state(variant, capsys):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3000"))
+    confirm_sale(order)
+
+    call_command("audit_stale_totals")
+    out = capsys.readouterr().out
+    assert "No stale totals found" in out
+
+
+def test_audit_stale_totals_detects_a_manufactured_mismatch(variant, capsys):
+    """The exact scenario the confirmed-sale admin lock now prevents — a line
+    item's quantity changed without going through services.py, leaving
+    order.total stale. Manufactured directly (bypassing the admin, which is
+    now locked) purely to prove the audit command can actually SEE it."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create(currency="KGS")
+    item = SaleItem.objects.create(
+        order=order, variant=variant, quantity=2, unit_price=Decimal("3000")
+    )
+    confirm_sale(order)
+    SaleItem.objects.filter(pk=item.pk).update(quantity=5)  # bypass services.py directly
+
+    call_command("audit_stale_totals")
+    out = capsys.readouterr().out
+    assert f"#{order.pk}" in out
+    assert "stored total=6000.00" in out
+    assert "items currently add up to=15000.00" in out
 
 
 def test_cleanup_draft_sales_deletes_only_old_drafts():
@@ -2976,16 +3817,18 @@ def test_dashboard_query_budget_is_flat_and_bounded(django_user_model):
     _seed_dashboard_sales(4950, variants, clients, day_offset=7)  # 5000 total
     big = {p: count(p) for p in PERIODS}
 
-    # Budget raised 12 -> 14 -> 16 -> 17: the «Заказы» panels (Part 3g) added
-    # two flat queries, the CLIENT_BOTS.md panels (telegram_reach: 2 counts;
-    # top_favourited: 1 aggregate + 1 variant lookup) added two more, and a
-    # product now having many images (apps.inventory.services.
+    # Budget raised 12 -> 14 -> 16 -> 17 -> 18: the «Заказы» panels (Part 3g)
+    # added two flat queries, the CLIENT_BOTS.md panels (telegram_reach: 2
+    # counts; top_favourited: 1 aggregate + 1 variant lookup) added two more,
+    # a product now having many images (apps.inventory.services.
     # cover_image_names) adds a bulk cover-image lookup to the top-products
-    # AND dead-stock panels — measured net +1 (not +2), since 16 already had
-    # a query of slack above the previous real usage. All still independent
-    # of sales volume, just a slightly higher fixed floor.
+    # AND dead-stock panels (net +1, not +2, since 16 already had a query of
+    # slack), and _metrics() now sums received/expected cash from a SECOND
+    # aggregate query (Payment, a different table than SaleOrder/SaleItem —
+    # can't be folded into the existing ones) — +1. All still independent of
+    # sales volume, just a slightly higher fixed floor.
     for p in PERIODS:
-        assert big[p] <= 17, f"{p}: {big[p]} queries at 5000 sales (budget 17)"
+        assert big[p] <= 18, f"{p}: {big[p]} queries at 5000 sales (budget 18)"
         assert big[p] == small[p], f"{p} query count scaled with rows: {small[p]} -> {big[p]}"
 
 
@@ -3487,7 +4330,8 @@ def test_changing_rate_afterward_never_alters_past_payment_values(variant, setti
     settings.CURRENCY = "KGS"
     ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
     cust = Client.objects.create(first_name="Frz", phone="+996700000825")
-    payment = Payment.objects.create(client=cust, amount=Decimal("10"), currency="USD")
+    order = SaleOrder.objects.create(client=cust, currency="USD")
+    payment = Payment.objects.create(client=cust, order=order, amount=Decimal("10"), currency="USD")
     assert payment.rate_to_kgs == Decimal("87.000000")
     assert payment.amount_kgs == Decimal("870.00")
 
@@ -3517,7 +4361,8 @@ def test_payment_conversion_filter_shows_frozen_rate_math():
 
     ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.45"))
     cust = Client.objects.create(first_name="Fmt", phone="+996700000829")
-    payment = Payment.objects.create(client=cust, amount=Decimal("10"), currency="USD")
+    order = SaleOrder.objects.create(client=cust, currency="USD")
+    payment = Payment.objects.create(client=cust, order=order, amount=Decimal("10"), currency="USD")
     text = payment_conversion_filter(payment)
     assert "10 USD" in text
     assert "87.45" in text
@@ -3525,7 +4370,7 @@ def test_payment_conversion_filter_shows_frozen_rate_math():
     assert "НБКР" in text
 
     same_currency_payment = Payment.objects.create(
-        client=cust, amount=Decimal("100"), currency="KGS"
+        client=cust, order=order, amount=Decimal("100"), currency="KGS"
     )
     assert payment_conversion_filter(same_currency_payment) == ""
 
@@ -5291,30 +6136,36 @@ def test_every_report_sheet_is_navigable(variant):
             assert ws.column_dimensions["A"].width >= 9
 
 
-def test_receipt_shows_paid_and_outstanding_balance(variant, settings):
-    """A receipt that stops at «Итого» leaves the client no record of the
-    balance they're carrying — the number they ask about later."""
-    from apps.pos.messaging import receipt_text
+def test_receipt_context_shows_paid_and_balance_only_when_present(variant, settings):
+    """Скидка/Оплачено/Остаток are OMITTED entirely (None) when they don't
+    apply — many real receipts are goods-only with no payment line at all —
+    never rendered as a bare zero."""
+    from apps.pos.receipts import receipt_context
 
     settings.CURRENCY = "KGS"
     add_movement(variant, StockMovement.PRODUCTION_IN, 5)
     cust = Client.objects.create(first_name="Receipt", phone="+996700004002")
-    order = SaleOrder.objects.create(client=cust, currency="KGS")
-    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
-    confirm_sale(order)
-    record_payment(order, Decimal("1200"))
 
-    text = receipt_text(order)
-    assert "Итого: 3200.00" in text
-    assert "Оплачено: 1200.00" in text
-    assert "Остаток к оплате: 2000.00" in text
+    goods_only = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(
+        order=goods_only, variant=variant, quantity=1, unit_price=Decimal("3200")
+    )
+    confirm_sale(goods_only)
+    ctx = receipt_context(goods_only)
+    assert ctx["paid"] is None
+    assert ctx["balance"] is None  # goods-only sale, no payment line at all
+    assert ctx["total_money"] == Decimal("3200")
 
-    # Paying the rest flips it to a settled receipt with no debt lines at all.
-    record_payment(order, Decimal("2000"))
-    order.refresh_from_db()
-    settled = receipt_text(order)
-    assert "Остаток к оплате" not in settled
-    assert "Оплачено полностью" in settled
+    record_payment(goods_only, Decimal("1200"))
+    ctx = receipt_context(goods_only)
+    assert ctx["paid"] == Decimal("1200.00")
+    assert ctx["balance"] == Decimal("2000.00")
+
+    # Paying the rest drops the balance line — nothing left to show.
+    record_payment(goods_only, Decimal("2000"))
+    ctx = receipt_context(goods_only)
+    assert ctx["paid"] == Decimal("3200.00")
+    assert ctx["balance"] is None
 
 
 def test_purchase_history_shows_the_debt_on_each_sale(client, django_user_model, variant, settings):
@@ -5344,6 +6195,202 @@ def test_purchase_history_shows_the_debt_on_each_sale(client, django_user_model,
     body = resp.content.decode()
     assert "2\xa0200\xa0сом" in body  # the per-sale debt is actually rendered
     assert "оплачено полностью" in body
+
+
+# ---- Debt repayment from the client history page ("Погасить долг") -------
+
+
+def test_debt_pay_detail_prefills_the_remaining_balance(client, django_user_model, variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("dpd_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Debtor", phone="+996700005001")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    record_payment(order, Decimal("1000"))  # 2200 still owed
+
+    resp = client.get(f"/pos/sale/{order.pk}/debt/")
+    assert resp.status_code == 200
+    assert resp.context["balance"] == Decimal("2200.00")
+    assert resp.context["payment_amount"] == Decimal("2200.00")
+
+
+def test_debt_pay_confirm_full_repay_clears_debt(client, django_user_model, variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("dpc_owner", "o2@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="FullPay", phone="+996700005002")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    resp = client.post(
+        f"/pos/sale/{order.pk}/debt/confirm/",
+        {"amount": "3200", "currency": "KGS", "method": Payment.CASH},
+    )
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.balance == Decimal("0")
+    assert order.payment_status == SaleOrder.PAID
+    assert client_debt(cust) == {}
+
+
+def test_debt_pay_confirm_partial_updates_sale_and_client_debt(client, django_user_model, variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("dpc_owner2", "o3@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Partial", phone="+996700005003")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    resp = client.post(
+        f"/pos/sale/{order.pk}/debt/confirm/",
+        {"amount": "1200", "currency": "KGS", "method": Payment.CASH},
+    )
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.balance == Decimal("2000.00")
+    assert client_debt(cust) == {"KGS": Decimal("2000.00")}
+
+
+def test_debt_pay_confirm_foreign_currency_uses_frozen_rate(client, django_user_model, variant, settings):
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
+    owner = django_user_model.objects.create_superuser("dpc_owner3", "o4@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Foreign", phone="+996700005004")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("870"))
+    confirm_sale(order)
+
+    resp = client.post(
+        f"/pos/sale/{order.pk}/debt/confirm/",
+        {"amount": "10", "currency": "USD", "method": Payment.CASH},
+    )
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.balance == Decimal("0")  # 10 USD × 87 = 870 KGS, exactly the total
+    payment = order.payments.get()
+    assert payment.rate_to_kgs == Decimal("87.000000")
+
+    # Voiding restores EXACTLY the pre-payment debt, at the same frozen rate,
+    # even if today's rate has since moved.
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("95.00"))
+    void_payment(payment, user=owner)
+    order.refresh_from_db()
+    assert order.balance == Decimal("870.00")
+    assert client_debt(cust) == {"KGS": Decimal("870.00")}
+
+
+def test_debt_pay_viewer_forbidden(client, django_user_model, variant):
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    viewer = django_user_model.objects.create_user("dp_viewer", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
+    cust = Client.objects.create(first_name="View", phone="+996700005005")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    resp = client.get(f"/pos/sale/{order.pk}/debt/")
+    assert resp.status_code == 403
+    resp = client.post(
+        f"/pos/sale/{order.pk}/debt/confirm/", {"amount": "1000", "currency": "KGS"}
+    )
+    assert resp.status_code == 403
+    assert not order.payments.exists()
+
+
+def test_debt_pay_reuses_record_payment_no_second_payment_path(client, django_user_model, variant):
+    """Not a parallel implementation — the exact same services.record_payment
+    every other /pos/ payment goes through, so debt-status derivation and the
+    daily report never see a payment recorded a different way."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("dp_reuse", "o5@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Reuse", phone="+996700005006")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    client.post(
+        f"/pos/sale/{order.pk}/debt/confirm/",
+        {"amount": "1000", "currency": "KGS", "method": Payment.MBANK},
+    )
+    payment = order.payments.get()
+    assert payment.method == Payment.MBANK
+    assert payment.created_by_id == owner.pk
+    assert payment.rate_to_kgs is not None  # frozen exactly like any other payment
+
+
+def test_client_debt_pay_multi_sale_oldest_first_closes_correct_sales(
+    client, django_user_model, variant
+):
+    from datetime import timedelta
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("mdp_owner", "o6@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="Multi", phone="+996700005007")
+
+    older = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=older, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(older)
+    older.confirmed_at = timezone.now() - timedelta(days=2)
+    older.save(update_fields=["confirmed_at"])
+
+    newer = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=newer, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(newer)
+    newer.confirmed_at = timezone.now() - timedelta(days=1)
+    newer.save(update_fields=["confirmed_at"])
+
+    # Preview: 1500 covers the older sale fully and half of the newer one.
+    resp = client.get(f"/pos/clients/{cust.pk}/debt/pay/?currency=KGS&amount=1500")
+    assert resp.status_code == 200
+    rows = resp.context["allocation"]["rows"]
+    assert [r["order"].pk for r in rows] == [older.pk, newer.pk]
+    assert rows[0]["applied"] == Decimal("1000")
+    assert rows[0]["closes"] is True
+    assert rows[1]["applied"] == Decimal("500")
+    assert rows[1]["closes"] is False
+
+    resp = client.post(
+        f"/pos/clients/{cust.pk}/debt/pay/confirm/",
+        {"currency": "KGS", "amount": "1500", "method": Payment.CASH},
+    )
+    assert resp.status_code == 302
+    older.refresh_from_db()
+    newer.refresh_from_db()
+    assert older.balance == Decimal("0")
+    assert newer.balance == Decimal("500.00")
+    assert Payment.objects.filter(order=older).count() == 1
+    assert Payment.objects.filter(order=newer).count() == 1
+
+
+def test_client_debt_pay_multi_sale_rejects_amount_over_total_debt(
+    client, django_user_model, variant
+):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("mdp_owner2", "o7@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="TooMuch2", phone="+996700005008")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    resp = client.post(
+        f"/pos/clients/{cust.pk}/debt/pay/confirm/",
+        {"currency": "KGS", "amount": "5000", "method": Payment.CASH},
+    )
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.balance == Decimal("1000.00")  # nothing was applied
+    assert not order.payments.exists()
 
 
 def test_sales_sheet_carries_each_buyers_total_outstanding_debt(variant, settings):

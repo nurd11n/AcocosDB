@@ -241,16 +241,22 @@ def test_viewer_cannot_write_interactions_via_the_whatsapp_endpoints(
     from apps.sales.models import SaleItem
     from apps.sales.services import confirm_sale
 
+    from apps.core.permissions import EDITOR
+
     call_command("setup_roles")
     owner_user = django_user_model.objects.create_superuser("wa_owner", "w@e.com", "x" * 12)
     viewer = django_user_model.objects.create_user("wa_viewer", password="x" * 12, is_staff=True)
     viewer.groups.add(Group.objects.get(name=VIEWER))
+    editor = django_user_model.objects.create_user("wa_editor", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
 
-    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     cust = Client.objects.create(first_name="WaViewer", phone="+996700888444")
-    sale = SaleOrder.objects.create(created_by=owner_user, client=cust)
+    # This Editor's OWN same-day sale — share_receipt's scope (CLAUDE.md:
+    # "Editor: own same-day; Owner: any") allows this one for them below.
+    sale = SaleOrder.objects.create(created_by=editor, client=cust)
     SaleItem.objects.create(order=sale, variant=variant, quantity=1, unit_price=Decimal("3200"))
-    confirm_sale(sale, user=owner_user)
+    confirm_sale(sale, user=editor)
 
     client.force_login(viewer)
     assert viewer.has_perm("clients.add_interaction") is False
@@ -262,14 +268,27 @@ def test_viewer_cannot_write_interactions_via_the_whatsapp_endpoints(
         assert client.post(url).status_code == 403, f"Viewer POST {url} should be 403"
     assert Interaction.objects.count() == before  # nothing written
 
-    # An Editor, who does hold the permission, still gets through.
-    from apps.core.permissions import EDITOR
-
-    editor = django_user_model.objects.create_user("wa_editor", password="x" * 12, is_staff=True)
-    editor.groups.add(Group.objects.get(name=EDITOR))
+    # An Editor, who does hold the permission, gets through — for THEIR OWN
+    # same-day sale.
     client.force_login(editor)
     assert client.post(reverse("pos:share_receipt", args=[sale.pk])).status_code == 302
     assert Interaction.objects.count() == before + 1
+
+    # A DIFFERENT Editor (someone else's sale) is refused even though they
+    # hold the same permission — own-sale scope, not just the raw permission.
+    other_sale = SaleOrder.objects.create(created_by=owner_user, client=cust)
+    SaleItem.objects.create(
+        order=other_sale, variant=variant, quantity=1, unit_price=Decimal("3200")
+    )
+    confirm_sale(other_sale, user=owner_user)
+    resp = client.post(reverse("pos:share_receipt", args=[other_sale.pk]))
+    assert resp.status_code == 403
+    assert Interaction.objects.count() == before + 1  # unchanged
+
+    # The Owner may share a receipt for ANY sale, including someone else's.
+    client.force_login(owner_user)
+    assert client.post(reverse("pos:share_receipt", args=[other_sale.pk])).status_code == 302
+    assert Interaction.objects.count() == before + 2
 
 
 # ---- Content-Security-Policy hardening -------------------------------------

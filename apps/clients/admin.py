@@ -9,6 +9,8 @@ from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
+from apps.core.currency import format_money
+
 from .models import Client, Interaction
 from .services import client_debts_by_currency
 
@@ -136,7 +138,7 @@ class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         debts = {cur: amt for cur, amt in self._debts.get(obj.pk, {}).items() if amt > 0}
         if not debts:
             return "—"
-        return ", ".join(f"{amt} {cur}" for cur, amt in sorted(debts.items()))
+        return ", ".join(format_money(amt, cur) for cur, amt in sorted(debts.items()))
 
     @admin.display(description=_("unpaid orders"))
     def unpaid_orders(self, obj):
@@ -159,9 +161,13 @@ class ClientAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         body = format_html_join(
             "",
             '<tr><td style="padding:2px 10px 2px 0"><a href="{}">#{}</a></td>'
-            '<td style="padding:2px 10px;text-align:right">{} {}</td></tr>',
+            '<td style="padding:2px 10px;text-align:right">{}</td></tr>',
             (
-                (reverse("admin:sales_saleorder_change", args=[o.pk]), o.pk, balance, o.currency)
+                (
+                    reverse("admin:sales_saleorder_change", args=[o.pk]),
+                    o.pk,
+                    format_money(balance, o.currency),
+                )
                 for o, balance in rows
             ),
         )

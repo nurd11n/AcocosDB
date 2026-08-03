@@ -90,7 +90,7 @@
                 {% else %}
                     <li class="nav-item">
                         <a href="{% url 'admin:index' %}" class="brand-link">
-                            <img src="{% static jazzmin_settings.site_logo %}" alt="{{ jazzmin_settings.site_header }} Logo" class="{{ jazzmin_settings.site_logo_classes }} brand-image" style="opacity: .8; margin: 0 0 0 5px;">
+                            <img src="{% static jazzmin_settings.site_logo %}" alt="{% blocktrans with header=jazzmin_settings.site_header %}{{ header }} Logo{% endblocktrans %}" class="{{ jazzmin_settings.site_logo_classes }} brand-image" style="opacity: .8; margin: 0 0 0 5px;">
                         </a>
                     </li>
                 {% endif %}
@@ -180,7 +180,7 @@
                     {% get_language_info_list for LANGUAGES as languages %}
 
                     <li class="nav-item dropdown">
-                        <a class="nav-link btn" data-bs-toggle="dropdown" href="#" title="Choose language">
+                        <a class="nav-link btn" data-bs-toggle="dropdown" href="#" title="{% trans 'Choose language' %}">
                             <i class="fas fa-globe" aria-hidden="true"></i>
                         </a>
                         <div class="dropdown-menu dropdown-menu-lg dropdown-menu-end" id="jazzy-languagemenu">
@@ -241,7 +241,7 @@
             <aside class="app-sidebar bg-body-secondary shadow {{ jazzmin_ui.sidebar_classes }}" id="jazzy-sidebar" data-bs-theme="dark">
                 <div class="sidebar-brand">
                     <a href="{% url 'admin:index' %}" class="brand-link {{ jazzmin_ui.brand_classes }}" id="jazzy-logo">
-                        <img src="{% static jazzmin_settings.site_logo %}" alt="{{ jazzmin_settings.site_header }} Logo" class="{{ jazzmin_settings.site_logo_classes }} brand-image opacity-75 shadow">
+                        <img src="{% static jazzmin_settings.site_logo %}" alt="{% blocktrans with header=jazzmin_settings.site_header %}{{ header }} Logo{% endblocktrans %}" class="{{ jazzmin_settings.site_logo_classes }} brand-image opacity-75 shadow">
                         <span class="brand-text fw-light">{{ jazzmin_settings.site_brand }}</span>
                     </a>
                 </div>
@@ -250,7 +250,7 @@
                     <div class="user-panel d-flex">
                         <div class="image">
                             {% if jazzmin_settings|has_jazzmin_setting:"user_avatar" %}
-                                <img src="{% get_user_avatar request.user %}" width="160px" class="img-circle elevation-2" alt="User Image">
+                                <img src="{% get_user_avatar request.user %}" width="160px" class="img-circle elevation-2" alt="{% trans 'User Image' %}">
                             {% else %}
                                 <i class="fas fa-inverse user-profile fa-user-circle"></i>
                             {% endif %}
@@ -265,7 +265,7 @@
                     </div>
 
                     <nav class="mt-2">
-                        <ul class="nav sidebar-menu flex-column {{ jazzmin_ui.sidebar_list_classes }}" data-lte-toggle="treeview" role="navigation" aria-label="Main navigation" data-accordion="false" id="jazzy-navigation">
+                        <ul class="nav sidebar-menu flex-column {{ jazzmin_ui.sidebar_list_classes }}" data-lte-toggle="treeview" role="navigation" aria-label="{% trans 'Main navigation' %}" data-accordion="false" id="jazzy-navigation">
 
                             <li class="nav-item">
                                 <a href="{% url 'admin:index' %}" class="nav-link">
@@ -344,22 +344,22 @@
                             {% if message.tags == 'success' %}
                                 <div class="alert alert-success alert-dismissible fade show" role="alert">
                                     <i class="icon fa fa-check"></i> {{ message|capfirst }}
-                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Close' %}"></button>
                                 </div>
                             {% elif message.tags == 'error' %}
                                 <div class="alert alert-danger alert-dismissible fade show" role="alert">
                                     <i class="icon fa fa-ban"></i> {{ message|capfirst }}
-                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Close' %}"></button>
                                 </div>
                             {% elif message.tags == 'warning' %}
                                 <div class="alert alert-warning alert-dismissible fade show" role="alert">
                                     <i class="icon fa fa-exclamation-triangle"></i> {{ message|capfirst }}
-                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Close' %}"></button>
                                 </div>
                             {% elif message.tags == 'info' %}
                                 <div class="alert alert-info alert-dismissible fade show" role="alert">
                                     <i class="icon fa fa-info"></i> {{ message|capfirst }}
-                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Close' %}"></button>
                                 </div>
                             {% endif %}
                         {% endfor %}
@@ -398,7 +398,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h4 class="modal-title">{% trans 'UI Configuration' %}</h4>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
             </div>
             <div class="modal-body">
                 <p>{% trans 'Copy this info your settings file to persist these UI changes' %}</p>

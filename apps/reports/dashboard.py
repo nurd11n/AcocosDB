@@ -33,6 +33,7 @@ from django.db.models import (
 )
 from django.db.models.functions import (
     Coalesce,
+    Round,
     TruncDate,
 )
 from django.utils import timezone
@@ -62,23 +63,41 @@ _MONEY = DecimalField(max_digits=18, decimal_places=2)
 # balance/debt/report sums net_applied_kgs, never amount alone.
 _PAY_KGS = F("amount") * F("rate_to_kgs") - F("change_amount_kgs")
 _LINE_SUBTOTAL = F("unit_price") * F("quantity")
+_LINE_SUBTOTAL_KGS = _LINE_SUBTOTAL * F("order__rate_to_kgs")
 # Mirrors SaleItem.discount_amount in SQL — this must stay a DB expression
 # (not the Python property) because it feeds a grouped .annotate()/Sum() over
 # many rows, not a single loaded instance. A SaleItem's own CheckConstraints
 # already guarantee discount_value can never make this go negative, so no
-# extra clamping is needed here.
-_LINE_DISCOUNT = Case(
-    When(discount_type=SaleItem.DISCOUNT_PERCENT, then=_LINE_SUBTOTAL * F("discount_value") / 100),
-    When(discount_type=SaleItem.DISCOUNT_FIXED, then=F("discount_value")),
-    default=Value(Decimal("0")),
-    output_field=_MONEY,
+# extra clamping is needed here. Rounded to cents (Round, 2) to match
+# SaleItem.discount_amount's own ROUND_HALF_UP — a percent discount's raw
+# subtotal*value/100 can land on 4 decimal places (e.g. 449.9955), and an
+# unrounded SQL figure here would silently drift a few cents from what
+# confirm_sale actually froze onto SaleOrder.total for the same line.
+_LINE_DISCOUNT = Round(
+    Case(
+        When(
+            discount_type=SaleItem.DISCOUNT_PERCENT, then=_LINE_SUBTOTAL * F("discount_value") / 100
+        ),
+        When(discount_type=SaleItem.DISCOUNT_FIXED, then=F("discount_value")),
+        default=Value(Decimal("0")),
+        output_field=_MONEY,
+    ),
+    2,
 )
 # "Top products by revenue" must rank by what was actually charged, not the
 # sticker price — an unchanged _LINE_KGS here would overstate revenue (and
 # rank) for anything sold at a discount, while the main revenue metric
 # (SaleOrder.total_kgs, summed elsewhere) already correctly nets it out.
 _LINE_KGS = (_LINE_SUBTOTAL - _LINE_DISCOUNT) * F("order__rate_to_kgs")
-_LINE_COGS = F("variant__cost_price") * F("quantity")
+# The cost FROZEN on the item at confirm_sale (SaleItem.cost_price), never
+# variant__cost_price — the variant's cost is a live, editable field, and
+# reading it here would let a cost-price change next month rewrite last
+# month's profit. A pre-migration item with no frozen cost (cost_price IS
+# NULL) falls back to the current variant cost rather than silently
+# excluding it from COGS and overstating profit — see the 0017 backfill
+# migration, which freezes this for all pre-existing rows on deploy, so the
+# fallback only matters in the brief window before that migration runs.
+_LINE_COGS = Coalesce(F("cost_price"), F("variant__cost_price")) * F("quantity")
 
 
 def _cond_sum(value_expr, condition):
@@ -118,15 +137,45 @@ def _metrics(start, end, prev_start, prev_end):
     cur = (start, end)
     prev = (prev_start, prev_end)
 
-    # Revenue: one query, current + previous conditional sums over the union range.
+    # Revenue: one query, current + previous conditional sums over the union
+    # range. walkin_cur/prev piggybacks on the same query — a walk-in is
+    # settled the moment it's confirmed (no debt, no Payment row: CLAUDE.md /
+    # SaleOrder.is_walk_in), so its FULL total counts as received cash
+    # immediately, same special case SaleOrder.balance/payment_status already
+    # make. Without this, "Ожидается" would wrongly show every walk-in as
+    # still-unpaid forever, since it never gets a Payment row to sum.
     rev = SaleOrder.objects.filter(
         status=SaleOrder.CONFIRMED, confirmed_at__date__range=(prev_start, end)
     ).aggregate(
         cur=_cond_sum(F("total_kgs"), _in(cur)),
         prev=_cond_sum(F("total_kgs"), _in(prev)),
+        walkin_cur=_cond_sum(F("total_kgs"), _in(cur) & Q(client__isnull=True)),
+        walkin_prev=_cond_sum(F("total_kgs"), _in(prev) & Q(client__isnull=True)),
     )
 
-    # Units + COGS: one query over the line items in the union range.
+    # Cash actually received: SUM of each payment's own NET applied amount
+    # (gross minus change handed back — CLAUDE.md: never the gross amount),
+    # by the date the PAYMENT itself landed, not the sale's confirm date — a
+    # debt paid off next month is next month's received cash, not this
+    # month's. A voided payment's reversal row carries a NEGATIVE amount
+    # (services.void_payment), so summing every row (original + reversal,
+    # whichever period each falls in) nets to the correct figure without
+    # needing to filter reversals out, unlike the payment-METHOD breakdown.
+    pay = Payment.objects.filter(created_at__date__range=(prev_start, end)).aggregate(
+        cur=_cond_sum(_PAY_KGS, Q(created_at__date__range=cur)),
+        prev=_cond_sum(_PAY_KGS, Q(created_at__date__range=prev)),
+    )
+
+    # Units + COGS + sticker subtotal: one query over the line items in the
+    # union range. Revenue (SaleOrder.total_kgs, summed above) is already NET
+    # of discount — see SaleItem.line_total / confirm_sale — so profit/margin
+    # below are automatically after-discount. discount = subtotal − revenue:
+    # deliberately NOT re-deriving the per-line discount amount here (a
+    # percent discount's raw subtotal×value/100 can land on 4 decimal places
+    # and drift a cent from what confirm_sale actually rounded and froze) —
+    # subtotal itself is a plain unit_price×quantity product with no
+    # rounding ambiguity at all, so subtracting the ALREADY-authoritative
+    # total_kgs from it is exact by construction, not just "close".
     uc = SaleItem.objects.filter(
         order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__range=(prev_start, end)
     ).aggregate(
@@ -136,17 +185,40 @@ def _metrics(start, end, prev_start, prev_end):
         ),
         cogs_cur=_cond_sum(_LINE_COGS, _in(cur, "order__")),
         cogs_prev=_cond_sum(_LINE_COGS, _in(prev, "order__")),
+        subtotal_cur=_cond_sum(_LINE_SUBTOTAL_KGS, _in(cur, "order__")),
+        subtotal_prev=_cond_sum(_LINE_SUBTOTAL_KGS, _in(prev, "order__")),
     )
 
     revenue, revenue_prev = rev["cur"], rev["prev"]
     profit = revenue - uc["cogs_cur"]
     profit_prev = revenue_prev - uc["cogs_prev"]
     margin = int(round(profit / revenue * 100)) if revenue else None
+    discount = uc["subtotal_cur"] - revenue
+    discount_prev = uc["subtotal_prev"] - revenue_prev
+    # % of the pre-discount sticker total that was given away.
+    discount_pct = int(round(discount / uc["subtotal_cur"] * 100)) if uc["subtotal_cur"] else None
+
+    # Received = actual payments landed this period + walk-ins (settled the
+    # moment they're confirmed, no Payment row — see the query comment
+    # above). Expected = booked but not yet in hand; can legitimately go
+    # negative (more OLD debt collected this period than NEW revenue booked)
+    # — that's real signal, not clamped away.
+    received = pay["cur"] + rev["walkin_cur"]
+    received_prev = pay["prev"] + rev["walkin_prev"]
+    expected = revenue - received
+    expected_prev = revenue_prev - received_prev
 
     return {
         "revenue": {"value": revenue, "delta": _delta(revenue, revenue_prev)},
         "profit": {"value": profit, "margin": margin, "delta": _delta(profit, profit_prev)},
         "units": {"value": uc["units_cur"], "delta": _delta(uc["units_cur"], uc["units_prev"])},
+        "discount": {
+            "value": discount,
+            "pct": discount_pct,
+            "delta": _delta(discount, discount_prev),
+        },
+        "received": {"value": received, "delta": _delta(received, received_prev)},
+        "expected": {"value": expected, "delta": _delta(expected, expected_prev)},
     }
 
 
@@ -492,6 +564,7 @@ def dashboard_sheets(data: dict) -> dict[str, export.Sheet]:
             ["Выручка, сом", _num(m["revenue"]["value"])],
             ["Прибыль, сом", _num(m["profit"]["value"])],
             ["Маржа, %", margin if margin is not None else ""],
+            ["Скидки, сом", _num(m["discount"]["value"])],
             ["Продано, шт", int(m["units"]["value"])],
             ["Долг (текущий), сом", _num(m["debt"]["value"])],
             ["Должников", int(m["debt"]["clients"])],

@@ -118,6 +118,8 @@ class Order(models.Model):
         total = sum(i.quantity for i in items)
         return f"{done} из {total} произведено"
 
+    produced_summary.fget.short_description = _("произведено")
+
 
 class OrderItem(models.Model):
     order = models.ForeignKey(

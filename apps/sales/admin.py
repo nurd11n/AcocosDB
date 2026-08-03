@@ -12,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
 from apps.core.currency import format_money
+from apps.core.permissions import can_see_costs
 
 from .models import Payment, SaleItem, SaleOrder
 from .services import cancel_sale, confirm_sale, mark_fully_paid, record_payment, void_payment
@@ -29,9 +30,46 @@ _BADGE_LABELS = {
 
 
 class SaleItemInline(admin.TabularInline):
+    """Editable ONLY while the sale is still a draft. Stock and total are
+    CONSEQUENCES of confirm_sale/return_items/cancel_sale (CLAUDE.md), never
+    hand-typed — once an order is confirmed, editing a line here would change
+    what was sold without moving a single StockMovement or touching
+    order.total/total_kgs, silently desyncing the ledger from the sale. The
+    sanctioned way to change a confirmed sale is «Отменить продажу» or
+    «Оформить возврат», both through services.py with a correct audit trail.
+    Enforced via has_*_permission (real admin permission checks Django's
+    changeform view itself respects on POST), not just hidden/disabled
+    widgets — a crafted POST against a confirmed sale's items is rejected the
+    same way an unauthorized user's would be."""
+
     model = SaleItem
     extra = 0
     autocomplete_fields = ["variant"]
+
+    def get_fields(self, request, obj=None):
+        fields = super().get_fields(request, obj)
+        if not can_see_costs(request.user):
+            fields = [f for f in fields if f != "cost_price"]
+        return fields
+
+    def get_readonly_fields(self, request, obj=None):
+        # cost_price is FROZEN by confirm_sale, never hand-entered at any
+        # stage (see SaleItem.cost_price) — always read-only, independent of
+        # the draft/confirmed lock below.
+        return ["cost_price"]
+
+    @staticmethod
+    def _editable(obj) -> bool:
+        return obj is None or obj.status == SaleOrder.DRAFT
+
+    def has_add_permission(self, request, obj=None):
+        return self._editable(obj) and super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        return self._editable(obj) and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return self._editable(obj) and super().has_delete_permission(request, obj)
 
 
 class PaymentInlineForm(forms.ModelForm):
@@ -58,12 +96,49 @@ class PaymentInlineForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # NEW rows only — an existing payment keeps whatever client it was
+        # recorded with even if the sale's own client is edited afterward
+        # (SaleOrder.client isn't readonly in this admin); prefill/lock/
+        # enforce only applies to the row being created right now.
+        order_client_id = getattr(self, "_order_client_id", None)
+        if order_client_id is not None and not self.instance.pk:
+            # Prefilled from the parent sale and locked in the UI — but this is
+            # cosmetic only (a plain HTML attribute, not Django's field-level
+            # `disabled`, which would silently discard a mismatched POST
+            # instead of rejecting it). Not required either: a real browser
+            # submits nothing at all for a disabled field, so clean_client()
+            # below must accept "missing" as "use the sale's client" while
+            # still rejecting an explicit, different client_id.
+            self.fields["client"].initial = order_client_id
+            self.fields["client"].required = False
+            self.fields["client"].widget.attrs["disabled"] = "disabled"
+
         user = getattr(self, "_request_user", None)
         locked = self.instance.pk and self.instance.reviewed and user and not user.is_superuser
         if locked:
             for name in ["client", "amount", "currency", "method", "note"]:
                 self.fields[name].disabled = True
             self.fields["confirm_overpayment"].disabled = True
+
+    def clean_client(self):
+        client = self.cleaned_data.get("client")
+        order_client_id = getattr(self, "_order_client_id", None)
+        if order_client_id is None or self.instance.pk:
+            return client
+        if client is None:
+            return self.fields["client"].queryset.get(pk=order_client_id)
+        if client.pk != order_client_id:
+            raise ValidationError(_("Клиент платежа должен совпадать с клиентом продажи."))
+        return client
+
+    def clean_amount(self):
+        # The DB CheckConstraint (payment_amount_positive_unless_reversal)
+        # already rejects this, but only as a raw IntegrityError/500 — this
+        # gives the same rule a clean Russian field error instead.
+        amount = self.cleaned_data.get("amount")
+        if amount is not None and amount <= 0:
+            raise ValidationError(_("Сумма платежа должна быть больше нуля."))
+        return amount
 
 
 class PaymentInlineFormSet(forms.BaseInlineFormSet):
@@ -138,7 +213,12 @@ class PaymentInline(admin.TabularInline):
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
         bound_form = type(
-            "BoundPaymentInlineForm", (formset.form,), {"_request_user": request.user}
+            "BoundPaymentInlineForm",
+            (formset.form,),
+            {
+                "_request_user": request.user,
+                "_order_client_id": obj.client_id if obj is not None else None,
+            },
         )
         formset.form = bound_form
         return formset
@@ -187,7 +267,10 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     date_hierarchy = "confirmed_at"
     list_select_related = ["client"]
     autocomplete_fields = ["client"]
-    readonly_fields = ["total", "status", "confirmed_at", "created_by"]
+    # total/total_kgs are ALWAYS computed (confirm_sale/return_items/
+    # cancel_sale), never hand-typed at any stage — same discipline as
+    # status/confirmed_at/created_by.
+    readonly_fields = ["total", "total_kgs", "status", "confirmed_at", "created_by"]
     inlines = [SaleItemInline, PaymentInline]
     actions = ["approve_selected", "mark_paid_selected", "cancel_selected"]
 
@@ -271,13 +354,13 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
     def save_formset(self, request, form, formset, change):
-        # Stamp created_by on inline payments, and default their client to the
-        # order's client so a partial payment/loan needs one less field.
+        # Stamp created_by on inline payments — client prefill/locking for
+        # a sale that has one lives in PaymentInlineForm (get_formset,
+        # __init__, clean_client) since it must be enforced during
+        # validation, not after formset.is_valid() has already passed.
         instances = formset.save(commit=False)
         for obj in instances:
             if isinstance(obj, Payment):
-                if obj.client_id is None and form.instance.client_id:
-                    obj.client = form.instance.client
                 if obj.created_by_id is None:
                     obj.created_by = request.user
             obj.save()
@@ -405,6 +488,23 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         return obj.get_excess_disposition_display()
 
     def has_module_permission(self, request):
+        return False
+
+    def has_add_permission(self, request):
+        # A Payment must always be created through a real flow — a sale
+        # (PaymentInline, /pos/) or a production-order deposit
+        # (services.record_deposit) — never typed from a blank standalone
+        # form here, which is how a "ghost" payment (no order, no
+        # production_order) got created in the first place. This admin
+        # exists only for voiding and read-only auditing (see class
+        # docstring).
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        # Same reasoning as has_add_permission: editing here could re-point
+        # (or clear) `order`/`production_order` and turn a real payment into
+        # an orphan. The sanctioned edit path for a sale's payment is
+        # PaymentInline, on the SaleOrder itself.
         return False
 
     def save_model(self, request, obj, form, change):

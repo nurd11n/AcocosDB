@@ -6,7 +6,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # gettext provides msgfmt, needed to compile locale/*/LC_MESSAGES/*.po -> .mo.
-RUN apt-get update && apt-get install -y --no-install-recommends gettext \
+# The rest is WeasyPrint's native rendering stack (cairo/pango/gdk-pixbuf) —
+# it renders the receipt PDF from the SAME HTML/CSS as the web page, so the
+# two can never drift apart (see apps.pos.receipts).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gettext \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libcairo2 \
+    libgdk-pixbuf-2.0-0 \
+    libffi-dev \
+    shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -1,0 +1,51 @@
+{% load i18n pos_extras %}
+{% if error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
+<div class="cart-scroll">
+{% include "pos/partials/payment_panel.html" %}
+</div>{# /.cart-scroll #}
+
+<div class="money-bar">
+ <div class="money-bar__row money-bar__row--total">
+  <span class="money-bar__label">{% trans "Остаток" %}</span>
+  <span class="money-bar__amount num">{{ balance|money:order.currency }}
+    {% if balance_conv %}<span class="money-bar__conv">≈ {{ balance_conv|money:base_currency }}</span>{% endif %}</span>
+ </div>
+
+ <form method="post" action="{{ confirm_url }}"
+   data-network-safe data-error-target="confirm-error"
+   data-confirm="{% blocktrans with sum=entered_amount|money:entered_currency %}Записать платёж на {{ sum }}?{% endblocktrans %}"
+   data-confirm-ok="{% trans "Да, записать платёж" %}" data-confirm-tone="primary">
+  {% csrf_token %}
+  {% comment %}
+  stringformat:'s' everywhere a Decimal round-trips into a value= attribute —
+  plain {{ }} localizes under the ru locale (3200.00 -> "3200,00"), which
+  then fails Decimal() parsing server-side and silently drops the amount.
+  {% endcomment %}
+  <input type="hidden" name="amount" value="{% if payment_amount is not None %}{{ payment_amount|stringformat:'s' }}{% else %}0{% endif %}">
+  <input type="hidden" name="currency" value="{{ payment_currency|default:order.currency }}">
+  <input type="hidden" name="method" value="{{ payment_method|default:'cash' }}">
+  <input type="hidden" name="excess_disposition" value="{{ excess_disposition }}">
+  <input type="hidden" name="change_currency" value="{{ change_currency }}">
+  {% if change_amount_override %}<input type="hidden" name="change_amount_override" value="{{ change_amount_override|stringformat:'s' }}">
+  <input type="hidden" name="change_adjust_reason" value="{{ change_adjust_reason }}">{% endif %}
+  {% if rate_override %}<input type="hidden" name="rate_override" value="{{ rate_override|stringformat:'s' }}">{% endif %}
+  {% if conv.requires_ack %}
+  <div class="pay-note pay-note--risk">
+   <strong>{% trans "Требуется подтверждение платежа:" %}</strong>
+   <ul>
+    {% for reason in conv.reasons %}<li>{{ reason }}</li>{% endfor %}
+   </ul>
+   <label>
+    <input type="checkbox" name="risk_ack" value="1" required>
+    {% trans "Понимаю риск, подтверждаю оплату на этих условиях" %}
+   </label>
+  </div>
+  {% endif %}
+  <button type="submit" class="btn btn-primary" {% if entered_amount <= 0 or requires_disposition_choice %}disabled{% endif %}>
+    {% if change and change.has_excess and excess_disposition == "change" %}{% trans "Записать платёж и выдать сдачу" %}{% else %}{% trans "Записать платёж" %}{% endif %}</button>
+ </form>
+ <p id="confirm-error" class="error" hidden></p>
+</div>

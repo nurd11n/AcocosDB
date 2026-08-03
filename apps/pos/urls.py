@@ -13,6 +13,12 @@ urlpatterns = [
     path("today/", views.today, name="today"),
     path("clients/", views.clients, name="clients"),
     path("clients/<int:pk>/", views.client_detail, name="client_detail"),
+    path("clients/<int:pk>/debt/pay/", views.client_debt_pay, name="client_debt_pay"),
+    path(
+        "clients/<int:pk>/debt/pay/confirm/",
+        views.client_debt_pay_confirm,
+        name="client_debt_pay_confirm",
+    ),
     # The empty terminal — no SaleOrder exists yet (see views.index/sale_new).
     # "new" never collides with <int:pk> below (the int converter only
     # matches digits), but these are still listed first for readability.
@@ -54,5 +60,8 @@ urlpatterns = [
     path("sale/<int:pk>/cancel/", views.sale_cancel, name="sale_cancel"),
     path("sale/<int:pk>/return/", views.sale_return, name="sale_return"),
     path("sale/<int:pk>/receipt/", views.share_receipt, name="share_receipt"),
+    path("sale/<int:pk>/debt/", views.debt_pay_detail, name="debt_pay_detail"),
+    path("sale/<int:pk>/debt/recalc/", views.debt_pay_recalc, name="debt_pay_recalc"),
+    path("sale/<int:pk>/debt/confirm/", views.debt_pay_confirm, name="debt_pay_confirm"),
     path("clients/<int:pk>/remind/", views.debt_reminder, name="debt_reminder"),
 ]

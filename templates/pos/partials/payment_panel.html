@@ -1,0 +1,163 @@
+{% load i18n pos_extras %}
+{% comment %}
+THE payment panel — amount/currency/method, the Owner-only rate override, the
+frozen-rate conversion note, the overpayment fork, and the change double-check
+panel. Shared by the draft-sale cart (sale_body.html) and debt repayment
+(debt_pay.html) — CLAUDE.md's "same payment panel used everywhere, reuse
+services.py, no second payment path" — so the two can never drift apart.
+Callers supply `recalc_url` (the htmx live-preview endpoint) and
+`full_pay_amount` (what the "Оплачено полностью" shortcut fills in — the
+cart's live total for a draft, the outstanding balance for a debt repayment);
+everything else (conv, change, excess_disposition, ...) comes from the shared
+context-building helper (_sale_body_context / _debt_pay_context).
+{% endcomment %}
+<div class="card payment-card">
+ <h2>{% trans "Оплата" %}</h2>
+ <form id="payment-form" hx-post="{{ recalc_url }}" hx-target="#sale-body" hx-swap="innerHTML"
+   hx-trigger="change, keyup changed delay:400ms, submit">
+  <label>{% trans "Сумма" %}</label>
+  {% comment %}
+  stringformat:'s' — plain {{ }} localizes a Decimal under the ru locale
+  (3200.00 -> "3200,00"), which then fails Decimal() parsing server-side and
+  silently drops the amount on submit.
+  {% endcomment %}
+  <input type="text" name="amount" inputmode="decimal" id="pay-amount"
+    value="{% if payment_amount is not None %}{{ payment_amount|stringformat:'s' }}{% endif %}">
+  <div class="row">
+   <div>
+    <label>{% trans "Валюта" %}</label>
+    <select name="currency">
+     {% for c in currencies %}
+       <option value="{{ c }}" {% if c == payment_currency %}selected{% endif %}>{{ c|currency_symbol }}</option>
+     {% endfor %}
+    </select>
+   </div>
+   <div>
+    <label>{% trans "Способ" %}</label>
+    <select name="method">
+     {% for code, label in methods %}
+       <option value="{{ code }}" {% if code == payment_method %}selected{% endif %}>{{ label }}</option>
+     {% endfor %}
+    </select>
+   </div>
+  </div>
+  <div class="row" style="margin-top:var(--space-3)">
+   <button type="button" class="btn btn-ghost" data-pay-amount="{{ full_pay_amount|stringformat:'s' }}">
+     {% trans "Оплачено полностью" %}</button>
+   {% if allow_debt_shortcut|default:True %}
+   <button type="button" class="btn btn-ghost" data-pay-amount="0">
+     {% trans "В долг" %}</button>
+   {% endif %}
+  </div>
+
+  {% if can_override_rate and not conv.same_currency %}
+  <details class="rate-override">
+   <summary>{% trans "Свой курс (Владелец)" %}</summary>
+   <label>{% trans "Курс вручную" %}</label>
+   <input type="text" name="rate_override" inputmode="decimal"
+     value="{% if rate_override %}{{ rate_override|stringformat:'s' }}{% endif %}"
+     placeholder="{% trans "напр. 89.00" %}">
+   <p class="hint">{% trans "Оставьте пустым, чтобы использовать курс НБКР." %}</p>
+  </details>
+  {% endif %}
+
+  <input type="hidden" name="excess_disposition" value="{{ excess_disposition }}">
+
+  {% if change and change.has_excess and excess_disposition == "change" %}
+   <div style="margin-top:var(--space-3)">
+    <label>{% trans "Валюта сдачи" %}</label>
+    <select name="change_currency">
+     <option value="{{ order.currency }}" {% if change_currency == order.currency %}selected{% endif %}>{{ order.currency|currency_symbol }}</option>
+     {% if entered_currency != order.currency %}
+     <option value="{{ entered_currency }}" {% if change_currency == entered_currency %}selected{% endif %}>{{ entered_currency|currency_symbol }}</option>
+     {% endif %}
+    </select>
+   </div>
+   <details class="rate-override">
+    <summary>{% trans "Изменить сумму сдачи" %}</summary>
+    <label>{% trans "Сумма сдачи" %}</label>
+    <input type="text" name="change_amount_override" inputmode="decimal"
+      value="{% if change_amount_override %}{{ change_amount_override|stringformat:'s' }}{% endif %}">
+    <p class="hint">{% trans "В пределах ±2 шагов округления без подтверждения владельца — требует причины." %}</p>
+    <label>{% trans "Причина изменения" %}</label>
+    <input type="text" name="change_adjust_reason" maxlength="255"
+      value="{% if change_adjust_reason %}{{ change_adjust_reason }}{% endif %}">
+   </details>
+  {% else %}
+   <input type="hidden" name="change_currency" value="{{ change_currency }}">
+  {% endif %}
+ </form>
+
+ {% if not conv.same_currency and entered_amount > 0 %}
+   {% if conv.convert_failed %}
+   <p class="pay-note pay-note--warn" style="margin-top:var(--space-2)">{% blocktrans with c=entered_currency|currency_symbol %}Нет курса для {{ c }} — оплата не пересчитана. Обновите курс выше.{% endblocktrans %}</p>
+   {% else %}
+   <p class="pay-note num">
+     {{ entered_amount|money:entered_currency }} × {{ conv.rate|floatformat:2 }} = {{ conv.converted_kgs|money:base_currency }}
+     · {% if conv.rate_source == "manual" %}{% trans "курс вручную" %}{% elif conv.rate_source == "nbkr" %}{% trans "НБКР" %} {{ conv.rate_date|date:"d.m.Y" }}{% else %}{% trans "Frankfurter" %} {{ conv.rate_date|date:"d.m.Y" }}{% endif %}
+   </p>
+   {% if conv.deviation_warning %}
+   <p class="pay-note pay-note--risk">{{ conv.deviation_warning }}</p>
+   {% endif %}
+   {% endif %}
+ {% endif %}
+
+ {# THE OVERPAYMENT FORK — ask, never assume. #}
+ {% if requires_disposition_choice %}
+ <div class="pay-note pay-note--risk">
+  <strong>{% trans "Клиент дал больше, чем нужно — что сделать с излишком?" %}</strong>
+  <div class="row" style="margin-top:var(--space-2)">
+   <button type="button" class="btn btn-primary" hx-post="{{ recalc_url }}"
+     hx-include="#payment-form" hx-vals='{"excess_disposition":"change"}'
+     hx-target="#sale-body" hx-swap="innerHTML">{% trans "Сдача" %}</button>
+   <button type="button" class="btn btn-ghost" {% if not has_client %}disabled title="{% trans 'Нужен клиент на продаже' %}"{% endif %}
+     hx-post="{{ recalc_url }}" hx-include="#payment-form"
+     hx-vals='{"excess_disposition":"debt"}' hx-target="#sale-body" hx-swap="innerHTML">{% trans "В счёт долга" %}</button>
+   <button type="button" class="btn btn-ghost" {% if not has_client %}disabled title="{% trans 'Нужен клиент на продаже' %}"{% endif %}
+     hx-post="{{ recalc_url }}" hx-include="#payment-form"
+     hx-vals='{"excess_disposition":"credit"}' hx-target="#sale-body" hx-swap="innerHTML">{% trans "Аванс" %}</button>
+  </div>
+ </div>
+ {% endif %}
+
+ {# THE DOUBLE-CHECK PANEL — the full picture before handing money back. #}
+ {% if change and change.has_excess and excess_disposition == "change" %}
+ <div class="change-panel">
+  <div class="change-panel__row"><span>{% trans "Клиент дал" %}</span><span class="num">{{ entered_amount|money:entered_currency }}</span></div>
+  {% if not conv.same_currency and not conv.convert_failed %}
+  <div class="change-panel__row"><span>{% if conv.rate_source == "manual" %}{% trans "курс вручную" %}{% elif conv.rate_source == "nbkr" %}{% trans "Курс НБКР" %} {{ conv.rate_date|date:"d.m.Y" }}{% else %}{% trans "Курс Frankfurter" %} {{ conv.rate_date|date:"d.m.Y" }}{% endif %}</span><span class="num">{{ conv.rate|floatformat:2 }}</span></div>
+  <div class="change-panel__row"><span>{% trans "Зачтено" %}</span><span class="num">{{ conv.converted_kgs|money:base_currency }}</span></div>
+  {% endif %}
+  <div class="change-panel__row"><span>{% trans "Сумма к оплате" %}</span><span class="num">{{ change.balance_kgs_before|money:base_currency }}</span></div>
+  <div class="change-panel__row change-panel__row--total">
+   <span>{% trans "Сдача" %}</span>
+   <span class="num">{% if change_amount_override %}{{ change_amount_override|money:change_currency }}{% else %}{{ change.change_amount|money:change_currency }}{% endif %}</span>
+  </div>
+  {% if change.change_rounding_kgs %}
+  <p class="hint">{% blocktrans with r=change.change_rounding_kgs|money:base_currency %}округление {{ r }}{% endblocktrans %}</p>
+  {% endif %}
+  {% if conv.cross_currency %}
+  <p class="pay-note pay-note--risk">{% trans "Разные валюты — пересчитайте сдачу вручную перед выдачей." %}</p>
+  {% endif %}
+ </div>
+ <div class="row" style="margin-top:var(--space-2)">
+  <button type="button" class="btn btn-ghost" hx-post="{{ recalc_url }}"
+    hx-include="#payment-form" hx-vals='{"excess_disposition":""}'
+    hx-target="#sale-body" hx-swap="innerHTML">{% trans "Изменить" %}</button>
+ </div>
+ {% elif excess_disposition == "debt" and change and change.has_excess %}
+ <p class="pay-note">{% trans "Излишек будет зачтён в счёт других продаж клиента." %}</p>
+ <div class="row" style="margin-top:var(--space-2)">
+  <button type="button" class="btn btn-ghost" hx-post="{{ recalc_url }}"
+    hx-include="#payment-form" hx-vals='{"excess_disposition":""}'
+    hx-target="#sale-body" hx-swap="innerHTML">{% trans "Изменить" %}</button>
+ </div>
+ {% elif excess_disposition == "credit" and change and change.has_excess %}
+ <p class="pay-note">{% trans "Излишек будет сохранён как аванс клиента." %}</p>
+ <div class="row" style="margin-top:var(--space-2)">
+  <button type="button" class="btn btn-ghost" hx-post="{{ recalc_url }}"
+    hx-include="#payment-form" hx-vals='{"excess_disposition":""}'
+    hx-target="#sale-body" hx-swap="innerHTML">{% trans "Изменить" %}</button>
+ </div>
+ {% endif %}
+</div>

@@ -227,6 +227,20 @@ of an untracked local file rather than of the code. `tests/test_prod_flags.py`
 still sets the flags `False` explicitly — that stays the one place the gating
 itself is verified.
 
+**Receipt PDFs (WeasyPrint) on bare macOS dev machines:** the Docker image
+installs WeasyPrint's native rendering libs via `apt-get` (see
+`docker/Dockerfile`), so this only matters when running bare (no Docker) on
+macOS. Install the native libs once — `brew install pango` (pulls in cairo/
+gobject) — then point the dynamic linker at Homebrew's lib directory for any
+command that touches a receipt PDF (`manage.py runserver`, `pytest`):
+
+```bash
+export DYLD_LIBRARY_PATH=/opt/homebrew/lib   # Apple Silicon; /usr/local/lib on Intel Macs
+```
+
+Without it, `from weasyprint import HTML` raises `OSError: cannot load
+library 'libgobject-2.0-0'` — loud and immediate, never a silent skip.
+
 ## Data import
 
 She already has stock — `import_catalog` loads it from an `.xlsx` price list
