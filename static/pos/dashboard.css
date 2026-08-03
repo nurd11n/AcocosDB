@@ -85,7 +85,10 @@ html[data-theme="dark"] .metric, html[data-theme="dark"] .panel {
 /* --- metric cards --- */
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* auto-fit instead of a fixed column count: 7 cards (revenue, profit,
+     discount, received, expected, units, debt) no longer fit 5-across at
+     normal desktop widths, and this scales cleanly without more breakpoints. */
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-6); /* clear break before the chart zone */
 }

@@ -500,7 +500,7 @@ JAZZMIN_SETTINGS = {
         "core": [
             {"name": "Дашборд", "url": "dashboard", "icon": "fas fa-chart-area"},
             {"name": "Склад", "url": "storage", "icon": "fas fa-warehouse"},
-            {"name": "Statistics", "url": "stats", "icon": "fas fa-chart-line"},
+            {"name": "Статистика", "url": "stats", "icon": "fas fa-chart-line"},
         ],
     },
     "show_ui_builder": False,

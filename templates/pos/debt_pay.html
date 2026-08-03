@@ -1,0 +1,21 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Погасить долг" %} — {{ order.client.name }}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{% trans "Погасить долг" %}</h2>
+ <p class="muted">
+   {{ order.client.name }} ·
+   <a href="{% url 'pos:sale_result' order.pk %}">{% trans "Продажа" %} №{{ order.pk }}</a>
+   {% if order.confirmed_at %}{% trans "от" %} {{ order.confirmed_at|date:"d.m.Y" }}{% endif %}
+ </p>
+ <p class="num" style="margin-top:var(--space-2);font-size:16px;font-weight:500">
+   {% trans "Остаток по продаже" %}: {{ balance|money:order.currency }}
+   {% if balance_conv %}<span class="muted">≈ {{ balance_conv|money:base_currency }}</span>{% endif %}
+ </p>
+</div>
+
+<div id="sale-body">
+  {% include "pos/partials/debt_pay_body.html" %}
+</div>
+{% endblock %}

@@ -1,4 +1,4 @@
-{% load i18n l10n static %}<!doctype html>
+{% load i18n l10n static pos_extras %}<!doctype html>
 <html lang="{{ LANGUAGE_CODE|default:'en' }}">
 <head>
 <meta charset="utf-8">
@@ -47,7 +47,7 @@
  <div class="cards">
   <div class="card">
    <div class="label">{% trans "Revenue today" %}</div>
-   <div class="value">{{ disp.revenue_today|unlocalize }} <span class="unit">{{ disp.currency }}</span></div>
+   <div class="value">{{ disp.revenue_today|unlocalize }} <span class="unit">{{ disp.currency|currency_symbol }}</span></div>
   </div>
   <div class="card">
    <div class="label">{% trans "Confirmed sales" %}</div>
@@ -63,7 +63,7 @@
   </div>
   <div class="card">
    <div class="label">{% trans "Outstanding debt" %}</div>
-   <div class="value">{{ disp.debt_total|unlocalize }} <span class="unit">{{ disp.currency }}</span></div>
+   <div class="value">{{ disp.debt_total|unlocalize }} <span class="unit">{{ disp.currency|currency_symbol }}</span></div>
   </div>
   <div class="card {% if totals.pending_orders %}flag{% endif %}">
    <div class="label">{% trans "Pending approvals" %}</div>
@@ -78,7 +78,7 @@
    <div class="barrow">
     <span>{{ d.day|date:"D d M" }}</span>
     <span class="track"><span class="fill" style="width:{{ d.pct }}%"></span></span>
-    <span class="amt">{{ d.amount|unlocalize }} {{ disp.currency }}</span>
+    <span class="amt">{{ d.amount|unlocalize }} {{ disp.currency|currency_symbol }}</span>
    </div>
    {% endfor %}
   </div>
@@ -94,7 +94,7 @@
      <div class="barrow alt">
       <span>{{ c.label }}</span>
       <span class="track"><span class="fill" style="width:{{ c.pct }}%"></span></span>
-      <span class="amt">{{ c.amount|unlocalize }} {{ disp.currency }}</span>
+      <span class="amt">{{ c.amount|unlocalize }} {{ disp.currency|currency_symbol }}</span>
      </div>
      {% endfor %}
     </div>
@@ -109,7 +109,7 @@
      <tr><th>{% trans "Client" %}</th><th class="num">{% trans "Debt" %}</th></tr>
      {% for d in disp.debtors %}
      <tr><td>{{ d.name }}<br><span style="color:var(--muted)">{{ d.phone }}</span></td>
-         <td class="num">{{ d.amount|unlocalize }} {{ disp.currency }}</td></tr>
+         <td class="num">{{ d.amount|unlocalize }} {{ disp.currency|currency_symbol }}</td></tr>
      {% endfor %}
     </table>
     {% else %}<div class="empty">{% trans "No outstanding debts." %}</div>{% endif %}

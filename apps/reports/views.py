@@ -63,6 +63,9 @@ def _convert_money(data: dict, rate: Decimal) -> dict:
     m = d["metrics"]
     m["revenue"]["value"] = conv(m["revenue"]["value"])
     m["profit"]["value"] = conv(m["profit"]["value"])
+    m["discount"]["value"] = conv(m["discount"]["value"])
+    m["received"]["value"] = conv(m["received"]["value"])
+    m["expected"]["value"] = conv(m["expected"]["value"])
     m["debt"]["value"] = conv(m["debt"]["value"])
     for k in ("d0_30", "d31_60", "d60_plus"):
         m["debt"]["aging"][k] = conv(m["debt"]["aging"][k])

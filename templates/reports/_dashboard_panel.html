@@ -46,14 +46,34 @@ and the right active state — no client-side syncing needed.{% endcomment %}
 </div>
 
 {% comment %}Metric cards: icon badge + label / value / one contextual sub-line.
-Revenue, profit and units are for the selected period; debt is a running balance.{% endcomment %}
+Revenue, profit and units are for the selected period; debt is a running balance.
+Выручка (начислено)/Получено/Ожидается are deliberately three SEPARATE cards, not
+one figure that quietly means something different each time — booked and cash-in-
+hand can diverge a lot for a shop carrying client debt, and both need to stay
+visible at once.{% endcomment %}
 <div class="metrics">
  <div class="metric">
   <span class="metric__icon"><svg class="ic"><use href="#i-revenue"/></svg></span>
   <div class="metric__body">
-   <div class="metric__label">{% trans "Выручка" %}</div>
+   <div class="metric__label">{% trans "Выручка (начислено)" %}</div>
    <div class="metric__value" data-count="{{ metrics.revenue.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.revenue.value|money:cur_symbol }}</div>
    <div class="metric__sub">{{ period_sub }}</div>
+  </div>
+ </div>
+ <div class="metric">
+  <span class="metric__icon"><svg class="ic"><use href="#i-payments"/></svg></span>
+  <div class="metric__body">
+   <div class="metric__label">{% trans "Получено" %}</div>
+   <div class="metric__value" data-count="{{ metrics.received.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.received.value|money:cur_symbol }}</div>
+   <div class="metric__sub">{% trans "деньги в кассе" %}</div>
+  </div>
+ </div>
+ <div class="metric">
+  <span class="metric__icon"><svg class="ic"><use href="#i-aging"/></svg></span>
+  <div class="metric__body">
+   <div class="metric__label">{% trans "Ожидается" %}</div>
+   <div class="metric__value" data-count="{{ metrics.expected.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.expected.value|money:cur_symbol }}</div>
+   <div class="metric__sub">{% trans "продано, но не оплачено" %}</div>
   </div>
  </div>
  <div class="metric">
@@ -62,6 +82,14 @@ Revenue, profit and units are for the selected period; debt is a running balance
    <div class="metric__label">{% trans "Прибыль" %}</div>
    <div class="metric__value" data-count="{{ metrics.profit.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.profit.value|money:cur_symbol }}</div>
    <div class="metric__sub">{% if metrics.profit.margin is not None %}{% trans "маржа" %} {{ metrics.profit.margin }}%{% else %}{{ period_sub }}{% endif %}</div>
+  </div>
+ </div>
+ <div class="metric">
+  <span class="metric__icon"><svg class="ic"><use href="#i-discount"/></svg></span>
+  <div class="metric__body">
+   <div class="metric__label">{% trans "Скидки" %}</div>
+   <div class="metric__value" data-count="{{ metrics.discount.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.discount.value|money:cur_symbol }}</div>
+   <div class="metric__sub">{% if metrics.discount.pct is not None %}{{ metrics.discount.pct }}% {% trans "от суммы до скидки" %}{% else %}{{ period_sub }}{% endif %}</div>
   </div>
  </div>
  <div class="metric">

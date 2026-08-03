@@ -36,9 +36,12 @@ from apps.inventory.cache import catalog_version
 from apps.inventory.models import Product, ProductVariant, StockMovement
 from apps.sales.models import Payment, SaleItem, SaleOrder
 from apps.sales.services import (
+    allocate_oldest_first,
+    balance_kgs_before_payment,
     cancel_sale,
     compute_change_preview,
     confirm_sale,
+    pay_oldest_first,
     record_payment,
     return_items,
     today_summary,
@@ -46,7 +49,8 @@ from apps.sales.services import (
 
 from . import undo
 from .decorators import pos_view
-from .messaging import debt_reminder_text, receipt_text, wa_link
+from .messaging import debt_reminder_text, receipt_share_text, wa_link
+from .receipts import make_receipt_token
 
 RECENT_CLIENTS_LIMIT = 10
 PRODUCT_GRID_LIMIT = 24
@@ -354,6 +358,7 @@ def _sale_body_context(
         "order": order,
         "items": items,
         "error": error,
+        "recalc_url": reverse("pos:recalc", args=[order.pk]),
         "total": total,
         "total_conv": total_conv,
         "total_discount": total_discount,
@@ -388,6 +393,99 @@ def _sale_body_context(
             if request is not None
             else {"can_undo": False, "can_redo": False}
         ),
+    }
+
+
+def _debt_pay_context(
+    order,
+    request=None,
+    payment_amount=None,
+    payment_currency=None,
+    payment_method=None,
+    rate_override=None,
+    can_override_rate=False,
+    excess_disposition=None,
+    change_currency=None,
+    change_amount_override=None,
+    change_adjust_reason="",
+):
+    """Same shape as _sale_body_context, but for repaying an already-
+    CONFIRMED sale's balance («Погасить долг») instead of building a draft
+    cart — no items, order.total is already frozen, and the pre-payment
+    balance for the change/overpay preview is balance_kgs_before_payment
+    (every prior payment already applied), never _draft_balance_kgs. Feeds
+    the SAME templates/pos/partials/payment_panel.html as the draft cart —
+    one payment panel, reused, never a second payment path."""
+    today = timezone.localdate()
+    total_conv = None
+    if order.currency != settings.CURRENCY:
+        total_conv = to_base(order.total, order.currency, today)
+
+    currency = payment_currency or order.currency
+    amount = payment_amount if payment_amount is not None else Decimal("0")
+    excess_disposition = excess_disposition or Payment.DISPOSITION_NONE
+    resolved_change_currency = change_currency or order.currency
+
+    conv = _payment_conversion(order, amount, currency, rate_override=rate_override)
+
+    change = None
+    if not conv["convert_failed"] and amount > 0:
+        change_rate = _change_rate_for(order, conv, today)
+        change = compute_change_preview(
+            order,
+            amount,
+            currency,
+            change_rate,
+            balance_kgs_before_payment(order),
+            change_currency=resolved_change_currency,
+        )
+        if change["has_excess"] and excess_disposition == Payment.DISPOSITION_CHANGE:
+            if change_amount_override is not None:
+                change["change_amount"] = change_amount_override  # preview only
+            if change["change_amount_kgs"] > Decimal(settings.CHANGE_CONFIRM_THRESHOLD_KGS):
+                conv["reasons"].append(
+                    _("крупная сдача — %(a)s %(c)s")
+                    % {"a": change["change_amount_kgs"], "c": settings.CURRENCY}
+                )
+            conv["requires_ack"] = bool(conv["reasons"])
+
+    requires_disposition_choice = bool(
+        change and change["has_excess"] and excess_disposition == Payment.DISPOSITION_NONE
+    )
+
+    balance = order.balance  # outstanding BEFORE this preview payment
+    balance_conv = None
+    if order.currency != settings.CURRENCY:
+        balance_conv = to_base(balance, order.currency, today)
+
+    return {
+        "order": order,
+        "recalc_url": reverse("pos:debt_pay_recalc", args=[order.pk]),
+        "confirm_url": reverse("pos:debt_pay_confirm", args=[order.pk]),
+        "total": order.total,
+        "total_conv": total_conv,
+        "base_currency": settings.CURRENCY,
+        "currencies": CURRENCY_CODES,
+        "methods": Payment.METHOD_CHOICES,
+        "payment_amount": payment_amount,
+        "payment_currency": currency,
+        "payment_method": payment_method or Payment.CASH,
+        "balance": balance,
+        "balance_conv": balance_conv,
+        "full_pay_amount": balance,
+        "allow_debt_shortcut": False,  # this whole screen IS "в долг" already
+        "conv": conv,
+        "can_override_rate": can_override_rate,
+        "rate_override": rate_override,
+        "entered_amount": amount,
+        "entered_currency": currency,
+        "change": change,
+        "excess_disposition": excess_disposition,
+        "requires_disposition_choice": requires_disposition_choice,
+        "change_currency": resolved_change_currency,
+        "change_amount_override": change_amount_override,
+        "change_adjust_reason": change_adjust_reason,
+        "has_client": True,  # a repayable sale always has a client (see the _or_404 helper)
     }
 
 
@@ -1330,6 +1428,240 @@ def sale_confirm(request, pk):
     return redirect("pos:sale_result", pk=order.pk)
 
 
+# ---- Debt repayment ("Погасить долг") --------------------------------------
+
+
+def _payable_sale_or_404(request, pk):
+    return get_object_or_404(SaleOrder, pk=pk, status=SaleOrder.CONFIRMED, client__isnull=False)
+
+
+@pos_view
+@require_can_sell
+def debt_pay_detail(request, pk):
+    """«Погасить долг» from a client's purchase history — the SAME payment
+    panel used everywhere (frozen rate, cross-currency double-check), against
+    an already-CONFIRMED sale's outstanding balance. Client is fixed (the
+    sale's own); amount defaults to the remaining balance but partial is
+    allowed, exactly like any other payment."""
+    order = _payable_sale_or_404(request, pk)
+    return render(
+        request,
+        "pos/debt_pay.html",
+        _debt_pay_context(
+            order,
+            request,
+            # Pre-filled with the remaining balance — partial is still
+            # allowed, just edit the field before submitting.
+            payment_amount=order.balance,
+            payment_currency=order.currency,
+            can_override_rate=request.user.is_superuser,
+        ),
+    )
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def debt_pay_recalc(request, pk):
+    """Live double-check preview as the repayment form changes — mirrors
+    apps.pos.views.recalc exactly, just against balance_kgs_before_payment
+    instead of a draft's live item total."""
+    order = _payable_sale_or_404(request, pk)
+    amount = _parse_decimal(request.POST.get("amount")) or Decimal("0")
+    currency = request.POST.get("currency") or order.currency
+    method = request.POST.get("method") or Payment.CASH
+    rate_override = _check_rate_override(request)
+    excess_disposition = request.POST.get("excess_disposition") or None
+    change_currency = request.POST.get("change_currency") or None
+
+    change_amount_override = None
+    if excess_disposition == Payment.DISPOSITION_CHANGE and amount > 0:
+        conv_preview = _payment_conversion(order, amount, currency, rate_override=rate_override)
+        if not conv_preview["convert_failed"]:
+            resolved_change_currency = change_currency or order.currency
+            change_rate = _change_rate_for(order, conv_preview, timezone.localdate())
+            preview = compute_change_preview(
+                order,
+                amount,
+                currency,
+                change_rate,
+                balance_kgs_before_payment(order),
+                change_currency=resolved_change_currency,
+            )
+            change_amount_override = _check_change_override(
+                request,
+                preview["change_amount"],
+                resolved_change_currency,
+                currency,
+                change_rate,
+            )
+
+    return render(
+        request,
+        "pos/partials/debt_pay_body.html",
+        _debt_pay_context(
+            order,
+            request,
+            payment_amount=amount,
+            payment_currency=currency,
+            payment_method=method,
+            rate_override=rate_override,
+            can_override_rate=request.user.is_superuser,
+            excess_disposition=excess_disposition,
+            change_currency=change_currency,
+            change_amount_override=change_amount_override,
+            change_adjust_reason=request.POST.get("change_adjust_reason", ""),
+        ),
+    )
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def debt_pay_confirm(request, pk):
+    """Records the repayment via the EXISTING services.record_payment — same
+    risk/overpayment/change rules as confirming a sale, just with no stock or
+    items involved (the sale is already confirmed)."""
+    order = _payable_sale_or_404(request, pk)
+    amount = _parse_decimal(request.POST.get("amount"))
+    currency = request.POST.get("currency") or order.currency
+    method = request.POST.get("method") or Payment.CASH
+    rate_override = _check_rate_override(request)
+    excess_disposition = request.POST.get("excess_disposition") or Payment.DISPOSITION_NONE
+    change_currency = request.POST.get("change_currency") or order.currency
+
+    if not amount or amount <= 0:
+        messages.error(request, _("Укажите сумму больше нуля."))
+        return redirect("pos:debt_pay_detail", pk=order.pk)
+
+    conv = _payment_conversion(order, amount, currency, rate_override=rate_override)
+    if conv["convert_failed"]:
+        messages.error(
+            request,
+            _("Нет курса для %(c)s — оплата не сохранена. Обновите курс и повторите.")
+            % {"c": currency},
+        )
+        return redirect("pos:debt_pay_detail", pk=order.pk)
+
+    today = timezone.localdate()
+    change_rate = _change_rate_for(order, conv, today)
+    preview = compute_change_preview(
+        order,
+        amount,
+        currency,
+        change_rate,
+        balance_kgs_before_payment(order),
+        change_currency=change_currency,
+    )
+
+    if preview["has_excess"] and excess_disposition == Payment.DISPOSITION_NONE:
+        messages.error(
+            request, _("Выберите, что сделать с излишком: сдача, в счёт долга или аванс.")
+        )
+        return redirect("pos:debt_pay_detail", pk=order.pk)
+
+    change_amount_override = None
+    if excess_disposition == Payment.DISPOSITION_CHANGE and preview["has_excess"]:
+        change_amount_override = _check_change_override(
+            request, preview["change_amount"], change_currency, currency, change_rate
+        )
+        if preview["change_amount_kgs"] > Decimal(settings.CHANGE_CONFIRM_THRESHOLD_KGS):
+            conv["reasons"].append(
+                _("крупная сдача — %(a)s %(c)s")
+                % {"a": preview["change_amount_kgs"], "c": settings.CURRENCY}
+            )
+            conv["requires_ack"] = True
+
+    if conv["requires_ack"] and request.POST.get("risk_ack") != "1":
+        messages.error(
+            request,
+            _("Требуется подтверждение платежа: %(reasons)s")
+            % {"reasons": "; ".join(conv["reasons"])},
+        )
+        return redirect("pos:debt_pay_detail", pk=order.pk)
+
+    try:
+        record_payment(
+            order,
+            amount,
+            user=request.user,
+            method=method,
+            currency=currency,
+            rate_override=rate_override,
+            excess_disposition=excess_disposition,
+            change_currency=change_currency,
+            change_amount_override=change_amount_override,
+            change_adjust_reason=request.POST.get("change_adjust_reason", ""),
+        )
+    except ValidationError as exc:
+        messages.error(request, "; ".join(exc.messages))
+        return redirect("pos:debt_pay_detail", pk=order.pk)
+
+    messages.success(request, _("Платёж записан."))
+    return redirect("pos:sale_result", pk=order.pk)
+
+
+@pos_view
+@require_can_sell
+def client_debt_pay(request, pk):
+    """«Погасить долг по нескольким продажам» — one payment split oldest-
+    first across a client's open same-currency sales (services.
+    allocate_oldest_first / pay_oldest_first), one Payment per sale, никогда
+    a second payment path. A plain GET-driven preview (?amount=…) — no
+    HTMX needed for a screen this simple — shows exactly which sales would
+    close before anything is confirmed."""
+    client = get_object_or_404(Client, pk=pk)
+    debts = client_debt(client)
+    if not debts:
+        return redirect("pos:client_detail", pk=client.pk)
+
+    currency = request.GET.get("currency") or next(iter(debts))
+    if currency not in debts:
+        currency = next(iter(debts))
+
+    amount = _parse_decimal(request.GET.get("amount"))
+    allocation = allocate_oldest_first(client, currency, amount) if amount else None
+
+    return render(
+        request,
+        "pos/client_debt_pay.html",
+        {
+            "client": client,
+            "debts": debts,
+            "currency": currency,
+            "total_debt": debts.get(currency, Decimal("0")),
+            "amount": amount,
+            "allocation": allocation,
+            "methods": Payment.METHOD_CHOICES,
+            "active": "clients",
+        },
+    )
+
+
+@pos_view
+@require_can_sell
+@require_POST
+def client_debt_pay_confirm(request, pk):
+    client = get_object_or_404(Client, pk=pk)
+    currency = request.POST.get("currency") or settings.CURRENCY
+    amount = _parse_decimal(request.POST.get("amount"))
+    method = request.POST.get("method") or Payment.CASH
+    base_url = reverse("pos:client_debt_pay", args=[client.pk])
+
+    if not amount or amount <= 0:
+        messages.error(request, _("Укажите сумму больше нуля."))
+        return redirect(f"{base_url}?currency={currency}")
+
+    try:
+        payments = pay_oldest_first(client, currency, amount, user=request.user, method=method)
+    except ValidationError as exc:
+        messages.error(request, "; ".join(exc.messages))
+        return redirect(f"{base_url}?currency={currency}&amount={amount}")
+
+    messages.success(request, _("Записано платежей: %(n)s") % {"n": len(payments)})
+    return redirect("pos:client_detail", pk=client.pk)
+
+
 def _can_cancel(user, order) -> bool:
     if order.status != SaleOrder.CONFIRMED:
         return False
@@ -1420,19 +1752,28 @@ def sale_return(request, pk):
 @pos_view
 @require_POST
 def share_receipt(request, pk):
-    """Open WhatsApp with a ready-to-send receipt for a confirmed sale, and log
-    the touchpoint. A no-op redirect back if the sale has no client/phone.
+    """Open WhatsApp with a short message linking to the receipt web page
+    (apps.pos.receipts/public_views — grouped by product+size, «Скачать
+    PDF»), and log the touchpoint. A no-op redirect back if the sale has no
+    client/phone.
 
     POST-only and permission-gated because it WRITES an Interaction row. As a
     GET it was reachable by a Viewer (documented read-only) and, having no CSRF
     protection, could be fired by any page that got a logged-in manager to load
-    an <img src="…/receipt/"> — silently forging touchpoint history."""
+    an <img src="…/receipt/"> — silently forging touchpoint history. Scope is
+    the SAME Editor(own, same-day)/Owner(any) rule as cancelling/returning a
+    sale (_can_cancel) — CLAUDE.md's "Editor: own same-day; Owner: any" for
+    this exact link."""
     if not request.user.has_perm("clients.add_interaction"):
         raise PermissionDenied
     order = get_object_or_404(SaleOrder, pk=pk, status=SaleOrder.CONFIRMED)
+    if not _can_cancel(request.user, order):
+        raise PermissionDenied
     if not order.client or not order.client.phone:
         return redirect("pos:sale_result", pk=order.pk)
-    link = wa_link(order.client.phone, receipt_text(order))
+    token = make_receipt_token(order)
+    receipt_url = request.build_absolute_uri(reverse("receipt-public", args=[token]))
+    link = wa_link(order.client.phone, receipt_share_text(order, receipt_url))
     if not link:  # phone had no usable digits
         return redirect("pos:sale_result", pk=order.pk)
     Interaction.objects.create(
@@ -1479,14 +1820,12 @@ def today(request):
         .select_related("client")
         .order_by("-confirmed_at")
     )
-    revenue_base = Decimal("0")
-    skipped_currencies = []
-    for cur, amt in summary["revenue_by_currency"].items():
-        conv = to_base(amt, cur, today_date)
-        if conv is None:
-            skipped_currencies.append(cur)
-        else:
-            revenue_base += conv
+    # Sum each order's own FROZEN total_kgs — never re-convert its currency
+    # at today's live rate. A same-day rate refresh (the Курс «Обновить»
+    # button) must not move an order confirmed earlier today; only
+    # apps.reports.dashboard's approach (frozen totals, summed) agrees with
+    # itself no matter when this page is loaded.
+    revenue_base = orders.aggregate(s=Sum("total_kgs"))["s"] or Decimal("0")
 
     return render(
         request,
@@ -1496,7 +1835,6 @@ def today(request):
             "orders": orders,
             "revenue_base": revenue_base,
             "base_currency": settings.CURRENCY,
-            "skipped_currencies": skipped_currencies,
             "active": "today",
         },
     )

@@ -18,49 +18,20 @@ def wa_link(phone: str, text: str) -> str:
     return f"https://wa.me/{digits}?text={quote(text)}"
 
 
-def receipt_text(order) -> str:
-    """The WhatsApp receipt. Shows what was bought, what was paid, and what is
-    still owed — a receipt that stops at «Итого» leaves the client with no
-    record of a balance they're carrying, which is exactly the number they
-    ask about later. `balance` is derived (total − payments, converted at each
-    payment's frozen rate), so it always agrees with the POS and the debts
-    report rather than being a second, drifting copy."""
-    lines = [_("Спасибо за покупку в ACOCOS! 🌸"), ""]
-    for item in order.items.select_related("variant__product"):
-        line = f"• {item.variant} — {item.quantity} × {item.unit_price} {order.currency}"
-        # Only spelled out when a discount actually applies — for the common
-        # undiscounted line, qty × unit_price already equals what "Итого"
-        # sums, so adding "= line_total" here would just repeat it.
-        if item.discount_amount > 0:
-            line += (
-                f" (−{item.discount_amount} {order.currency}) = {item.line_total} {order.currency}"
-            )
-        lines.append(line)
-    lines.append("")
-    lines.append(_("Итого: %(total)s %(cur)s") % {"total": order.total, "cur": order.currency})
-
-    paid = order.paid_amount
-    balance = order.balance
-    if paid > 0:
-        lines.append(_("Оплачено: %(paid)s %(cur)s") % {"paid": paid, "cur": order.currency})
-    if balance > 0:
-        lines.append(
-            _("Остаток к оплате: %(bal)s %(cur)s") % {"bal": balance, "cur": order.currency}
-        )
-        # The client's TOTAL across every unpaid sale — only worth saying when
-        # it differs from this one sale's balance, otherwise it just repeats
-        # the line above.
-        if order.client_id:
-            from apps.clients.services import client_debt
-
-            total_debt = client_debt(order.client).get(order.currency)
-            if total_debt and total_debt != balance:
-                lines.append(
-                    _("Общий долг: %(debt)s %(cur)s") % {"debt": total_debt, "cur": order.currency}
-                )
-    elif paid > 0:
-        lines.append(_("Оплачено полностью. Спасибо!"))
-    return "\n".join(lines)
+def receipt_share_text(order, receipt_url: str) -> str:
+    """Short WhatsApp message pointing at the receipt WEB PAGE (see
+    apps.pos.receipts / apps.pos.public_views) — the itemised breakdown,
+    discount, paid/balance all live on that page now, grouped by product+size
+    with colours nested, never pasted as raw text into the chat. Client-
+    facing, so first_name only (see Client.name's docstring — the staff-only
+    descriptor must never reach the client)."""
+    name = order.client.first_name if order.client_id else ""
+    greeting = (
+        _("Спасибо за покупку, %(name)s! 🌸") % {"name": name}
+        if name
+        else _("Спасибо за покупку в ACOCOS! 🌸")
+    )
+    return f"{greeting}\n{_('Ваш чек')}: {receipt_url}"
 
 
 def debt_reminder_text(client, debts: dict[str, Decimal]) -> str:

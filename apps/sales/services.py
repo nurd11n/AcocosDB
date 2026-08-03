@@ -92,6 +92,10 @@ def confirm_sale(order: SaleOrder, user=None) -> SaleOrder:
             reason=f"Sale #{order.pk}",
             sale_order=order,
         )
+        # Freeze the cost basis NOW, same rule as the FX rate below: a cost
+        # price edit next month must never rewrite this month's profit.
+        item.cost_price = item.variant.cost_price
+    SaleItem.objects.bulk_update(items, ["cost_price"])
 
     # Freeze the FX rate now, inside the atomic block, and pre-convert the total
     # to сом. Every dashboard aggregate sums total_kgs and never re-converts, so
@@ -222,6 +226,63 @@ def todays_confirmed_orders():
         .prefetch_related("items__variant", "payments")
         .order_by("confirmed_at")
     )
+
+
+def today_revenue_kgs() -> Decimal:
+    """Today's confirmed revenue, in KGS, summed from each order's own FROZEN
+    total_kgs — never re-converted at a live rate (CLAUDE.md: 'every
+    dashboard aggregate sums total_kgs and never re-converts'). This is the
+    one figure /stats/ and /pos/today/ must agree with apps.reports.dashboard
+    on; a same-day rate refresh must not move it."""
+    today = timezone.localdate()
+    return SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date=today).aggregate(
+        s=Sum("total_kgs")
+    )["s"] or Decimal("0")
+
+
+def revenue_last_n_days_kgs(n: int = 7) -> list[dict]:
+    """[{day, revenue_kgs}] for the last n days, oldest first — each day's
+    figure is SUM(total_kgs) of orders confirmed that day, same frozen-value
+    rule as today_revenue_kgs. Unlike revenue_last_n_days (per-currency,
+    unconverted — kept for callers that want the currency breakdown), this
+    is a single already-KGS number, ready to chart without a live conversion."""
+    today = timezone.localdate()
+    start = today - timedelta(days=n - 1)
+    rows = (
+        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__gte=start)
+        .annotate(day=TruncDate("confirmed_at"))
+        .values("day")
+        .annotate(revenue_kgs=Sum("total_kgs"))
+    )
+    by_day = {r["day"]: r["revenue_kgs"] or Decimal("0") for r in rows}
+    return [
+        {
+            "day": start + timedelta(days=i),
+            "revenue_kgs": by_day.get(start + timedelta(days=i), Decimal("0")),
+        }
+        for i in range(n)
+    ]
+
+
+def sales_by_channel_kgs(days: int = 30) -> list[dict]:
+    """[{channel, label, revenue_kgs}] over the last `days` days — SUM(total_kgs)
+    per channel, same frozen-value rule as today_revenue_kgs. See
+    sales_by_channel for the per-currency (unconverted) variant."""
+    since = timezone.localdate() - timedelta(days=days - 1)
+    rows = (
+        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__gte=since)
+        .values("channel")
+        .annotate(revenue_kgs=Sum("total_kgs"))
+    )
+    labels = dict(SaleOrder.CHANNEL_CHOICES)
+    return [
+        {
+            "channel": r["channel"],
+            "label": str(labels.get(r["channel"], r["channel"])),
+            "revenue_kgs": r["revenue_kgs"] or Decimal("0"),
+        }
+        for r in rows
+    ]
 
 
 def revenue_last_n_days(n: int = 7) -> list[dict]:
@@ -527,6 +588,84 @@ def mark_fully_paid(order: SaleOrder, user=None):
     if order.status != SaleOrder.CONFIRMED:
         raise ValidationError(_("Only approved sales can be settled."))
     return record_payment(order, order.balance, user=user)
+
+
+def oldest_first_open_sales(client, currency: str) -> list[SaleOrder]:
+    """This client's CONFIRMED sales in `currency` with a balance still owed,
+    oldest first — the base list the multi-sale «Погасить долг» flow (single
+    payment split across several sales) walks, for both its preview and its
+    confirm step, so the two can never disagree about order."""
+    return [
+        o
+        for o in SaleOrder.objects.filter(
+            client=client, status=SaleOrder.CONFIRMED, currency=currency
+        ).order_by("confirmed_at")
+        if o.balance > 0
+    ]
+
+
+def allocate_oldest_first(client, currency: str, amount: Decimal) -> dict:
+    """Pure preview (no DB writes) of how `amount` (already in `currency` —
+    this never crosses a currency boundary, unlike a single sale's own
+    payment panel, which is where a foreign-currency repayment belongs) would
+    apply across this client's open same-currency sales, oldest first.
+
+    Returns {"rows": [{"order", "applied", "remaining_balance", "closes"}],
+    "remaining_amount": whatever is left over once every open sale in this
+    currency is fully covered — > 0 means `amount` exceeds the total debt}."""
+    remaining = amount
+    rows = []
+    for order in oldest_first_open_sales(client, currency):
+        if remaining <= 0:
+            break
+        balance = order.balance
+        applied = min(remaining, balance)
+        rows.append(
+            {
+                "order": order,
+                "applied": applied,
+                "remaining_balance": balance - applied,
+                "closes": (balance - applied) <= 0,
+            }
+        )
+        remaining -= applied
+    return {"rows": rows, "remaining_amount": remaining}
+
+
+@transaction.atomic
+def pay_oldest_first(
+    client, currency: str, amount: Decimal, user=None, method=Payment.CASH
+) -> list[Payment]:
+    """Applies `amount` across this client's open same-currency sales, oldest
+    first, one Payment per sale via the EXISTING record_payment — never a
+    second payment path (same rule as every other money flow in this app).
+    Raises rather than guessing what to do with money beyond the total open
+    balance — repay a specific amount, or use a single sale's own payment
+    panel with an explicit change/credit disposition for that case."""
+    allocation = allocate_oldest_first(client, currency, amount)
+    if allocation["remaining_amount"] > 0:
+        raise ValidationError(
+            _(
+                "Сумма (%(amount)s) больше общего долга в этой валюте "
+                "(%(total)s). Уменьшите сумму."
+            )
+            % {"amount": amount, "total": amount - allocation["remaining_amount"]}
+        )
+    payments = []
+    for row in allocation["rows"]:
+        # Re-lock and re-check each order's balance right before applying —
+        # the preview above ran outside any lock, so a concurrent payment on
+        # the same order (a double-tapped confirm, another manager repaying
+        # the same client) could have shrunk it since. Never apply more than
+        # what's still actually owed.
+        locked_order = SaleOrder.objects.select_for_update().get(pk=row["order"].pk)
+        applied = min(row["applied"], locked_order.balance)
+        if applied <= 0:
+            continue
+        payment = record_payment(locked_order, applied, user=user, method=method, currency=currency)
+        if payment is not None:
+            payments.append(payment)
+    return payments
 
 
 @transaction.atomic

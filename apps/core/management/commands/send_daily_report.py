@@ -26,6 +26,7 @@ from apps.core.currency import to_base
 from apps.core.models import BotUser
 from apps.inventory.services import variants_with_stock
 from apps.reports import export
+from apps.reports.dashboard import _num, dashboard_data
 from apps.sales.models import Payment, SaleOrder
 from apps.sales.services import todays_confirmed_orders
 
@@ -79,7 +80,6 @@ _SALES_COLUMNS = [
 
 
 def _sales_sheet() -> export.Sheet:
-    today = timezone.localdate()
     orders = list(todays_confirmed_orders())
     debts = _client_debt_lookup()
     rows = []
@@ -103,9 +103,15 @@ def _sales_sheet() -> export.Sheet:
         # every cash-and-carry sale «долг» in this sheet.
         status = _PAYMENT_STATUS_RU[order.payment_status]
         total_base = order.total_kgs  # frozen at confirm — never re-converted
-        paid_base = to_base(paid, order.currency, today)
-
         payments = list(order.payments.all())
+        # Each payment's OWN frozen net_applied_kgs, summed — never
+        # to_base(paid, order.currency, today), which would re-convert an
+        # already-in-order-currency figure at TODAY's live rate instead of
+        # each payment's own frozen one (the exact class of bug
+        # apps.reports.dashboard/apps.pos.views.today/apps.core.views were
+        # just fixed for).
+        paid_base = sum((p.net_applied_kgs for p in payments), Decimal("0"))
+
         foreign = [p for p in payments if p.currency != order.currency]
         currencies_used = "; ".join(sorted({p.currency for p in payments})) or "—"
         rates_used = "; ".join(sorted({f"{p.rate_to_kgs:.4f}" for p in foreign})) or "—"
@@ -146,8 +152,7 @@ def _sales_sheet() -> export.Sheet:
         )
         if total_base is not None:
             revenue_base += total_base
-        if paid_base is not None:
-            collected_base += paid_base
+        collected_base += paid_base
 
     totals = [None] * len(_SALES_COLUMNS)
     totals[0] = f"Заказов: {len(orders)}"
@@ -332,9 +337,26 @@ def _orders_sheet() -> export.Sheet:
     return export.Sheet(_ORDERS_COLUMNS, rows, totals)
 
 
+def _totals_sheet() -> export.Sheet:
+    """Booked vs. actually-received cash, today — the SAME dashboard_data()
+    aggregates /dashboard/ renders (CLAUDE.md: 'each report renders from the
+    same aggregates it shows on screen ... so a download can never disagree
+    with the page'), never a second computation of these three figures."""
+    m = dashboard_data("today")["metrics"]
+    return export.Sheet(
+        [export.Column("Показатель"), export.Column("Значение")],
+        [
+            ["Выручка (начислено), сом", _num(m["revenue"]["value"])],
+            ["Получено, сом", _num(m["received"]["value"])],
+            ["Ожидается, сом", _num(m["expected"]["value"])],
+        ],
+    )
+
+
 def _sheets() -> dict[str, export.Sheet]:
     return {
         "Продажи": _sales_sheet(),
+        "Итоги": _totals_sheet(),
         "Остаток": _stock_sheet(),
         "Долги": _debts_sheet(),
         "Заказы": _orders_sheet(),
@@ -347,6 +369,7 @@ def _build_xlsx() -> bytes:
 
 _CSV_FILENAMES = {
     "Продажи": "prodazhi",
+    "Итоги": "itogi",
     "Остаток": "ostatok",
     "Долги": "dolgi",
     "Заказы": "zakazy",

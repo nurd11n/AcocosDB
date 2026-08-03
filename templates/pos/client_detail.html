@@ -32,6 +32,10 @@
   <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Напомнить о долге в WhatsApp" %}</button>
  </form>
  {% endif %}
+ {% if debts and perms.sales.add_saleorder %}
+ <a class="btn btn-ghost" href="{% url 'pos:client_debt_pay' client.pk %}" style="margin-top:var(--space-2)">
+   {% trans "Погасить долг по нескольким продажам" %}</a>
+ {% endif %}
 </div>
 
 <div class="card">
@@ -50,6 +54,9 @@
        {% if row.balance > 0 %}
          {% trans "оплачено" %} {{ row.paid|money:row.order.currency }} ·
          <span class="q-due--overdue">{% trans "долг" %} {{ row.balance|money:row.order.currency }}</span>
+         {% if perms.sales.add_saleorder %}
+         · <a href="{% url 'pos:debt_pay_detail' row.order.pk %}">{% trans "Погасить долг" %}</a>
+         {% endif %}
        {% else %}
          <span class="oline__ok">{% trans "оплачено полностью" %}</span>
        {% endif %}

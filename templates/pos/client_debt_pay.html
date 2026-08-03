@@ -1,0 +1,66 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Погасить долг" %} — {{ client.name }}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{% trans "Погасить долг по нескольким продажам" %}</h2>
+ <p class="muted">{{ client.name }}</p>
+
+ <form method="get" style="margin-top:var(--space-3)">
+  {% if debts|length > 1 %}
+  <label>{% trans "Валюта" %}</label>
+  <select name="currency" onchange="this.form.submit()">
+   {% for cur, amt in debts.items %}
+     <option value="{{ cur }}" {% if cur == currency %}selected{% endif %}>{{ cur|currency_symbol }} — {{ amt|money:cur }}</option>
+   {% endfor %}
+  </select>
+  {% else %}
+  <input type="hidden" name="currency" value="{{ currency }}">
+  {% endif %}
+  <p class="num" style="margin-top:var(--space-2);font-size:16px;font-weight:500">
+    {% trans "Долг в" %} {{ currency|currency_symbol }}: {{ total_debt|money:currency }}
+  </p>
+  <label>{% trans "Сумма" %}</label>
+  <input type="text" name="amount" inputmode="decimal" value="{% if amount %}{{ amount|stringformat:'s' }}{% endif %}">
+  <button type="submit" class="btn btn-ghost" style="margin-top:var(--space-2)">{% trans "Предпросмотр" %}</button>
+ </form>
+</div>
+
+{% if allocation %}
+<div class="card">
+ <h2>{% trans "Какие продажи закроются" %}</h2>
+ {% for row in allocation.rows %}
+ <div class="oline">
+  <div class="oline__main">
+   <a class="oline__name" href="{% url 'pos:sale_result' row.order.pk %}">
+     {{ row.order.confirmed_at|date:"d.m.Y" }} · №{{ row.order.pk }}</a>
+   <span class="oline__meta muted num">
+     {% if row.closes %}<span class="oline__ok">{% trans "закроется полностью" %}</span>
+     {% else %}{% trans "останется" %} {{ row.remaining_balance|money:currency }}{% endif %}
+   </span>
+  </div>
+  <span class="oline__total num">{{ row.applied|money:currency }}</span>
+ </div>
+ {% empty %}
+ <p class="muted">{% trans "Нет открытых продаж в этой валюте." %}</p>
+ {% endfor %}
+
+ {% if allocation.remaining_amount > 0 %}
+ <p class="pay-note pay-note--warn">{% blocktrans with r=allocation.remaining_amount|money:currency %}Сумма больше долга на {{ r }} — уменьшите сумму.{% endblocktrans %}</p>
+ {% elif allocation.rows %}
+ <form method="post" action="{% url 'pos:client_debt_pay_confirm' client.pk %}" style="margin-top:var(--space-3)"
+   data-confirm="{% blocktrans with sum=amount|money:currency %}Записать платежи на {{ sum }}?{% endblocktrans %}"
+   data-confirm-ok="{% trans "Да, записать" %}" data-confirm-tone="primary">
+  {% csrf_token %}
+  <input type="hidden" name="currency" value="{{ currency }}">
+  <input type="hidden" name="amount" value="{{ amount|stringformat:'s' }}">
+  <label>{% trans "Способ" %}</label>
+  <select name="method">
+   {% for code, label in methods %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+  </select>
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-2)">{% trans "Подтвердить платежи" %}</button>
+ </form>
+ {% endif %}
+</div>
+{% endif %}
+{% endblock %}
