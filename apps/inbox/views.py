@@ -132,7 +132,13 @@ def thread(request, client_id):
         "inbox/thread.html",
         {
             "client": client,
-            "messages": thread_messages,
+            # NEVER "messages" — that key collides with (and silently hides)
+            # django.contrib.messages' own context variable, so any
+            # messages.error()/messages.success() from a view that redirects
+            # back here (reply's send-failure notice, an order-request
+            # confirm/decline error) would render nothing at all. Bit us for
+            # real: see the reply() view's send-failure message above.
+            "thread_messages": thread_messages,
             "order_requests": order_requests,
             "open_orders": open_orders,
             "last_sale": last_sale,
@@ -152,10 +158,24 @@ def reply(request, client_id):
     client = get_object_or_404(Client, pk=client_id)
     text = request.POST.get("text", "").strip()
     if text:
-        send_to_client(client, text)
+        sent = send_to_client(client, text)
         # A human just answered — the WhatsApp auto-reply goes quiet so it
         # never talks over the manager who's now handling this conversation.
         start_handoff(client)
+        if not sent:
+            # send_to_client already wrote the BotMessage row either way (so
+            # the thread shows what was TYPED), but silently believing it
+            # reached the client when it didn't is the actual failure mode —
+            # a manager sees their own reply appear like any other and has
+            # no reason to follow up any other way.
+            messages.error(
+                request,
+                _(
+                    "Сообщение не доставлено — клиент недоступен ни в Telegram, "
+                    "ни в WhatsApp, либо сервис не ответил. Попробуйте связаться "
+                    "с клиентом другим способом."
+                ),
+            )
     return redirect("inbox:thread", client_id=client.pk)
 
 

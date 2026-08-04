@@ -456,6 +456,8 @@ form:last-child .client-row--btn { border-bottom: 0; }
 
 .muted { color: var(--text-2); font-size: 13px; }
 .hint { color: var(--text-3); font-size: 12px; }
+.hint--ok { color: var(--paid); }
+.hint--error { color: var(--debt); }
 /* Payment conversion math — calm, neutral, always shown for a foreign
    payment: no alarm styling for the common case (risk-proportional friction,
    not a blanket warning). --risk (amber) appears only when this specific
@@ -792,6 +794,17 @@ body:has(#order-modal:not(:empty)) { overflow: hidden; }
 .client-chip__phone { color: var(--text-2); font-size: 13px; }
 .client-chip__debt { text-align: right; font-size: 13px; white-space: nowrap; }
 
+/* --- compact item table (e.g. the repayment window's "what was bought"
+   list) — a real <table> because it genuinely has independent columns
+   (товар/размер/цвет/кол-во/сумма), unlike .line-row's label+total shape. */
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th, .table td { padding: var(--space-1) var(--space-2); text-align: left; }
+.table th:first-child, .table td:first-child { padding-left: 0; }
+.table th:last-child, .table td:last-child { padding-right: 0; }
+.table th { color: var(--text-3); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.table tbody tr { border-top: 0.5px solid var(--border); }
+.table td.num, .table th.num { text-align: right; white-space: nowrap; }
+
 /* --- line rows --- */
 .line-row {
   display: flex;
@@ -1055,6 +1068,10 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .oline__meta { font-size: 12px; }
 .oline__total { flex: none; white-space: nowrap; }
 .oline__remove { flex: none; }
+/* .btn defaults to width:100% (right for a stacked full-width action), which
+   flex-basis:auto would otherwise resolve AS that 100% inside a flex row —
+   reset it explicitly so a per-row button (e.g. «Погасить») stays compact. */
+.oline__action { flex: none; width: auto; }
 .oline__produce {
   display: flex;
   align-items: center;

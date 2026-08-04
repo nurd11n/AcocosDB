@@ -10,20 +10,72 @@ Users, Groups, bot users, WhatsApp/bot logs, request stats, and cost prices.
 EDITOR = "Editor"
 VIEWER = "Viewer"
 
-# Only these apps' models are ever granted to Editor/Viewer. Everything else
-# (core, auth, axes, sessions) stays superuser-only — which also keeps
-# those apps out of the Editor/Viewer sidebar entirely, since Django's admin only
-# lists apps a user has at least one permission in. "reports" was here for
-# DailyReview, the payment-review queue's proxy model — removed 2026-08 along
-# with the whole review feature, and apps.reports has held no model since, so
-# it's dropped from this list too (it granted nothing regardless of presence).
-# "notes" is here so the shared scratchpad follows the same rule as everything
-# else: Editor writes, Viewer reads. Before it was listed, NO role held a notes
-# permission and the views checked none — so a Viewer could create, edit and
-# permanently DELETE another user's note (apps/notes/views.py now gates on
-# these, and Editor still gets no delete_ since the regex grants add/change/view
-# only — deleting is Owner-only, like every other business model).
-BUSINESS_APPS = ["inventory", "clients", "sales", "orders", "inbox", "notes"]
+# Explicit (app_label, model) -> {actions} grants for Editor. Viewer gets the
+# "view" subset of the same map. This replaces a wildcard-by-app-label grant
+# (`Permission.objects.filter(content_type__app_label__in=BUSINESS_APPS)`),
+# which silently handed Editor add/change on EVERY model in these apps,
+# including ones that are only safe because their own ModelAdmin blocks the
+# action separately — StockMovement is the concrete case that slipped
+# through: its admin blocks change/delete but never had has_add_permission,
+# so a raw crafted POST to /panel/inventory/stockmovement/add/ could mint
+# phantom stock, exactly because the wildcard had already granted
+# inventory.add_stockmovement to every Editor. A model added to any of these
+# apps in the future now grants NOTHING to Editor/Viewer until someone
+# deliberately adds it here — the safe default, instead of the wildcard's
+# "everything is granted unless something else happens to block it."
+#
+# Every entry below is add/change/view except where a narrower comment
+# explains why — never delete (Owner-only everywhere, per CLAUDE.md) and
+# never a model whose own admin already fully Owner-gates it (BotContent,
+# like Campaign, stays out entirely — Editor gets nothing there, not even
+# view, matching CLAUDE.md's "Owner-only to edit").
+BUSINESS_MODEL_PERMISSIONS: dict[str, dict[str, set[str]]] = {
+    "inventory": {
+        "category": {"add", "change", "view"},
+        "product": {"add", "change", "view"},
+        "productimage": {"add", "change", "view"},
+        "productvariant": {"add", "change", "view"},
+        # StockMovement: append-only ledger, written ONLY via
+        # apps.inventory.services.add_movement (the Принять/Списать/
+        # Пересчёт buttons on the variant list) — deliberately absent here.
+    },
+    "clients": {
+        "client": {"add", "change", "view"},
+        "interaction": {"add", "change", "view"},
+    },
+    "sales": {
+        "saleorder": {"add", "change", "view"},
+        "saleitem": {"add", "change", "view"},
+        # Payment: created ONLY via services.record_payment/record_deposit
+        # (the sale's own payment panel, or a production-order deposit) —
+        # deliberately absent here; PaymentAdmin also independently blocks
+        # add/change for everyone (see apps/sales/admin.py), this is just
+        # the matching permission-side half of that same rule.
+    },
+    "orders": {
+        "order": {"add", "change", "view"},
+        "orderitem": {"add", "change", "view"},
+    },
+    "inbox": {
+        "orderrequest": {"add", "change", "view"},
+        # confirm/decline (apps.inbox.services.confirm_order_request) is
+        # gated on inbox.add_orderrequest itself, per CLAUDE.md — the "add"
+        # grant here is load-bearing for that check, not just admin access.
+        "favourite": {"view"},  # created by clients via the bots, not staff
+        "stockalert": {"view"},  # ditto — FavouriteAdmin/StockAlertAdmin
+        # also block add/change/delete outright, this mirrors that.
+        # BotContent: Owner-only, like Campaign — system-wide bot copy.
+    },
+    "notes": {
+        # The shared scratchpad: Editor writes, Viewer reads. Before this
+        # was listed at all, NO role held a notes permission and the views
+        # checked none — so a Viewer could create, edit and permanently
+        # DELETE another user's note (apps/notes/views.py now gates on
+        # these; delete stays Owner-only, like every other business model,
+        # by simply never appearing in this set).
+        "note": {"add", "change", "view"},
+    },
+}
 
 
 def can_see_costs(user) -> bool:

@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block content %}
+<form method="post">{% csrf_token %}
+  <input type="hidden" name="action" value="{{ action_name }}">
+  <input type="hidden" name="apply" value="1">
+  {% for pk in selected %}<input type="hidden" name="_selected_action" value="{{ pk }}">{% endfor %}
+
+  <p>{{ warning }}</p>
+
+  <ul>
+   {% for item in items %}<li>{{ item }}</li>{% endfor %}
+  </ul>
+
+  <div class="submit-row">
+   <button type="submit" class="default">{% trans "Confirm" %}</button>
+   <a href="{% url opts|admin_urlname:'changelist' %}" class="button cancel-link">{% trans "Cancel" %}</a>
+  </div>
+</form>
+{% endblock %}

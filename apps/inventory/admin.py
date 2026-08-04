@@ -398,6 +398,16 @@ class StockMovementAdmin(admin.ModelAdmin):
     def has_module_permission(self, request):
         return False
 
+    def has_add_permission(self, request):
+        # S1: this used to be unguarded — StockMovementAdmin blocked change/
+        # delete but never add, so the setup_roles wildcard grant of
+        # inventory.add_stockmovement to Editor let a crafted POST here mint
+        # phantom stock (any movement_type, including production_in) with no
+        # trip through apps.inventory.services.add_movement's Принять/
+        # Списать/Пересчёт buttons. A movement must always be written by that
+        # service function — never hand-typed here, not even by the Owner.
+        return False
+
     def has_change_permission(self, request, obj=None):
         return False
 

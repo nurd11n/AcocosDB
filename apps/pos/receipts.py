@@ -1,45 +1,22 @@
-"""Receipt formatting and its signed, expiring public link.
+"""Receipt formatting — PDF-only, generated fresh from the database on every
+request. There is no web page, no signed token, no stored file: a manager
+downloads the PDF and attaches it to WhatsApp herself (wa.me links cannot
+attach files). Rendering this must NEVER write to the database — it is
+read-only end to end, which is exactly what made the old token-link page a
+non-issue for the ghost-payment class of bug, and what tests below assert
+with a row-count check.
 
 CLAUDE.md's receipt format: grouped by product+size with colours nested
-beneath (never a flat per-line list), delivered as a link to a read-only web
-page rather than the itemised text pasted straight into WhatsApp. The token
-IS the access control — signed + timestamped (django.core.signing), never a
-sequential ID — so guessing or enumerating one is infeasible, and it stops
-working on its own after RECEIPT_MAX_AGE with no separate revocation step.
+beneath (never a flat per-line list).
 """
 
 from collections import OrderedDict
 from decimal import Decimal
 
-from django.core import signing
+from django.conf import settings
 from django.utils import timezone
 
 from apps.sales.models import SaleOrder
-
-RECEIPT_SALT = "pos.receipt"
-RECEIPT_MAX_AGE = 7 * 24 * 60 * 60  # 7 days, per CLAUDE.md
-
-
-def make_receipt_token(order: SaleOrder) -> str:
-    return signing.dumps({"sale_id": order.pk}, salt=RECEIPT_SALT)
-
-
-def resolve_receipt_token(token: str) -> SaleOrder | None:
-    """None covers every failure mode alike — tampered signature, expired,
-    or a sale that's gone/not confirmed — so the view can turn it into one
-    flat 404 that never hints at which case it was."""
-    try:
-        data = signing.loads(token, salt=RECEIPT_SALT, max_age=RECEIPT_MAX_AGE)
-    except signing.BadSignature:
-        return None
-    sale_id = data.get("sale_id")
-    if not isinstance(sale_id, int):
-        return None
-    return (
-        SaleOrder.objects.filter(pk=sale_id, status=SaleOrder.CONFIRMED)
-        .select_related("client")
-        .first()
-    )
 
 
 def receipt_groups(order: SaleOrder) -> list[dict]:
@@ -99,32 +76,32 @@ def receipt_groups(order: SaleOrder) -> list[dict]:
     return list(groups.values())
 
 
-def receipt_context(order: SaleOrder, token: str = "", for_pdf: bool = False) -> dict:
-    """Everything templates/receipts/receipt.html needs — the SAME template
-    and context for both the web page and the PDF (apps.pos.public_views), so
-    the two can never drift apart. Скидка/Оплачено/Остаток are OMITTED
-    entirely (None) rather than shown as zero whenever they don't apply —
-    many real receipts are goods-only, with NO payment recorded at all, in
-    which case neither line renders (not even «Остаток», even though it
-    would mathematically equal the total) — payment lines appear only once a
-    real payment transaction exists to report on."""
+def receipt_context(order: SaleOrder) -> dict:
+    """Everything templates/receipts/receipt.html needs to render the PDF.
+    Скидка is OMITTED entirely (None) rather than shown as zero whenever it
+    doesn't apply. Оплачено/Остаток only render when the sale ISN'T fully
+    paid — a paid receipt shows just Итого, per the status badge already
+    saying everything else needed. `status` drives that badge: 'paid' /
+    'partial' / 'unpaid', the SAME classifier the rest of the app uses
+    (SaleOrder.payment_status) — never a second definition of "paid" that
+    could disagree with the POS screens showing this same sale."""
     groups = receipt_groups(order)
     total_discount = sum((i.discount_amount for i in order.items.all()), Decimal("0"))
-    paid = order.paid_amount if order.client_id else Decimal("0")
-    balance = order.balance if order.client_id and paid > 0 else Decimal("0")
     return {
         "order": order,
-        "token": token,
-        "for_pdf": for_pdf,
         "date": timezone.localtime(order.confirmed_at).date() if order.confirmed_at else None,
         # Client-facing text uses first_name ONLY, never the staff-only
-        # descriptor client.name parenthesises (see Client.name docstring).
+        # descriptor client.name parenthesises (see Client.name docstring),
+        # and never the phone number.
         "client_name": order.client.first_name if order.client_id else "",
         "groups": groups,
         "total_quantity": sum(g["quantity"] for g in groups),
         "total_money": order.total,
         "currency": order.currency,
         "discount": total_discount if total_discount > 0 else None,
-        "paid": paid if paid > 0 else None,
-        "balance": balance if balance > 0 else None,
+        "status": order.payment_status,
+        "paid": order.paid_amount,
+        "balance": order.balance,
+        # One contact line, never a URL — blank by default (see settings).
+        "contact_line": settings.RECEIPT_CONTACT_LINE,
     }

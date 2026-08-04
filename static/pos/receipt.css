@@ -1,141 +1,182 @@
-/* Standalone stylesheet for the public receipt page + its PDF (WeasyPrint
-   applies this same file directly — see apps.pos.public_views.receipt_pdf).
-   No dependency on tokens.css / app.css on purpose: this page is reached by
-   a client on a random phone via a WhatsApp link, never by a logged-in
-   /pos/ session, so it stays fully self-contained. System fonts only —
-   avoids WeasyPrint having to resolve a relative woff2 URL. */
+/* Stylesheet for the receipt PDF, loaded via <link rel="stylesheet"> (never
+   an inline <style> block — that would trip the CSP-inline-style test,
+   which this document is otherwise exempt from needing since it's never
+   served as an HTTP page) — see apps.pos.views.receipt_download and
+   templates/receipts/receipt.html. No dependency on tokens.css / app.css on
+   purpose: this document is never rendered inside a logged-in /pos/
+   session, only generated straight to PDF.
 
-:root {
-  --page: #F5F6F7;
-  --surface: #FFFFFF;
-  --border: #E3E6E9;
-  --text: #14181C;
-  --text-2: #5B6670;
-  --debt: #B3271F;
-  --debt-bg: #FAE9E8;
+   xhtml2pdf's renderer is a very old, HTML4-table-era CSS engine with real
+   gaps discovered empirically (rendered + pixel-measured, not assumed):
+     - CSS `width` on a <td>/<th> via a class selector, `:nth-child`, or
+       even inline `style="width:.."` is SILENTLY IGNORED — every column
+       comes out equal-width regardless. The HTML `width="X%"` ATTRIBUTE on
+       the header row's <th> cells is the ONLY mechanism that actually
+       works (see templates/receipts/receipt.html) — body <td>s inherit it
+       and must not repeat it.
+     - `table-layout` is not implemented at all (harmless to set, does
+       nothing).
+     - `<span>` only ever gets a background-color HIGHLIGHT — border and
+       padding on an inline element produce no visible box. A real pill/
+       badge needs a block-level element or (as used here) a one-cell
+       table, which DOES get proper border/background/padding.
+     - No CSS custom properties (var()) and no flexbox — layout uses tables
+       and plain block flow throughout.
+   Given all that, don't "simplify" this file by reintroducing var()/flex/
+   nth-child-width without re-verifying against a rendered, pixel-measured
+   PDF first — every one of those has silently produced a broken layout in
+   this renderer before.
+
+   The @font-face rules below (relative paths resolved against THIS file's
+   own directory, i.e. static/pos/) embed the bundled DejaVu faces: the
+   standard PDF fonts (Helvetica, Times) have NO Cyrillic glyphs, so every
+   Russian character on this receipt — including the status badge — depends
+   on these being embedded.
+
+   PDF-only — no signed public link, no browser dark-mode audience — so this
+   is a single fixed light palette sized for A4 print, not a themed web page
+   (see CLAUDE.md's receipt rework: PDF-only, no web link). Colour is
+   reinforcement only: every status is spelled out as a WORD too, so the
+   badge still reads correctly printed in black and white. */
+
+@font-face { font-family: "DejaVu Sans"; src: url("fonts/pdf/DejaVuSans.ttf"); }
+@font-face { font-family: "DejaVu Sans"; font-weight: bold; src: url("fonts/pdf/DejaVuSans-Bold.ttf"); }
+@font-face { font-family: "DejaVu Serif"; src: url("fonts/pdf/DejaVuSerif.ttf"); }
+@font-face { font-family: "DejaVu Serif"; font-weight: bold; src: url("fonts/pdf/DejaVuSerif-Bold.ttf"); }
+
+@page {
+  size: A4;
+  margin: 20mm 16mm;
 }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --page: #14181C;
-    --surface: #1C2126;
-    --border: #2C333A;
-    --text: #EEF1F4;
-    --text-2: #9AA5B0;
-    --debt: #E86A62;
-    --debt-bg: #2F1917;
-  }
-}
-
-* { box-sizing: border-box; }
 
 body {
   margin: 0;
-  padding: 24px 12px;
-  background: var(--page);
-  color: var(--text);
-  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  font-size: 15px;
-  line-height: 1.4;
+  padding: 0;
+  background-color: #FFFFFF;
+  color: #14181C;
+  font-family: "DejaVu Sans", sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
 }
 
-.receipt {
-  max-width: 600px;
-  margin: 0 auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 20px;
+/* --- header: wordmark + status badge, same row/baseline ---------------- */
+.receipt__header {
+  width: 100%;
+  border-collapse: collapse;
 }
 
-.receipt__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  font-weight: 600;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+.receipt__header td {
+  padding: 0;
+  border: none;
+  vertical-align: middle;
 }
 
-.receipt__client { color: var(--text-2); }
+.receipt__wordmark {
+  font-family: "DejaVu Serif", serif;
+  font-size: 22pt;
+  color: #8C2F44;
+}
 
+.receipt__badge-cell {
+  text-align: right;
+}
+
+/* A pill needs real box-model support (border/background/padding), which
+   xhtml2pdf only gives block-level elements / table cells — never a plain
+   inline <span> (verified: background shows as a text highlight only,
+   border and padding are silently dropped). This one-cell table is what
+   actually renders as a filled, bordered pill. */
+.receipt__badge-table {
+  border-collapse: collapse;
+}
+
+.receipt__badge {
+  padding: 6px 14px;
+  border: 1pt solid;
+  font-weight: bold;
+  font-size: 9pt;
+  text-align: center;
+}
+.receipt__badge--paid { color: #1F7A46; background-color: #E8F4EC; border-color: #1F7A46; }
+.receipt__badge--partial { color: #9A6B00; background-color: #FCF3DC; border-color: #9A6B00; }
+.receipt__badge--debt { color: #B3271F; background-color: #FAE9E8; border-color: #B3271F; }
+
+.receipt__meta {
+  margin: 10px 0 0;
+  color: #5B6670;
+  font-size: 9.5pt;
+}
+
+.receipt__rule {
+  margin: 14px 0;
+  border: none;
+  border-top: 1pt solid #E3E6E9;
+}
+
+/* --- items table -------------------------------------------------------- */
 .receipt__table {
   width: 100%;
   border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
 }
 
 .receipt__table th,
 .receipt__table td {
-  padding: 6px 8px 6px 0;
+  padding: 8px 8px 8px 0;
   text-align: left;
   vertical-align: top;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5pt solid #E3E6E9;
 }
 
-.receipt__table th:first-child,
-.receipt__table td:first-child {
-  min-width: 8em;
-}
-
+/* Header text is hardcoded UPPERCASE in the template, not text-transform —
+   that CSS property is a no-op in xhtml2pdf. */
 .receipt__table th {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-2);
-  text-transform: uppercase;
-  letter-spacing: .02em;
+  font-size: 7.5pt;
+  font-weight: bold;
+  color: #5B6670;
+  letter-spacing: 0.5pt;
 }
 
 .receipt__table .num {
   text-align: right;
-  white-space: nowrap;
-}
-
-.receipt__table tfoot td {
-  border-bottom: none;
-  border-top: 2px solid var(--text);
-  font-weight: 700;
-  padding-top: 8px;
 }
 
 .receipt__empty {
   text-align: center;
-  color: var(--text-2);
+  color: #5B6670;
   padding: 16px 0;
 }
 
-.receipt__summary { margin-top: 16px; }
-
-.receipt__line {
-  display: flex;
-  justify-content: space-between;
-  margin: 4px 0;
+/* --- totals: one thin rule above ИТОГО, everything else quiet ---------- */
+.receipt__summary {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 2px;
 }
 
-.receipt__line--debt {
-  color: var(--debt);
-  background: var(--debt-bg);
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-weight: 600;
+.receipt__summary td {
+  padding: 3px 0;
+  border: none;
 }
 
-.receipt__pdf {
-  display: inline-block;
-  margin-top: 20px;
-  padding: 10px 16px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  text-decoration: none;
-  font-weight: 500;
+.receipt__summary .num {
+  text-align: right;
+}
+
+.receipt__total td {
+  padding-top: 10px;
+  border-top: 1pt solid #14181C;
+  font-weight: bold;
+  font-size: 11.5pt;
+}
+
+.receipt__line--debt td {
+  color: #B3271F;
+  font-weight: bold;
 }
 
 .receipt__footer {
-  margin-top: 24px;
+  margin-top: 22px;
   text-align: center;
-  color: var(--text-2);
-  font-size: 12px;
-  letter-spacing: .04em;
+  color: #5B6670;
+  font-size: 8.5pt;
 }

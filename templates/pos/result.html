@@ -68,13 +68,25 @@
  {% endif %}
 
  {% comment %}
+ «Скачать чек» is a plain GET — read-only, no Interaction written (see
+ apps.pos.views.receipt_download) — so it needs no CSRF token, just the view
+ permission. She attaches the downloaded PDF to WhatsApp herself: wa.me
+ links cannot attach files, so the WhatsApp button below only opens the chat
+ with a short, link-free text.
+ {% endcomment %}
+ {% if order.status == "confirmed" and perms.sales.view_saleorder %}
+ <a class="btn btn-ghost" href="{% url 'pos:receipt_download' order.pk %}" style="margin-top:var(--space-3)">
+   {% trans "Скачать чек" %}</a>
+ {% endif %}
+
+ {% comment %}
  A POST, not a link: sending the receipt writes an Interaction row, so it needs
  CSRF protection and the write permission. target="_blank" still hands the
  wa.me redirect to a new tab exactly as before.
  {% endcomment %}
  {% if order.status == "confirmed" and order.client.phone and perms.clients.add_interaction %}
  <form method="post" action="{% url 'pos:share_receipt' order.pk %}" target="_blank" rel="noopener"
-    style="margin-top:var(--space-3)">
+    style="margin-top:var(--space-2)">
   {% csrf_token %}
   <button type="submit" class="btn btn-ghost">{% trans "Отправить чек в WhatsApp" %}</button>
  </form>

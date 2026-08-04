@@ -5,8 +5,20 @@
 <div class="card">
  <h2>{{ client.name }}</h2>
  <p class="muted">{{ client.phone }}</p>
+ {% if client.note %}<p class="muted">{{ client.note }}</p>{% endif %}
+</div>
+
+{% comment %}
+ONE debt block: the total, then every unpaid sale it's made of (date, what
+was bought, remaining, «Погасить» per row) — debt used to be scattered
+across this card, a separate «Платежи» card duplicating the same payments,
+and the history list below, with no single place answering "how much, and
+from what". «Погасить долг по нескольким продажам» and the WhatsApp
+reminder live here too now, next to the number they act on.
+{% endcomment %}
+<div class="card">
+ <h2>{% trans "Долг" %}</h2>
  <p>
-  <span class="hint">{% trans "Долг" %}</span><br>
   {% if debts %}
     {% for cur, amt in debts.items %}
       <span class="badge badge--debt">{{ amt|money:cur }}</span>
@@ -20,47 +32,49 @@
     {% endfor %}
   {% endif %}
  </p>
- {% if client.note %}<p class="muted">{{ client.note }}</p>{% endif %}
+
+ {% for row in unpaid_rows %}
+ <div class="oline">
+   <div class="oline__main">
+     <a class="oline__name" href="{% url 'pos:sale_result' row.order.pk %}">
+       {{ row.order.confirmed_at|date:"d.m.Y" }}</a>
+     <span class="oline__meta muted">{{ row.item_summary }}</span>
+     <span class="oline__meta q-due--overdue num">{% trans "остаток" %} {{ row.balance|money:row.order.currency }}</span>
+   </div>
+   {% if perms.sales.add_saleorder %}
+   <a class="btn btn-ghost oline__action" href="{% url 'pos:debt_pay_detail' row.order.pk %}">{% trans "Погасить" %}</a>
+   {% endif %}
+ </div>
+ {% endfor %}
+
+ {% if debts and perms.sales.add_saleorder %}
+ <a class="btn btn-ghost" href="{% url 'pos:client_debt_pay' client.pk %}" style="margin-top:var(--space-3)">
+   {% trans "Погасить долг по нескольким продажам" %}</a>
+ {% endif %}
+
  {% comment %}
  POST for the same reason as the receipt button: it writes an Interaction, so a
- Viewer must not reach it and a cross-site GET must not be able to fire it.
+ Viewer must not reach it and a cross-site GET must not be able to fire it. A
+ reminder isn't a destructive action, so it stays neutral like every other
+ secondary button here — not styled red like «Отменить продажу».
  {% endcomment %}
  {% if debts and client.phone and perms.clients.add_interaction %}
  <form method="post" action="{% url 'pos:debt_reminder' client.pk %}" target="_blank" rel="noopener"
-    style="margin-top:var(--space-3)">
+    style="margin-top:var(--space-2)">
   {% csrf_token %}
-  <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Напомнить о долге в WhatsApp" %}</button>
+  <button type="submit" class="btn btn-ghost">{% trans "Напомнить о долге в WhatsApp" %}</button>
  </form>
- {% endif %}
- {% if debts and perms.sales.add_saleorder %}
- <a class="btn btn-ghost" href="{% url 'pos:client_debt_pay' client.pk %}" style="margin-top:var(--space-2)">
-   {% trans "Погасить долг по нескольким продажам" %}</a>
  {% endif %}
 </div>
 
 <div class="card">
  <h2>{% trans "История покупок" %}</h2>
- {% comment %}
- Each sale shows what's still owed ON THAT SALE, so the client's total debt
- above is traceable to the purchases it came from — «откуда долг» answered
- in place, rather than only as one number at the top of the page.
- {% endcomment %}
- {% for row in order_rows %}
+ {% for row in paid_rows %}
  <div class="oline">
    <div class="oline__main">
      <a class="oline__name" href="{% url 'pos:sale_result' row.order.pk %}">
-       {{ row.order.confirmed_at|date:"d.m.Y H:i" }}</a>
-     <span class="oline__meta muted num">
-       {% if row.balance > 0 %}
-         {% trans "оплачено" %} {{ row.paid|money:row.order.currency }} ·
-         <span class="q-due--overdue">{% trans "долг" %} {{ row.balance|money:row.order.currency }}</span>
-         {% if perms.sales.add_saleorder %}
-         · <a href="{% url 'pos:debt_pay_detail' row.order.pk %}">{% trans "Погасить долг" %}</a>
-         {% endif %}
-       {% else %}
-         <span class="oline__ok">{% trans "оплачено полностью" %}</span>
-       {% endif %}
-     </span>
+       {{ row.order.confirmed_at|date:"d.m.Y" }}</a>
+     <span class="oline__meta muted">{{ row.item_summary }}</span>
    </div>
    <span class="oline__total num">{{ row.order.total|money:row.order.currency }}</span>
  </div>
@@ -68,23 +82,6 @@
  <p class="muted">{% trans "Покупок пока нет" %}</p>
  {% endfor %}
 </div>
-
-{% if payments %}
-<div class="card">
- <h2>{% trans "Платежи" %}</h2>
- {% for p in payments %}
- <div class="line-row">
-   <div class="line-row__label">
-     {% if p.order_id %}<a href="{% url 'pos:sale_result' p.order_id %}">{{ p.created_at|date:"d.m.Y H:i" }}</a>{% else %}{{ p.created_at|date:"d.m.Y H:i" }}{% endif %}
-     {% if p.amount < 0 %} <span class="muted">({% trans "возврат" %})</span>{% endif %}
-     {% with conv=p|payment_conversion %}{% if conv %}<br><span class="muted num">{{ conv }}</span>{% endif %}{% endwith %}
-     {% with chg=p|payment_change_display %}{% if chg %}<br><span class="muted num">{{ chg }}</span>{% endif %}{% endwith %}
-   </div>
-   <div class="line-row__total num">{{ p.amount|money:p.currency }}</div>
- </div>
- {% endfor %}
-</div>
-{% endif %}
 
 <div class="card">
  <h2>{% trans "Взаимодействия" %}</h2>

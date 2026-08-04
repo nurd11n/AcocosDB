@@ -51,6 +51,7 @@ import requests
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
+from django.utils.translation import gettext as _
 
 from apps.core.currency import CURRENCY_CODES
 from apps.core.models import ExchangeRate, RateChangeLog
@@ -96,7 +97,12 @@ def _get_json_once(url: str) -> dict:
     followed), strict TLS (default verify=True, never disabled, no custom
     CA), tight timeouts, and the response body capped at 64KB read directly
     off the wire rather than checked after a full download (a misbehaving
-    server could otherwise send gigabytes with no Content-Length)."""
+    server could otherwise send gigabytes with no Content-Length).
+
+    On a non-2xx status, the real status code and a body snippet are logged
+    here (not just the bare exception message raise_for_status produces) —
+    the earlier version only ever surfaced a free-text log line, leaving the
+    on-demand «Обновить» button unable to tell staff anything but a guess."""
     with requests.get(
         url,
         timeout=(_CONNECT_TIMEOUT, _READ_TIMEOUT),
@@ -106,10 +112,17 @@ def _get_json_once(url: str) -> dict:
     ) as resp:
         if 300 <= resp.status_code < 400:
             raise requests.RequestException(f"refusing to follow a redirect ({resp.status_code})")
-        resp.raise_for_status()
         raw = resp.raw.read(_MAX_BODY_BYTES + 1, decode_content=True)
-    if len(raw) > _MAX_BODY_BYTES:
-        raise ValueError("response body exceeded the 64KB cap")
+        if len(raw) > _MAX_BODY_BYTES:
+            raise ValueError("response body exceeded the 64KB cap")
+        if resp.status_code >= 400:
+            logger.error(
+                "fetch_rates: HTTP %s from %s — body: %s",
+                resp.status_code,
+                url,
+                raw[:500].decode("utf-8", errors="replace"),
+            )
+        resp.raise_for_status()
     return json.loads(raw.decode("utf-8"))
 
 
@@ -139,23 +152,54 @@ def _fetch_frankfurter_rate(currency: str) -> Decimal:
     data = _get_json_capped(_frankfurter_url(currency))
     value = data.get("rate")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
+        logger.error(
+            "fetch_rates: %s — non-numeric rate in response body: %s", currency, json.dumps(data)
+        )
         raise ValueError(f"Frankfurter returned a non-numeric rate for {currency}: {value!r}")
     rate = Decimal(str(value))
     if rate <= 0:
+        logger.error(
+            "fetch_rates: %s — non-positive rate in response body: %s", currency, json.dumps(data)
+        )
         raise ValueError(f"Frankfurter returned a non-positive rate for {currency}: {rate}")
     return rate
 
 
-def fetch_frankfurter_rates(changed_by=None) -> tuple[int, int]:
+def _failure_reason(exc: Exception) -> str:
+    """A short, honest Russian phrase for the UI — never the raw exception
+    text (an HTTPError's str() is English and implementation-specific), but
+    specific enough to actually distinguish "network's down" from "the
+    server sent garbage", which is the whole point of this fix."""
+    if isinstance(exc, requests.HTTPError):
+        status = getattr(exc.response, "status_code", None)
+        return _("сервер курсов ответил ошибкой %(status)s") % {"status": status}
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return _("нет соединения с сервером курсов")
+    if isinstance(exc, requests.RequestException):
+        return _("сетевая ошибка при обращении к серверу курсов")
+    return _("сервер курсов прислал некорректные данные")
+
+
+def fetch_frankfurter_rates(changed_by=None) -> tuple[int, int, dict[str, dict]]:
     """Pull today's rate for every configured non-base currency from the
     pinned-provider Frankfurter endpoint and upsert ExchangeRate rows,
-    returning (updated, rejected). Each currency is fetched and validated
-    independently — a network/validation failure for one never blocks the
-    others. Every ACCEPTED rate is labelled by which provider was actually
-    pinned (nbkr today; never hardcoded), so the UI can never claim НБКР for
-    data that isn't. A rate that deviates >10% from the last known value is
-    rejected outright — logged, nothing saved — the same fail-soft contract
-    as a network failure: the last known rate stays in place either way.
+    returning (updated, rejected, details). Each currency is fetched and
+    validated independently — a network/validation failure for one never
+    blocks the others. Every ACCEPTED rate is labelled by which provider was
+    actually pinned (nbkr today; never hardcoded), so the UI can never claim
+    НБКР for data that isn't. A rate that deviates >10% from the last known
+    value is rejected outright — logged, nothing saved — the same fail-soft
+    contract as a network failure: the last known rate stays in place either
+    way.
+
+    `details` maps currency -> {"status": "changed"|"unchanged"|"failed",
+    "rate": Decimal|None, "date": date|None, "reason": str|None} — the
+    per-currency outcome the «Обновить» button needs to show three genuinely
+    distinct messages instead of one ambiguous one. `updated`/`rejected`
+    stay as plain counts for the scheduled command's summary line; note
+    `updated` counts every successful save (changed OR unchanged), same as
+    before — callers wanting to know whether the VALUE moved must read
+    `details`.
 
     Finishes with a best-effort, never-saved NBKR cross-check (see
     fetch_nbkr_cross_check) — informational only, it changes nothing."""
@@ -163,6 +207,7 @@ def fetch_frankfurter_rates(changed_by=None) -> tuple[int, int]:
     wanted = [c for c in CURRENCY_CODES if c != settings.CURRENCY]
     updated, rejected = 0, 0
     accepted: dict[str, Decimal] = {}
+    details: dict[str, dict] = {}
     source = ExchangeRate.NBKR if FRANKFURTER_KGS_PROVIDER == "NBKR" else ExchangeRate.FRANKFURTER
 
     for currency in wanted:
@@ -170,6 +215,12 @@ def fetch_frankfurter_rates(changed_by=None) -> tuple[int, int]:
             rate = _fetch_frankfurter_rate(currency)
         except (requests.RequestException, ValueError, UnicodeDecodeError) as exc:
             logger.error("fetch_rates: Frankfurter fetch failed for %s: %s", currency, exc)
+            details[currency] = {
+                "status": "failed",
+                "rate": None,
+                "date": None,
+                "reason": _failure_reason(exc),
+            }
             continue
 
         existing = ExchangeRate.objects.filter(currency=currency).first()
@@ -187,6 +238,12 @@ def fetch_frankfurter_rates(changed_by=None) -> tuple[int, int]:
                     _MAX_RATE_DEVIATION_PCT * 100,
                 )
                 rejected += 1
+                details[currency] = {
+                    "status": "failed",
+                    "rate": None,
+                    "date": None,
+                    "reason": _("новый курс отличается от прежнего больше чем на 10% — нужна проверка"),
+                }
                 continue
 
         old_rate = existing.rate if existing is not None else None
@@ -197,14 +254,22 @@ def fetch_frankfurter_rates(changed_by=None) -> tuple[int, int]:
         )
         accepted[currency] = rate
         updated += 1
+        changed = old_rate is None or old_rate != rate
+        details[currency] = {
+            "status": "changed" if changed else "unchanged",
+            "rate": rate,
+            "date": today,
+            "reason": None,
+        }
         logger.info(
-            "fetch_rates: accepted %s (source=%s, provider=%s, accepted=true)",
+            "fetch_rates: accepted %s (source=%s, provider=%s, changed=%s)",
             currency,
             source,
             FRANKFURTER_KGS_PROVIDER,
+            changed,
         )
 
-        if old_rate is None or old_rate != rate:
+        if changed:
             RateChangeLog.objects.create(
                 currency=currency,
                 old_rate=old_rate,
@@ -215,7 +280,7 @@ def fetch_frankfurter_rates(changed_by=None) -> tuple[int, int]:
 
     if accepted:
         _cross_check_against_nbkr(accepted)
-    return updated, rejected
+    return updated, rejected, details
 
 
 # --- NBKR (cross-check only — never the writer) -----------------------------
@@ -302,7 +367,7 @@ class Command(BaseCommand):
     help = "Fetch today's rates (Frankfurter, pinned to the NBKR provider) and upsert ExchangeRate rows."
 
     def handle(self, *args, **options):
-        updated, rejected = fetch_frankfurter_rates()
+        updated, rejected, _details = fetch_frankfurter_rates()
         today = timezone.localdate()
         if updated:
             msg = f"Rates for {today}: {updated} updated"

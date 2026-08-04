@@ -202,7 +202,13 @@ def _metrics(start, end, prev_start, prev_end):
     # moment they're confirmed, no Payment row — see the query comment
     # above). Expected = booked but not yet in hand; can legitimately go
     # negative (more OLD debt collected this period than NEW revenue booked)
-    # — that's real signal, not clamped away.
+    # — that's real signal, not clamped away. A bare negative "Ожидается"
+    # reads as an error to a human ("pending: -1,959,300 som"?), so the
+    # template shows this state as its own clearly-labelled fact — "old
+    # debt collected beyond this period's new billing" — rather than a
+    # confusing signed number under the "pending" label. `is_surplus` /
+    # `display_value` exist for exactly that; `value` stays the raw signed
+    # figure for anything (CSV export, delta math) that needs the real sign.
     received = pay["cur"] + rev["walkin_cur"]
     received_prev = pay["prev"] + rev["walkin_prev"]
     expected = revenue - received
@@ -218,7 +224,12 @@ def _metrics(start, end, prev_start, prev_end):
             "delta": _delta(discount, discount_prev),
         },
         "received": {"value": received, "delta": _delta(received, received_prev)},
-        "expected": {"value": expected, "delta": _delta(expected, expected_prev)},
+        "expected": {
+            "value": expected,
+            "display_value": abs(expected),
+            "is_surplus": expected < 0,
+            "delta": _delta(expected, expected_prev),
+        },
     }
 
 
@@ -246,7 +257,12 @@ def _debt(prev_end):
     paid_by_order_asof = {}
     for p in pay_rows:
         paid_by_order[p["order_id"]] = paid_by_order.get(p["order_id"], Decimal("0")) + p["kgs"]
-        if p["created_at"].date() <= prev_end:
+        # .values(...) returns raw UTC datetimes (USE_TZ=True) — a bare
+        # .date() reads the UTC calendar date, not Bishkek's, and can be off
+        # by one day for anything confirmed/paid in the early-morning hours
+        # local time (CLAUDE.md: local date, never UTC, for exactly this
+        # class of "same day"/aging bucket decision).
+        if timezone.localtime(p["created_at"]).date() <= prev_end:
             paid_by_order_asof[p["order_id"]] = (
                 paid_by_order_asof.get(p["order_id"], Decimal("0")) + p["kgs"]
             )
@@ -260,10 +276,10 @@ def _debt(prev_end):
             debt_by_client[o["client_id"]] = (
                 debt_by_client.get(o["client_id"], Decimal("0")) + outstanding
             )
-            age = (today - o["confirmed_at"].date()).days
+            age = (today - timezone.localtime(o["confirmed_at"]).date()).days
             bucket = "d0_30" if age <= 30 else "d31_60" if age <= 60 else "d60_plus"
             aging[bucket] += outstanding
-        if o["confirmed_at"].date() <= prev_end:
+        if timezone.localtime(o["confirmed_at"]).date() <= prev_end:
             out_prev = o["total_kgs"] - paid_by_order_asof.get(o["id"], Decimal("0"))
             if out_prev > 0:
                 debt_by_client_prev[o["client_id"]] = (

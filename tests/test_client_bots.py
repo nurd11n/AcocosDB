@@ -459,6 +459,79 @@ def test_inbox_reply_triggers_handoff(client, django_user_model):
     assert is_handed_off(c) is True
 
 
+def test_inbox_reply_to_an_unreachable_client_shows_an_error(client, django_user_model):
+    """send_to_client's return value used to be discarded — a manager typing
+    a reply to a client reachable on NEITHER channel saw it appear in the
+    thread exactly like a real send, with nothing telling them it never
+    left. A BotMessage row is still written (the thread must show what was
+    typed) but the manager must now be told it didn't actually go out."""
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("editor3", password="pw", is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    # No telegram_chat_id, not whatsapp_opted_in — unreachable on both channels.
+    c = Client.objects.create(first_name="Unreachable", phone="+996700333000")
+    resp = client.post(f"/inbox/{c.pk}/reply/", {"text": "Здравствуйте!"}, follow=True)
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "не доставлено" in body
+    # The thread still shows what was typed — just not silently as "sent".
+    assert BotMessage.objects.filter(client=c, direction=BotMessage.OUT).exists()
+
+
+def test_inbox_reply_success_shows_no_error(client, django_user_model, settings, monkeypatch):
+    """The same screen, but the client IS reachable and the send succeeds —
+    no error banner should appear."""
+    call_command("setup_roles")
+    settings.TELEGRAM_CLIENT_TOKEN = "test-token"
+    editor = django_user_model.objects.create_user("editor4", password="pw", is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    class _FakeResponse:
+        ok = True
+
+    monkeypatch.setattr("requests.post", lambda *a, **k: _FakeResponse())
+    c = Client.objects.create(
+        first_name="Reachable", phone="+996700333001", telegram_chat_id=555
+    )
+    resp = client.post(f"/inbox/{c.pk}/reply/", {"text": "Здравствуйте!"}, follow=True)
+    assert resp.status_code == 200
+    assert "не доставлено" not in resp.content.decode()
+
+
+def test_send_whatsapp_text_treats_a_non_ok_api_response_as_failure(settings, monkeypatch):
+    """A network-level success (the POST reached Meta) is not the same as
+    the message being accepted — an expired 24h window, an unapproved
+    template, or a revoked token all come back as a normal HTTP response,
+    just not a 2xx one. This used to be indistinguishable from success:
+    only a raised exception counted as failure, so send_whatsapp_text
+    returned True regardless of what Meta actually said."""
+    from apps.wa.services import send_whatsapp_text
+
+    settings.WHATSAPP_TOKEN = "test-token"
+    settings.WHATSAPP_PHONE_NUMBER_ID = "12345"
+
+    class _RejectedResponse:
+        ok = False
+        status_code = 401
+        text = '{"error": "invalid token"}'
+
+    monkeypatch.setattr("requests.post", lambda *a, **k: _RejectedResponse())
+    result = send_whatsapp_text("+996700000111", "hi")
+    assert result is False
+
+    class _AcceptedResponse:
+        ok = True
+        status_code = 200
+        text = "{}"
+
+    monkeypatch.setattr("requests.post", lambda *a, **k: _AcceptedResponse())
+    result = send_whatsapp_text("+996700000111", "hi")
+    assert result is True
+
+
 def test_telegram_welcome_greeting_uses_first_name_only(wa_client, monkeypatch):
     """The Telegram client bot's welcome message must never show the
     staff-only descriptor about the client to that same client — same rule

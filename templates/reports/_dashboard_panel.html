@@ -52,6 +52,12 @@ one figure that quietly means something different each time — booked and cash-
 hand can diverge a lot for a shop carrying client debt, and both need to stay
 visible at once.{% endcomment %}
 <div class="metrics">
+ {% comment %}
+ Grouped for scanability, not just insertion order: the four money-flow
+ cards (billed -> collected -> still owed from this period -> total owed
+ across all time) sit together first, then the three performance/analysis
+ cards. Same 4+3 grid either way, but now the split means something.
+ {% endcomment %}
  <div class="metric">
   <span class="metric__icon"><svg class="ic"><use href="#i-revenue"/></svg></span>
   <div class="metric__body">
@@ -68,12 +74,33 @@ visible at once.{% endcomment %}
    <div class="metric__sub">{% trans "деньги в кассе" %}</div>
   </div>
  </div>
+ {% comment %}
+ "Ожидается" (revenue - received) can legitimately go negative — more OLD
+ debt collected this period than NEW revenue booked — a real, useful fact
+ (CLAUDE.md/apps.reports.dashboard._metrics), but a bare "-1 959 300 сом"
+ under a "pending" label reads as an error, not information. Give that
+ state its own label/colour instead of a confusing signed number.
+ {% endcomment %}
  <div class="metric">
   <span class="metric__icon"><svg class="ic"><use href="#i-aging"/></svg></span>
   <div class="metric__body">
+   {% if metrics.expected.is_surplus %}
+   <div class="metric__label">{% trans "Погашено старых долгов" %}</div>
+   <div class="metric__value metric__value--paid" data-count="{{ metrics.expected.display_value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.expected.display_value|money:cur_symbol }}</div>
+   <div class="metric__sub">{% trans "получено больше, чем начислено за период" %}</div>
+   {% else %}
    <div class="metric__label">{% trans "Ожидается" %}</div>
    <div class="metric__value" data-count="{{ metrics.expected.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.expected.value|money:cur_symbol }}</div>
    <div class="metric__sub">{% trans "продано, но не оплачено" %}</div>
+   {% endif %}
+  </div>
+ </div>
+ <div class="metric">
+  <span class="metric__icon"><svg class="ic"><use href="#i-debt"/></svg></span>
+  <div class="metric__body">
+   <div class="metric__label">{% trans "Долги" %}</div>
+   <div class="metric__value" data-count="{{ metrics.debt.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.debt.value|money:cur_symbol }}</div>
+   <div class="metric__sub">{{ metrics.debt.clients }} {% trans "клиент(ов)" %} · {% trans "сейчас" %}</div>
   </div>
  </div>
  <div class="metric">
@@ -98,14 +125,6 @@ visible at once.{% endcomment %}
    <div class="metric__label">{% trans "Продано" %}</div>
    <div class="metric__value" data-count="{{ metrics.units.value|raw_int }}" data-suffix=" {% trans "шт" %}">{{ metrics.units.value|grp }} {% trans "шт" %}</div>
    <div class="metric__sub">{{ period_sub }}</div>
-  </div>
- </div>
- <div class="metric">
-  <span class="metric__icon"><svg class="ic"><use href="#i-debt"/></svg></span>
-  <div class="metric__body">
-   <div class="metric__label">{% trans "Долги" %}</div>
-   <div class="metric__value" data-count="{{ metrics.debt.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.debt.value|money:cur_symbol }}</div>
-   <div class="metric__sub">{{ metrics.debt.clients }} {% trans "клиент(ов)" %} · {% trans "сейчас" %}</div>
   </div>
  </div>
 </div>

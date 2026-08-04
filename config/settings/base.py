@@ -83,6 +83,10 @@ LOGOUT_REDIRECT_URL = "/login/"
 # set is fixed in apps.core.currency, not env-configurable. CURRENCY here is
 # only the BASE currency that ExchangeRate rates are quoted against.
 CURRENCY = env("CURRENCY")  # base currency, e.g. KGS
+# One contact line on the receipt PDF's footer — never a URL (the receipt is
+# PDF-only, see apps.pos.receipts). Blank by default so an unconfigured shop
+# never ships a fabricated phone number; the footer simply omits the line.
+RECEIPT_CONTACT_LINE = env("RECEIPT_CONTACT_LINE", default="")
 
 # A converted foreign payment needs an explicit second confirmation (not just
 # the primary "Подтвердить продажу" tap) when the rate behind it is risky:

@@ -1,5 +1,14 @@
 {% load i18n %}
 <div id="rates-strip" class="rates-strip">
+ {% for r in refresh_result %}
+   {% if r.status == "changed" %}
+   <span class="hint hint--ok">{% blocktrans with sym=r.symbol rate=r.rate|floatformat:2 %}Курс обновлён: 1 {{ sym }} = {{ rate }} сом{% endblocktrans %}</span>
+   {% elif r.status == "unchanged" %}
+   <span class="hint hint--ok">{% blocktrans with sym=r.symbol date=r.date|date:"d.m.Y" %}Курс {{ sym }} актуален на {{ date }}{% endblocktrans %}</span>
+   {% else %}
+   <span class="hint hint--error">{% blocktrans with sym=r.symbol reason=r.reason %}Не удалось обновить {{ sym }}: {{ reason }}{% endblocktrans %}</span>
+   {% endif %}
+ {% endfor %}
  {% for r in rates %}
  <span class="rates-strip__item num">
    1 {{ r.symbol }} = {{ r.rate|floatformat:2 }} {{ r.base_symbol }}

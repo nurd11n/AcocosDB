@@ -132,7 +132,7 @@ def lapsed_clients(days: int = 60) -> list[Client]:
     )
 
 
-def client_debts_by_currency() -> dict[int, dict[str, Decimal]]:
+def client_debts_by_currency(client: "Client | None" = None) -> dict[int, dict[str, Decimal]]:
     """{client_id: {currency: debt}} — confirmed sale totals minus payments,
     keyed by the ORDER's currency. A payment counts against the order it was
     made for by its NET applied amount (gross minus any change handed back,
@@ -140,7 +140,13 @@ def client_debts_by_currency() -> dict[int, dict[str, Decimal]]:
     that order's currency at the rate frozen on the payment
     (net_applied_kgs ÷ order_rate) — so a USD payment on a сом order reduces
     the сом debt by what actually stayed with the shop. Two grouped queries
-    total, no N+1."""
+    total, no N+1.
+
+    Pass `client` to scope both queries to one client (an indexed lookup)
+    instead of aggregating the whole business's sales/payments history —
+    every single-client caller (client_debt/client_credits below, and their
+    call sites) MUST pass it; leaving it unset is only for a genuine
+    whole-book aggregate (total_outstanding_debt, debtors_report_rows)."""
     from decimal import ROUND_HALF_UP
 
     from django.db.models import DecimalField, ExpressionWrapper
@@ -150,11 +156,13 @@ def client_debts_by_currency() -> dict[int, dict[str, Decimal]]:
 
     totals: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
 
-    sales_rows = (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, client__isnull=False)
-        .values("client_id", "currency")
-        .annotate(t=Sum("total"))
-    )
+    sales_qs = SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, client__isnull=False)
+    payment_qs = Payment.objects.filter(client__isnull=False, order__isnull=False)
+    if client is not None:
+        sales_qs = sales_qs.filter(client=client)
+        payment_qs = payment_qs.filter(client=client)
+
+    sales_rows = sales_qs.values("client_id", "currency").annotate(t=Sum("total"))
     for row in sales_rows:
         totals[row["client_id"]][row["currency"]] += row["t"] or Decimal("0")
 
@@ -162,11 +170,7 @@ def client_debts_by_currency() -> dict[int, dict[str, Decimal]]:
         (F("amount") * F("rate_to_kgs") - F("change_amount_kgs")) / F("order__rate_to_kgs"),
         output_field=DecimalField(max_digits=20, decimal_places=6),
     )
-    payment_rows = (
-        Payment.objects.filter(client__isnull=False, order__isnull=False)
-        .values("client_id", "order__currency")
-        .annotate(t=Sum(converted))
-    )
+    payment_rows = payment_qs.values("client_id", "order__currency").annotate(t=Sum(converted))
     for row in payment_rows:
         totals[row["client_id"]][row["order__currency"]] -= row["t"] or Decimal("0")
 
@@ -185,11 +189,23 @@ def client_debts_by_currency() -> dict[int, dict[str, Decimal]]:
     return result
 
 
+def client_debt_and_credit(client: Client) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """{currency: debt}, {currency: credit} for one client, in ONE indexed
+    query pair instead of two — the call site every page that shows both at
+    once (client_detail) should use, instead of client_debt()+client_credits()
+    back to back."""
+    debts = client_debts_by_currency(client=client).get(client.pk, {})
+    return (
+        {cur: amt for cur, amt in debts.items() if amt > 0},
+        {cur: -amt for cur, amt in debts.items() if amt < 0},
+    )
+
+
 def client_debt(client: Client) -> dict[str, Decimal]:
     """{currency: debt} for one client — positive balances only. Deliberately
     excludes credits (see client_credits) — this feeds debt-reminder logic,
     which must never nudge a client who's actually in credit."""
-    debts = client_debts_by_currency().get(client.pk, {})
+    debts = client_debts_by_currency(client=client).get(client.pk, {})
     return {cur: amt for cur, amt in debts.items() if amt > 0}
 
 
@@ -197,7 +213,7 @@ def client_credits(client: Client) -> dict[str, Decimal]:
     """{currency: credit} for one client — a negative pooled balance (paid
     more than they owe, via «В счёт долга»/«Аванс», see Payment) shown as a
     positive «Аванс» figure, never as a negative debt."""
-    debts = client_debts_by_currency().get(client.pk, {})
+    debts = client_debts_by_currency(client=client).get(client.pk, {})
     return {cur: -amt for cur, amt in debts.items() if amt < 0}
 
 

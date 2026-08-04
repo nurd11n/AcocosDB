@@ -5,7 +5,10 @@
 <div class="card">
  <h2>{% trans "Возврат по продаже" %} №{{ order.pk }}</h2>
  <p class="hint">{% trans "Укажите, сколько единиц возвращается. Товар вернётся на склад, сумма продажи уменьшится." %}</p>
- <form method="post" action="{% url 'pos:sale_return' order.pk %}">
+ <form method="post" action="{% url 'pos:sale_return' order.pk %}"
+   data-network-safe data-error-target="return-error"
+   data-confirm="{% blocktrans with id=order.pk %}Оформить возврат по продаже №{{ id }}?{% endblocktrans %}"
+   data-confirm-ok="{% trans "Да, оформить возврат" %}" data-confirm-tone="primary">
   {% csrf_token %}
   {% for item in items %}
   <div class="line-row">
@@ -21,6 +24,7 @@
     {% trans "Оформить возврат" %}</button>
   <a class="btn btn-ghost" href="{% url 'pos:sale_result' order.pk %}" style="margin-top:var(--space-2)">
     {% trans "Отмена" %}</a>
+  <p id="return-error" class="error" hidden></p>
  </form>
 </div>
 {% endblock %}

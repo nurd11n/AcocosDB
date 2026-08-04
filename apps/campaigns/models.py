@@ -1,5 +1,5 @@
-"""Marketing broadcasts. Owner-only (kept out of BUSINESS_APPS, so it never
-appears for Editor/Viewer). A Campaign is composed once, then sent by the
+"""Marketing broadcasts. Owner-only (kept out of BUSINESS_MODEL_PERMISSIONS, so
+it never appears for Editor/Viewer). A Campaign is composed once, then sent by the
 `send_campaign` management command, which records one CampaignRecipient per
 client so a send is auditable and never repeated. Telegram is the only channel
 implemented; WhatsApp is modelled but feature-gated off.

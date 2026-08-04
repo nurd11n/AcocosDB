@@ -60,6 +60,7 @@ urlpatterns = [
     path("sale/<int:pk>/cancel/", views.sale_cancel, name="sale_cancel"),
     path("sale/<int:pk>/return/", views.sale_return, name="sale_return"),
     path("sale/<int:pk>/receipt/", views.share_receipt, name="share_receipt"),
+    path("sale/<int:pk>/receipt/pdf/", views.receipt_download, name="receipt_download"),
     path("sale/<int:pk>/debt/", views.debt_pay_detail, name="debt_pay_detail"),
     path("sale/<int:pk>/debt/recalc/", views.debt_pay_recalc, name="debt_pay_recalc"),
     path("sale/<int:pk>/debt/confirm/", views.debt_pay_confirm, name="debt_pay_confirm"),

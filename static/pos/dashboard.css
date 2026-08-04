@@ -85,10 +85,16 @@ html[data-theme="dark"] .metric, html[data-theme="dark"] .panel {
 /* --- metric cards --- */
 .metrics {
   display: grid;
-  /* auto-fit instead of a fixed column count: 7 cards (revenue, profit,
-     discount, received, expected, units, debt) no longer fit 5-across at
-     normal desktop widths, and this scales cleanly without more breakpoints. */
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  /* A FIXED 4 columns, not auto-fit: with 7 cards inside .dash's 1160px cap,
+     auto-fit's minmax(160px,1fr) let the track shrink all the way to its
+     160px floor to fit a 6th column, leaving cards too narrow for a real
+     figure ("2 360 400 сом") to fit — nothing in a money string can wrap
+     (every space in it is NBSP, by design, so "3 800" never breaks mid-
+     number), so it just overflowed the card. 4 columns keeps every card
+     ≈270px — comfortable for a 6-7 digit sum — and leaves 7 cards as a
+     4+3 split (one empty cell) instead of 6+1 (five empty cells next to
+     one stranded card). */
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-3);
   margin-bottom: var(--space-6); /* clear break before the chart zone */
 }
@@ -266,9 +272,13 @@ button.cal__day:active { transform: scale(0.9); }
 
 /* Semantic emphasis: a loss (negative profit) reads --debt, like metric deltas
    already do — the minus sign is always present, so colour never stands alone.
-   A low-stock count reads --partial when there's something to act on. */
+   A low-stock count reads --partial when there's something to act on. Colour
+   is reinforcement here too, never the only signal — the label/sub-text
+   already say what's going on (see "Ожидается" -> "Погашено старых долгов"
+   in _dashboard_panel.html) before colour ever enters into it. */
 .dtable td.num--loss { color: var(--debt); }
 .metric__value--attn { color: var(--partial); }
+.metric__value--paid { color: var(--paid); }
 .metric__sub--loss { color: var(--debt); }
 
 /* Wide storage tables scroll inside their own container — the page never scrolls
@@ -281,6 +291,12 @@ button.cal__day:active { transform: scale(0.9); }
 .dl-bar__label { font-size: 12px; color: var(--text-2); }
 
 /* --- responsive: stack at narrow widths --- */
+@media (max-width: 1100px) {
+  /* Between this and the 900px breakpoint below, 4 columns inside a
+     shrinking .dash would squeeze cards back into the same overflow this
+     file's .metrics comment describes — step down to 3 first. */
+  .metrics { grid-template-columns: repeat(3, 1fr); }
+}
 @media (max-width: 900px) {
   .panels { grid-template-columns: 1fr; }
   .metrics { grid-template-columns: repeat(2, 1fr); }

@@ -13,6 +13,55 @@
    {% trans "Остаток по продаже" %}: {{ balance|money:order.currency }}
    {% if balance_conv %}<span class="muted">≈ {{ balance_conv|money:base_currency }}</span>{% endif %}
  </p>
+
+ {% comment %}
+ This screen used to show only money, with nothing reminding staff what the
+ debt is actually FOR — the sale's own item list, same fields as the
+ receipt (товар/размер/цвет/кол-во/сумма).
+ {% endcomment %}
+ {% if order_items %}
+ <table class="table" style="margin-top:var(--space-3)">
+  <thead>
+   <tr>
+    <th>{% trans "Товар" %}</th>
+    <th>{% trans "Размер" %}</th>
+    <th>{% trans "Цвет" %}</th>
+    <th class="num">{% trans "Кол-во" %}</th>
+    <th class="num">{% trans "Сумма" %}</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for item in order_items %}
+   <tr>
+    <td>{{ item.variant.product.name }}</td>
+    <td>{{ item.variant.size }}</td>
+    <td>{{ item.variant.color }}</td>
+    <td class="num">{{ item.quantity }}</td>
+    <td class="num">{{ item.line_total|money:order.currency }}</td>
+   </tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ {% endif %}
+
+ {% comment %}
+ Reuses the EXISTING receipt_download/share_receipt views (same ones on the
+ sale-result screen) — never a second receipt path. Download is a plain GET
+ (read-only, no Interaction — see apps.pos.views.receipt_download); the
+ WhatsApp resend is a POST because it writes one.
+ {% endcomment %}
+ {% if perms.sales.view_saleorder %}
+ <a class="btn btn-ghost" href="{% url 'pos:receipt_download' order.pk %}" style="margin-top:var(--space-3)">
+   {% trans "Скачать чек" %}</a>
+ {% endif %}
+
+ {% if can_resend_receipt %}
+ <form method="post" action="{% url 'pos:share_receipt' order.pk %}" target="_blank" rel="noopener"
+   style="margin-top:var(--space-2)">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-ghost">{% trans "Отправить чек ещё раз" %}</button>
+ </form>
+ {% endif %}
 </div>
 
 <div id="sale-body">

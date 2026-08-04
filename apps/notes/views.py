@@ -3,7 +3,7 @@ Every logged-in POS user shares one board — it's a team scratchpad.
 
 "Shared" means shared between people who can WRITE. Reading is open to any
 logged-in user; creating, editing, toggling, pinning and deleting are gated
-on real notes permissions (see apps.core.permissions.BUSINESS_APPS — Editor
+on real notes permissions (see apps.core.permissions.BUSINESS_MODEL_PERMISSIONS — Editor
 gets add/change/view, Viewer view-only, delete stays Owner-only like every
 other business model). Before those gates existed NO role held a notes
 permission and no view checked one, so a documented read-only Viewer could
