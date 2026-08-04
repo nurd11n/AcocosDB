@@ -59,7 +59,7 @@
 <div class="card">
  <h2>{% trans "Переписка" %}</h2>
  <div style="display:flex;flex-direction:column;gap:var(--space-2)">
- {% for m in messages %}
+ {% for m in thread_messages %}
   <div style="align-self:{% if m.direction == 'out' %}flex-end{% else %}flex-start{% endif %};max-width:80%">
    <div class="line-row" style="background:{% if m.direction == 'out' %}var(--surface-sunken){% else %}var(--surface){% endif %}">
     <div class="line-row__label">{{ m.text }}</div>

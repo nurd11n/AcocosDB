@@ -8,7 +8,6 @@ from apps.core.auth_views import RedirectToSharedLoginMixin, UnifiedLoginView
 from apps.core.errors import healthz
 from apps.core.otp_views import otp_enroll, otp_enroll_done
 from apps.core.views import report_download, root_redirect, set_theme, stats_view
-from apps.pos.public_views import receipt_pdf, receipt_public
 from apps.reports.views import dashboard, dashboard_export, storage_export, storage_view
 
 
@@ -30,11 +29,6 @@ admin.site.__class__ = _AdminSite
 
 urlpatterns = [
     path("healthz/", healthz, name="healthz"),
-    # Public — no login, the signed token itself is the access control (see
-    # apps.pos.receipts). Short path on purpose: it's what goes into the
-    # WhatsApp receipt message.
-    path("r/<str:token>/", receipt_public, name="receipt-public"),
-    path("r/<str:token>/pdf/", receipt_pdf, name="receipt-pdf"),
     path("login/", UnifiedLoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("theme/", set_theme, name="set-theme"),

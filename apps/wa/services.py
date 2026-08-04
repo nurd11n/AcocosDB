@@ -29,21 +29,32 @@ def send_whatsapp_text(to: str, body: str, client=None) -> bool:
         )
         return False
     url = f"https://graph.facebook.com/v20.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    ok = False
     try:
-        requests.post(
+        resp = requests.post(
             url,
             headers={"Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"},
             json={"messaging_product": "whatsapp", "to": to, "text": {"body": body}},
             timeout=10,
         )
-        BotMessage.objects.create(
-            channel=BotMessage.WHATSAPP,
-            external_id=to,
-            direction=BotMessage.OUT,
-            text=body,
-            client=client,
-        )
-        return True
+        # The network call succeeding is not the same as the message
+        # actually being accepted — an expired 24h window, an invalid/
+        # unapproved template, or a revoked token all come back as a normal
+        # HTTP response, just not a 2xx one. Only a genuine resp.ok means
+        # Meta actually queued it (mirrors apps.inbox.services._send_telegram's
+        # resp.ok check, which this send used to skip entirely).
+        if not resp.ok:
+            logger.error(
+                "WhatsApp send rejected by Meta (status %s): %s", resp.status_code, resp.text
+            )
+        ok = resp.ok
     except requests.RequestException:
         logger.exception("Failed to send WhatsApp message")
-        return False
+    BotMessage.objects.create(
+        channel=BotMessage.WHATSAPP,
+        external_id=to,
+        direction=BotMessage.OUT,
+        text=body,
+        client=client,
+    )
+    return ok

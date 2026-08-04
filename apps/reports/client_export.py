@@ -19,6 +19,8 @@ with what the rest of the app calls "fully paid" by a few kopecks).
 
 from decimal import Decimal
 
+from django.utils import timezone
+
 from django.conf import settings
 from django.utils.translation import gettext as _
 from openpyxl.styles import Font, PatternFill
@@ -54,7 +56,10 @@ def _order_row(order, items) -> list:
     quantity = sum((i.quantity for i in items), 0)
     products = ", ".join(f"{i.variant} ×{i.quantity}" for i in items)
     return [
-        order.confirmed_at.date() if order.confirmed_at else None,
+        # Bishkek-local date, not UTC — order.confirmed_at is a UTC-aware
+        # datetime (USE_TZ=True); a bare .date() reads the wrong calendar
+        # date for anything confirmed in the early-morning hours locally.
+        timezone.localtime(order.confirmed_at).date() if order.confirmed_at else None,
         f"№{order.pk}",
         products,
         quantity,

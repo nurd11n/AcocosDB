@@ -8,7 +8,7 @@ Rules enforced here:
 
 from collections import defaultdict
 from datetime import timedelta
-from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, ROUND_UP, Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -100,11 +100,16 @@ def confirm_sale(order: SaleOrder, user=None) -> SaleOrder:
     # Freeze the FX rate now, inside the atomic block, and pre-convert the total
     # to сом. Every dashboard aggregate sums total_kgs and never re-converts, so
     # changing today's rate can't retroactively move this sale's reported value.
+    # Rounded UP (never down): total_kgs is what a foreign-currency order is
+    # considered to OWE in KGS terms (it gates balance_kgs_before_payment /
+    # change eligibility for cross-currency payments below) — rounding it down
+    # would let a payment register the order "fully paid" for slightly less
+    # real value than it's actually worth.
     now = timezone.now()
     rate = snapshot_rate_to_base(order.currency, timezone.localdate())
     order.total = total
     order.rate_to_kgs = rate
-    order.total_kgs = (total * rate).quantize(CENTS)
+    order.total_kgs = (total * rate).quantize(CENTS, rounding=ROUND_UP)
     order.status = SaleOrder.CONFIRMED
     order.confirmed_at = now
     order.save(update_fields=["total", "rate_to_kgs", "total_kgs", "status", "confirmed_at"])
@@ -114,20 +119,26 @@ def confirm_sale(order: SaleOrder, user=None) -> SaleOrder:
 @transaction.atomic
 def cancel_sale(order: SaleOrder, user=None) -> SaleOrder:
     """Cancel an approved sale: return the items to stock with RETURN_IN movements."""
-    if order.status != SaleOrder.CONFIRMED:
+    # Lock first, same reason as confirm_sale: without this, two concurrent
+    # cancel attempts (a double-tapped «Отменить продажу» on a bad
+    # connection) could both read status=CONFIRMED before either commits,
+    # and both restock the same items — doubling the RETURN_IN movements and
+    # permanently inflating stock by however much the sale contained.
+    locked = SaleOrder.objects.select_for_update().get(pk=order.pk)
+    if locked.status != SaleOrder.CONFIRMED:
         raise ValidationError(_("Only approved sales can be cancelled."))
-    for item in order.items.select_related("variant"):
+    for item in locked.items.select_related("variant"):
         add_movement(
             variant=item.variant,
             movement_type=StockMovement.RETURN_IN,
             quantity=item.quantity,
             user=user,
-            reason=f"Cancel sale #{order.pk}",
-            sale_order=order,
+            reason=f"Cancel sale #{locked.pk}",
+            sale_order=locked,
         )
-    order.status = SaleOrder.CANCELLED
-    order.save(update_fields=["status"])
-    return order
+    locked.status = SaleOrder.CANCELLED
+    locked.save(update_fields=["status"])
+    return locked
 
 
 @transaction.atomic
@@ -199,8 +210,9 @@ def return_items(order: SaleOrder, returns: dict[int, int], user=None) -> SaleOr
     else:
         order.total = sum((i.line_total for i in remaining), Decimal("0"))
     # Recompute total_kgs at the order's ORIGINAL frozen rate — a return shrinks
-    # the sale but must not re-price it at a new rate.
-    order.total_kgs = (order.total * order.rate_to_kgs).quantize(CENTS)
+    # the sale but must not re-price it at a new rate. Rounded UP, same reason
+    # as confirm_sale above.
+    order.total_kgs = (order.total * order.rate_to_kgs).quantize(CENTS, rounding=ROUND_UP)
     order.save(update_fields=["total", "total_kgs", "status"])
     return order
 
@@ -402,12 +414,21 @@ def compute_change_preview(
     (change_amount_kgs); the residue (change_rounding_kgs, always >= 0) is
     reported separately, never dropped. change_amount is that rounded KGS
     figure re-expressed in `change_currency` — None if that currency isn't
-    expressible via this payment's one rate (see _change_amount_to_kgs)."""
+    expressible via this payment's one rate (see _change_amount_to_kgs).
+
+    Both foreign-currency conversions below round DOWN, always in the shop's
+    favor: amount_kgs is how much debt a foreign payment forgives (rounding
+    it up would credit the client for slightly more than they actually
+    paid), and change_amount is foreign currency physically handed back
+    (rounding it up would hand back slightly more than the computed KGS
+    change is really worth) — the same "never give away more than it's
+    worth" rule CHANGE_ROUNDING_STEP already applies to the KGS figure
+    itself, just extended to non-KGS money."""
     amount = Decimal(amount)
     if currency == settings.CURRENCY:
         amount_kgs = amount.quantize(CENTS, rounding=ROUND_HALF_UP)
     else:
-        amount_kgs = (amount * resolved_rate).quantize(CENTS, rounding=ROUND_HALF_UP)
+        amount_kgs = (amount * resolved_rate).quantize(CENTS, rounding=ROUND_DOWN)
 
     # The excess THIS payment creates, clamped to [0, amount_kgs] — change can
     # never exceed what was physically received in this one payment.
@@ -423,7 +444,7 @@ def compute_change_preview(
     if change_currency == settings.CURRENCY:
         change_amount = rounded_change_kgs
     elif change_currency == currency and resolved_rate:
-        change_amount = (rounded_change_kgs / resolved_rate).quantize(CENTS, rounding=ROUND_HALF_UP)
+        change_amount = (rounded_change_kgs / resolved_rate).quantize(CENTS, rounding=ROUND_DOWN)
     else:
         change_amount = None  # not expressible at this payment's one rate
 
@@ -441,6 +462,7 @@ def compute_change_preview(
     }
 
 
+@transaction.atomic
 def record_payment(
     order: SaleOrder,
     amount: Decimal,
@@ -484,6 +506,19 @@ def record_payment(
     conversion even if some other caller skips that check."""
     if order.client_id is None or amount is None or amount <= 0:
         return None
+    # Lock the order for the rest of this call: every balance/overpayment/
+    # change check below reads order.payments.all()/total_kgs, and without
+    # this, two near-simultaneous payments against the same order (a
+    # double-tapped debt repayment, two staff repaying the same client at
+    # once) could each compute their checks against the SAME pre-payment
+    # balance and both succeed — overpaying the order by however much the
+    # second payment was. Re-locking a row this same transaction already
+    # holds (e.g. a caller like pay_oldest_first that locks first) is a safe
+    # no-op in Postgres, never a deadlock. Order.payments is a related
+    # manager keyed off order.pk, so re-pointing `order` at the locked
+    # instance makes every subsequent `order.payments.all()` read the
+    # up-to-date set too.
+    order = SaleOrder.objects.select_for_update().get(pk=order.pk)
     payment_currency = currency or order.currency
     if rate_override is None and payment_currency != order.currency:
         if rate_info(payment_currency) is None:
@@ -514,15 +549,35 @@ def record_payment(
     change_rounding_kgs = Decimal("0")
     resolved_change_currency = change_currency or order.currency
 
+    # Computed unconditionally (cheap, pure — no DB writes) so DISPOSITION_
+    # NONE can be checked against it below too, not just DISPOSITION_CHANGE.
+    preview = compute_change_preview(
+        order,
+        amount,
+        payment_currency,
+        resolved_rate,
+        balance_kgs_before_payment(order),
+        change_currency=resolved_change_currency,
+    )
+
+    if excess_disposition == Payment.DISPOSITION_NONE:
+        # THE OVERPAYMENT FORK belongs to the caller (the POS double-check
+        # panel asks "сдача / в счёт долга / аванс?" before this is ever
+        # called) — but that decision is made from a balance read BEFORE
+        # this function's lock above, so it can go stale under concurrency
+        # (two near-simultaneous payments each seeing "no excess yet, this
+        # one's fine"). Re-checking here, under the lock, against the
+        # authoritative current balance is what actually closes that gap —
+        # "never a wrong conversion even if some other caller skips that
+        # check" (see this function's docstring), extended to overpayment.
+        if preview["has_excess"]:
+            raise ValidationError(
+                _(
+                    "Платёж превышает остаток по продаже — выберите сдачу, "
+                    "зачёт в счёт долга или аванс."
+                )
+            )
     if excess_disposition == Payment.DISPOSITION_CHANGE:
-        preview = compute_change_preview(
-            order,
-            amount,
-            payment_currency,
-            resolved_rate,
-            balance_kgs_before_payment(order),
-            change_currency=resolved_change_currency,
-        )
         if change_amount_override is not None:
             if not change_adjust_reason.strip():
                 raise ValidationError(_("Укажите причину изменения суммы сдачи."))

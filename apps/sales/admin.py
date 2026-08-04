@@ -11,6 +11,7 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
+from apps.core.admin_confirm import confirm_bulk_action
 from apps.core.currency import format_money
 from apps.core.permissions import can_see_costs
 
@@ -433,12 +434,27 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
 
     @admin.action(description=_("Cancel selected sales (returns stock)"))
     def cancel_selected(self, request, queryset):
+        resp = confirm_bulk_action(
+            request,
+            queryset,
+            action_name="cancel_selected",
+            title=_("Cancel sales"),
+            warning=_(
+                "Stock will be returned to the warehouse for every sale below. "
+                "This cannot be undone from here."
+            ),
+            admin_site=self.admin_site,
+            model_opts=self.model._meta,
+        )
+        if resp is not None:
+            return resp
         for order in queryset:
             try:
                 cancel_sale(order, user=request.user)
                 self.message_user(request, _("Sale #%(id)s cancelled.") % {"id": order.pk})
             except ValidationError as exc:
                 self.message_user(request, "; ".join(exc.messages), level=messages.ERROR)
+        return None
 
 
 @admin.register(Payment)
@@ -514,6 +530,20 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
 
     @admin.action(description=_("Void selected payments (creates a reversing entry)"))
     def void_selected(self, request, queryset):
+        resp = confirm_bulk_action(
+            request,
+            queryset,
+            action_name="void_selected",
+            title=_("Void payments"),
+            warning=_(
+                "Each payment below gets a reversing entry — the client's debt "
+                "changes immediately. This cannot be undone from here."
+            ),
+            admin_site=self.admin_site,
+            model_opts=self.model._meta,
+        )
+        if resp is not None:
+            return resp
         voided = 0
         for payment in queryset:
             try:
@@ -524,3 +554,4 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
                     request, f"#{payment.pk}: " + "; ".join(exc.messages), level=messages.ERROR
                 )
         self.message_user(request, _("Voided %(n)s payment(s).") % {"n": voided})
+        return None

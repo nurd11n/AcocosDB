@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 import requests
 from django.contrib.admin.sites import site
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import RequestFactory
@@ -313,6 +313,49 @@ def test_debt_is_tracked_independently_per_currency(variant):
     assert debts == {"KGS": Decimal("3200")}
 
 
+def test_client_debt_query_is_scoped_to_one_client_not_the_whole_book(variant):
+    """client_debt()/client_credits() used to always aggregate EVERY
+    client's confirmed sales and payments (an unbounded full-table scan)
+    just to answer "what does THIS ONE client owe" — client_detail (the
+    highest-traffic client-facing page, opened before/after nearly every
+    sale) called it twice per visit. Assert the underlying SQL is now
+    actually scoped by client_id, not scanning the whole table regardless
+    of how many OTHER clients/sales exist."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from apps.clients.services import client_debt_and_credit
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 50)
+    # A pile of unrelated clients/sales/payments the query must NOT scan.
+    for i in range(20):
+        other = Client.objects.create(first_name=f"Noise{i}", phone=f"+99670009{i:04d}")
+        order = SaleOrder.objects.create(client=other, currency="KGS")
+        SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("100"))
+        confirm_sale(order)
+
+    target = Client.objects.create(first_name="Target", phone="+996700009999")
+    order = SaleOrder.objects.create(client=target, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    Payment.objects.create(client=target, order=order, amount=Decimal("1200"))
+
+    with CaptureQueriesContext(connection) as ctx:
+        debts, credits = client_debt_and_credit(target)
+    assert debts == {"KGS": Decimal("2000")}
+    assert credits == {}
+
+    relevant = [
+        q["sql"] for q in ctx.captured_queries if "sales_saleorder" in q["sql"] or "sales_payment" in q["sql"]
+    ]
+    assert relevant, "expected the debt aggregate queries to run"
+    for sql in relevant:
+        assert str(target.pk) in sql, (
+            f"query has no client_id filter for the target client — looks like a "
+            f"whole-table scan: {sql}"
+        )
+
+
 def test_adjustment_requires_reason_and_writes_diff(variant, django_user_model):
     user = django_user_model.objects.create_user("owner", password="x" * 12)
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
@@ -427,6 +470,108 @@ def test_setup_roles_keeps_exchange_rates_superuser_only():
     viewer = Group.objects.get(name=VIEWER)
     assert not editor.permissions.filter(codename__endswith="_exchangerate").exists()
     assert not viewer.permissions.filter(codename__endswith="_exchangerate").exists()
+
+
+def test_setup_roles_never_grants_stockmovement_or_payment_write(django_user_model):
+    """S1: setup_roles used to grant Editor/Viewer every permission on every
+    model in inventory/sales/etc. by app_label wildcard — which included
+    inventory.add_stockmovement (StockMovementAdmin blocks change/delete but
+    never had has_add_permission) and sales.add_payment/change_payment. The
+    explicit BUSINESS_MODEL_PERMISSIONS allowlist must never grant either."""
+    call_command("setup_roles")
+    editor = Group.objects.get(name=EDITOR)
+    viewer = Group.objects.get(name=VIEWER)
+    for group in (editor, viewer):
+        assert not group.permissions.filter(
+            content_type__app_label="inventory", codename__endswith="_stockmovement"
+        ).exists()
+        assert not group.permissions.filter(
+            content_type__app_label="sales", codename__in=["add_payment", "change_payment"]
+        ).exists()
+        assert not group.permissions.filter(
+            content_type__app_label="inbox", codename__endswith="_botcontent"
+        ).exists()
+
+
+def test_stockmovement_admin_blocks_add_even_for_a_superuser(django_user_model):
+    """Isolates the has_add_permission fix itself, independent of the
+    permissions-map fix: Django's own has_perm() always returns True for a
+    superuser regardless of any explicit grant, so the wildcard-permission
+    fix alone would NOT have stopped the Owner from hand-adding a ledger row
+    here too — CLAUDE.md: "Nobody opens the raw movements form." Only the
+    admin's own has_add_permission=False closes that for every role at once."""
+    owner = django_user_model.objects.create_superuser("sm_owner", "o@e.com", "x" * 12)
+    request = RequestFactory().get("/")
+    request.user = owner
+    model_admin = site._registry[StockMovement]
+    assert model_admin.has_add_permission(request) is False
+
+
+def test_editor_crafted_post_to_add_stockmovement_is_403(client, django_user_model, variant):
+    """The exact S1 exploit: a crafted POST to the raw admin add-form,
+    bypassing Принять/Списать/Пересчёт (apps.inventory.services.add_movement)
+    entirely — must be refused regardless of the Editor's Django permission."""
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("editor_sm", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    stock_before = variant.stock
+    resp = client.get("/panel/inventory/stockmovement/add/")
+    assert resp.status_code == 403
+
+    resp = client.post(
+        "/panel/inventory/stockmovement/add/",
+        {
+            "variant": str(variant.pk),
+            "movement_type": StockMovement.PRODUCTION_IN,
+            "quantity": "9999",
+            "reason": "phantom stock",
+        },
+    )
+    assert resp.status_code == 403
+    assert variant.stock == stock_before  # nothing minted
+    assert not StockMovement.objects.filter(reason="phantom stock").exists()
+
+
+def test_migration_revokes_wildcard_permissions_from_an_existing_group():
+    """S1's second half: a code change alone doesn't touch permissions
+    already sitting on a Group row in an existing database — the data
+    migration (apps.core.migrations.0009_revoke_wildcard_business_permissions)
+    is what actually revokes them on upgrade. Simulate the OLD wildcard grant
+    directly (bypassing setup_roles, which already only does the right
+    thing), then run the migration's own revoke function and assert the
+    over-grant is gone."""
+    import importlib
+
+    from django.contrib.contenttypes.models import ContentType
+
+    migration_module = importlib.import_module(
+        "apps.core.migrations.0009_revoke_wildcard_business_permissions"
+    )
+    revoke_wildcard_grants = migration_module.revoke_wildcard_grants
+
+    editor = Group.objects.create(name="__wildcard_test_editor__")
+    ct = ContentType.objects.get_for_model(StockMovement)
+    phantom_perm = Permission.objects.get(content_type=ct, codename="add_stockmovement")
+    editor.permissions.add(phantom_perm)
+    assert editor.permissions.filter(codename="add_stockmovement").exists()
+
+    # The migration keys off group NAME ("Editor"/"Viewer"), so point this
+    # test group at that name to exercise the real function unmodified.
+    editor.name = EDITOR
+    editor.save(update_fields=["name"])
+
+    class _FakeApps:
+        def get_model(self, app_label, model_name):
+            return {"auth.group": Group, "auth.permission": Permission}[
+                f"{app_label}.{model_name}".lower()
+            ]
+
+    revoke_wildcard_grants(_FakeApps(), None)
+
+    editor.refresh_from_db()
+    assert not editor.permissions.filter(codename="add_stockmovement").exists()
 
 
 def test_stock_movement_and_standalone_payment_hidden_from_sidebar():
@@ -575,6 +720,29 @@ def test_stats_and_download_require_superuser(client, django_user_model):
     assert resp.status_code == 200
     assert resp["Content-Type"].startswith("text/csv")
     assert resp.content[:3] == b"\xef\xbb\xbf"
+
+
+def test_stats_page_formats_money_with_the_shared_filter(client, django_user_model, variant, settings):
+    """stats.html used |unlocalize + a bare currency-symbol span instead of
+    the app's own `money` filter — CLAUDE.md explicitly forbids "money
+    formatted as a bare number + currency code": no NBSP thousands grouping,
+    cents never dropped even at an exact .00. A round revenue figure must
+    render the same NBSP-grouped, cents-dropped way it does everywhere else
+    in the app."""
+    from django.core.cache import cache
+
+    settings.CURRENCY = "KGS"
+    cache.clear()  # stats:business_snapshot is cached 60s and bleeds across tests otherwise
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=5, unit_price=Decimal("3000"))
+    confirm_sale(order)  # revenue today = 15000.00 KGS exactly
+
+    root = django_user_model.objects.create_superuser("root_stats", "r2@e.com", "x" * 12)
+    client.force_login(root)
+    body = client.get("/stats/").content.decode()
+    assert "15\xa0000\xa0сом" in body  # NBSP-grouped, cents dropped — the money filter
+    assert "15000.00" not in body  # the old bare-number rendering must be gone
 
 
 def test_currency_conversion_uses_current_rate(settings):
@@ -1045,9 +1213,13 @@ def test_refresh_rates_button_pulls_fresh_and_rerenders(
     assert not ExchangeRate.objects.exists()
     resp = client.post("/pos/rates/refresh/")
     assert resp.status_code == 200
+    body = resp.content.decode()
     # Pulled today's USD/RUB and rendered them into the strip.
     assert ExchangeRate.objects.filter(currency="USD", date=timezone.localdate()).exists()
-    assert "87,45" in resp.content.decode()  # RU locale renders the decimal with a comma
+    assert "87,45" in body  # RU locale renders the decimal with a comma
+    # A tap on «Обновить» used to look identical whether it worked or not —
+    # a real update must say so.
+    assert "Курс обновлён" in body
 
 
 def test_refresh_rates_survives_nbkr_failure(client, django_user_model, monkeypatch):
@@ -1062,6 +1234,91 @@ def test_refresh_rates_survives_nbkr_failure(client, django_user_model, monkeypa
     monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", boom)
     resp = client.post("/pos/rates/refresh/")  # must not 500
     assert resp.status_code == 200
+    # A failed refresh used to render identically to a successful one — the
+    # manager must be told nothing actually changed, with a real reason.
+    assert "Не удалось обновить" in resp.content.decode()
+
+
+def _login_editor(client, django_user_model, name):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user(name, password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+    return editor
+
+
+def test_refresh_rates_shows_changed_message(client, django_user_model, settings, monkeypatch):
+    """A rate that genuinely moved must say so, with the new value — not a
+    generic "updated N" count that also fires when nothing moved."""
+    settings.CURRENCY = "KGS"
+    _login_editor(client, django_user_model, "editor_changed")
+    monkeypatch.setattr(
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 87.45, "RUB": 1.1239}),
+    )
+    resp = client.post("/pos/rates/refresh/")
+    body = resp.content.decode()
+    assert "Курс обновлён: 1 $ = 87,45" in body
+    assert "Не удалось" not in body
+    assert "актуален на" not in body
+
+
+def test_refresh_rates_shows_unchanged_message(client, django_user_model, settings, monkeypatch):
+    """Pulling back the exact same rate already on record is NOT a failure
+    and must never be conflated with one — see fetch_frankfurter_rates's
+    `updated` counting every successful save regardless of whether the VALUE
+    moved, which is what made the old single ambiguous message possible."""
+    settings.CURRENCY = "KGS"
+    _login_editor(client, django_user_model, "editor_unchanged")
+    ExchangeRate.objects.create(
+        currency="USD", date=date(2026, 7, 30), rate=Decimal("87.45"), source=ExchangeRate.NBKR
+    )
+    ExchangeRate.objects.create(
+        currency="RUB", date=date(2026, 7, 30), rate=Decimal("1.1239"), source=ExchangeRate.NBKR
+    )
+    monkeypatch.setattr(
+        "apps.core.management.commands.fetch_rates.requests.get",
+        _frankfurter_get({"USD": 87.45, "RUB": 1.1239}),
+    )
+    resp = client.post("/pos/rates/refresh/")
+    body = resp.content.decode()
+    today_str = timezone.localdate().strftime("%d.%m.%Y")
+    assert f"Курс $ актуален на {today_str}" in body
+    assert "Не удалось" not in body
+    assert "Курс обновлён" not in body
+
+
+def test_refresh_rates_shows_network_failure_message(client, django_user_model, monkeypatch):
+    """A connection-level failure (server unreachable) gets its own reason,
+    distinct from a malformed response — a manager acting on "нет соединения"
+    vs. "сервер прислал некорректные данные" would do different things."""
+    _login_editor(client, django_user_model, "editor_netfail")
+
+    def boom(*a, **k):
+        raise requests.ConnectionError("connection refused")
+
+    monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", boom)
+    resp = client.post("/pos/rates/refresh/")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Не удалось обновить $: нет соединения с сервером курсов" in body
+
+
+def test_refresh_rates_shows_bad_response_message(client, django_user_model, monkeypatch):
+    """A response that parses but carries a garbage value (null rate) is a
+    DIFFERENT failure from a dead network — the reason text must say so, not
+    reuse the connection-failure wording."""
+    _login_editor(client, django_user_model, "editor_badresp")
+
+    def fake_get(url, **kwargs):
+        return _FakeFrankfurterResp(b'{"rate": null}', status_code=200)
+
+    monkeypatch.setattr("apps.core.management.commands.fetch_rates.requests.get", fake_get)
+    resp = client.post("/pos/rates/refresh/")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Не удалось обновить $: сервер курсов прислал некорректные данные" in body
+    assert "нет соединения" not in body
 
 
 def test_restock_reply_lists_only_low_variants(variant):
@@ -1542,6 +1799,82 @@ def test_confirm_sale_is_idempotent_against_double_call(variant):
     assert variant.stock == 7
 
 
+def test_cancel_sale_is_idempotent_against_double_call(variant):
+    """cancel_sale used to have no row lock at all (unlike confirm_sale/
+    return_items/void_payment, which all lock first for exactly this
+    reason) — a double-tapped «Отменить продажу» could restock the same
+    sale twice. A second cancel on an already-cancelled order must raise
+    and must not add a second round of RETURN_IN movements."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=3, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    assert variant.stock == 7
+
+    cancel_sale(order)
+    assert variant.stock == 10  # fully restocked, once
+
+    with pytest.raises(ValidationError):
+        cancel_sale(order)
+    assert variant.stock == 10  # NOT 13 — the second cancel must not restock again
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cancel_sale_concurrent_double_tap_restocks_exactly_once(variant, django_user_model):
+    """The real race, not just the sequential-idempotency check above: two
+    genuinely concurrent cancel requests for the same CONFIRMED sale (a
+    double-tap on a bad connection) must serialize on the row lock so only
+    ONE of them actually restocks — never both. Verified against real
+    Postgres to fail on the unpatched (unlocked) cancel_sale and pass on the
+    fix — sqlite's coarse whole-file write lock accidentally serializes this
+    particular race even without select_for_update, so this assertion is a
+    no-op discriminator under the sqlite test DB specifically; it's kept
+    because it's still correct and free, and it's the one that actually
+    matters when run against Postgres (e.g. `DATABASE_URL=postgres://...`)."""
+    import threading
+    import time
+
+    from django.db import connections
+    from django.db.utils import OperationalError
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=4, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    assert variant.stock == 6
+
+    results = []
+    errors = []
+    barrier = threading.Barrier(2)
+
+    def fire():
+        barrier.wait(timeout=5)
+        for attempt in range(8):
+            try:
+                cancel_sale(SaleOrder.objects.get(pk=order.pk))
+                results.append("cancelled")
+                return
+            except ValidationError as exc:
+                errors.append(exc)
+                return
+            except OperationalError:
+                time.sleep(0.05 * (attempt + 1))
+            finally:
+                connections.close_all()
+        raise AssertionError("gave up retrying after sqlite whole-file lock contention")
+
+    threads = [threading.Thread(target=fire) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+
+    assert len(results) == 1, f"expected exactly one thread to actually cancel, got {results}"
+    assert len(errors) == 1, "expected exactly one thread to be rejected (already cancelled)"
+    variant.refresh_from_db()
+    assert variant.stock == 10  # restocked exactly once, not 14
+
+
 def test_pos_root_redirects_by_auth_state(client, django_user_model):
     resp = client.get("/", follow=True)
     assert resp.redirect_chain[-1][0].startswith("/login/")
@@ -1922,122 +2255,165 @@ def test_receipt_merges_duplicate_cart_lines_of_the_same_variant(variant):
     assert row["line_total"] == Decimal("3000")
 
 
-def test_receipt_public_page_renders_grouped_layout_and_writes_no_db_rows(variant):
-    from django.test import Client as DjangoTestClient
+def test_receipt_download_pdf_writes_no_db_rows(client, django_user_model, variant):
+    """The old public token page is gone — the PDF now comes from an
+    authenticated GET that generates it fresh from the database every time
+    and stores nothing. This is the exact row-count guard against the
+    ghost-payment class of bug: rendering a receipt must never write."""
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    viewer = django_user_model.objects.create_user("rcpt_viewer", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
 
-    from apps.pos.receipts import make_receipt_token
-
-    cat = Category.objects.create(name="ReceiptCat3")
-    product = Product.objects.create(category=cat, name="МИМИ 2-КА")
-    black = _make_receipt_variant(product, "50-56", "ЧЁРНЫЙ")
-    add_movement(black, StockMovement.PRODUCTION_IN, 20)
-    cust = Client.objects.create(first_name="Aichurek", phone="+996700006001")
-    order = SaleOrder.objects.create(client=cust, currency="KGS")
-    SaleItem.objects.create(order=order, variant=black, quantity=16, unit_price=Decimal("1550"))
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
     confirm_sale(order)
-
-    token = make_receipt_token(order)
-    web = DjangoTestClient()
 
     payment_before = Payment.objects.count()
     order_before = SaleOrder.objects.count()
     interaction_before = Interaction.objects.count()
+    client_before = Client.objects.count()
 
-    resp = web.get(f"/r/{token}/")
-    assert resp.status_code == 200
-    body = resp.content.decode()
-    assert "МИМИ 2-КА" in body
-    assert "ЧЁРНЫЙ" in body
-    assert "50-56" in body
-    assert "Aichurek" in body  # first_name only
-    assert "ИТОГО" in body
-    assert "Скачать PDF" in body
-
-    # No login, no session/db writes of any kind — a pure read.
-    assert Payment.objects.count() == payment_before
-    assert SaleOrder.objects.count() == order_before
-    assert Interaction.objects.count() == interaction_before
-
-
-def test_receipt_token_expired_or_tampered_404s(variant, settings):
-    from django.core import signing
-
-    from apps.pos.receipts import RECEIPT_SALT, resolve_receipt_token
-
-    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
-    order = SaleOrder.objects.create(currency="KGS")
-    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
-    confirm_sale(order)
-
-    # Tampered signature.
-    assert resolve_receipt_token("not-a-real-token") is None
-
-    # Expired: sign as if it happened 8 days ago (past the 7-day window).
-    import time
-
-    real_time = time.time
-    try:
-        time.time = lambda: real_time() - 8 * 24 * 60 * 60
-        expired_token = signing.dumps({"sale_id": order.pk}, salt=RECEIPT_SALT)
-    finally:
-        time.time = real_time
-    assert resolve_receipt_token(expired_token) is None
-
-    from django.test import Client as DjangoTestClient
-
-    web = DjangoTestClient()
-    assert web.get("/r/garbage-token/").status_code == 404
-    assert web.get(f"/r/{expired_token}/").status_code == 404
-    assert web.get("/r/garbage-token/pdf/").status_code == 404
-
-
-def test_receipt_token_cannot_reveal_a_different_sale(variant):
-    from apps.pos.receipts import make_receipt_token
-
-    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
-    order_a = SaleOrder.objects.create(currency="KGS")
-    SaleItem.objects.create(order=order_a, variant=variant, quantity=1, unit_price=Decimal("1000"))
-    confirm_sale(order_a)
-
-    order_b = SaleOrder.objects.create(currency="KGS")
-    SaleItem.objects.create(order=order_b, variant=variant, quantity=1, unit_price=Decimal("2000"))
-    confirm_sale(order_b)
-
-    token_a = make_receipt_token(order_a)
-
-    from django.test import Client as DjangoTestClient
-    from apps.core.currency import format_money
-
-    resp = DjangoTestClient().get(f"/r/{token_a}/")
-    assert resp.status_code == 200
-    body = resp.content.decode()
-    # Order A's own total (1000) renders; order B's (2000) never leaks in.
-    assert format_money(order_a.total, "KGS") in body
-    assert format_money(order_b.total, "KGS") not in body
-
-
-def test_receipt_pdf_downloads_and_writes_no_db_rows(variant):
-    from django.test import Client as DjangoTestClient
-
-    from apps.pos.receipts import make_receipt_token
-
-    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
-    order = SaleOrder.objects.create(currency="KGS")
-    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
-    confirm_sale(order)
-    token = make_receipt_token(order)
-
-    payment_before = Payment.objects.count()
-    resp = DjangoTestClient().get(f"/r/{token}/pdf/")
+    resp = client.get(f"/pos/sale/{order.pk}/receipt/pdf/")
     assert resp.status_code == 200
     assert resp["Content-Type"] == "application/pdf"
     assert resp.content[:4] == b"%PDF"
+
     assert Payment.objects.count() == payment_before
+    assert SaleOrder.objects.count() == order_before
+    assert Interaction.objects.count() == interaction_before
+    assert Client.objects.count() == client_before
 
 
-def test_share_receipt_sends_short_message_with_link_not_itemised_text(
+def test_receipt_download_requires_a_real_permission(client, django_user_model, variant):
+    """Downloading is authenticated now (the old surface was public-by-
+    design token access) — a logged-in user with no sales.view_saleorder
+    permission at all must be refused."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    nobody = django_user_model.objects.create_user(
+        "rcpt_nobody", password="x" * 12, is_staff=True
+    )
+    client.force_login(nobody)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    assert client.get(f"/pos/sale/{order.pk}/receipt/pdf/").status_code == 403
+
+
+def test_receipt_status_badge_paid_partial_and_debt(variant):
+    """The status badge — «ОПЛАЧЕНО»/«ЧАСТИЧНО — остаток X»/«ДОЛГ X» —
+    must render correctly for all three payment states, and the WORD itself
+    must be present (not colour alone), so it survives a black-and-white
+    printout."""
+    from django.template.loader import render_to_string
+
+    from apps.pos.receipts import receipt_context
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    # A walk-in (no client) is always "paid" the moment it's confirmed (see
+    # SaleOrder.payment_status) — a client is required here so paying part
+    # or none of the total actually produces the 'partial'/'unpaid' states.
+    cust = Client.objects.create(first_name="Badge", phone="+996700006010")
+
+    paid = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=paid, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(paid)
+    record_payment(paid, Decimal("1000"))
+    html = render_to_string("receipts/receipt.html", receipt_context(paid))
+    assert "ОПЛАЧЕНО" in html
+    assert "ЧАСТИЧНО" not in html and "ДОЛГ" not in html
+    assert "Оплачено" not in html  # fully paid shows only Итого, per spec
+    assert "Остаток" not in html
+
+    partial = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(
+        order=partial, variant=variant, quantity=1, unit_price=Decimal("1000")
+    )
+    confirm_sale(partial)
+    record_payment(partial, Decimal("400"))  # 600 left
+    html = render_to_string("receipts/receipt.html", receipt_context(partial))
+    assert "ЧАСТИЧНО" in html
+    assert "600" in html
+    assert "ОПЛАЧЕНО" not in html
+
+    debt = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=debt, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(debt)  # no payment at all
+    html = render_to_string("receipts/receipt.html", receipt_context(debt))
+    assert "ДОЛГ" in html
+    assert "1\xa0000" in html
+    assert "ОПЛАЧЕНО" not in html and "ЧАСТИЧНО" not in html
+
+
+def test_receipt_shows_first_name_only_never_descriptor_or_phone(variant):
+    """Client-facing text uses first_name ONLY — never the staff-only
+    descriptor client.name parenthesises onto it, and never the phone."""
+    from django.template.loader import render_to_string
+
+    from apps.pos.receipts import receipt_context
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(
+        first_name="Aichurek", descriptor="сестра Розы", phone="+996700006001"
+    )
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    record_payment(order, Decimal("1000"))
+
+    html = render_to_string("receipts/receipt.html", receipt_context(order))
+    assert "Aichurek" in html
+    assert "сестра Розы" not in html
+    assert "700006001" not in html
+    assert cust.name not in html  # "Aichurek (сестра Розы)" never appears
+
+
+def test_receipt_pdf_prints_a4_with_word_labelled_status_badges():
+    """A4 page setup for print, and every status badge carries its own word
+    (verified above) rather than relying on colour alone — the combination
+    this test + test_receipt_status_badge_paid_partial_and_debt assert is
+    what makes the receipt legible on a black-and-white printout."""
+    from pathlib import Path
+
+    from django.conf import settings
+
+    css = (Path(settings.BASE_DIR) / "static" / "pos" / "receipt.css").read_text()
+    assert "size: A4" in css
+
+
+def test_no_public_receipt_route_exists_anywhere(client):
+    """The whole token-link surface must be gone: no reversible URL name, no
+    matching path, no importable view module, no token helpers left in
+    apps.pos.receipts — this deleted a real attack surface and must not
+    linger "just in case"."""
+    import importlib
+
+    from django.urls import NoReverseMatch, reverse
+
+    for name in ("receipt-public", "receipt-pdf"):
+        with pytest.raises(NoReverseMatch):
+            reverse(name, args=["x"])
+
+    assert client.get("/r/anything/").status_code == 404
+    assert client.get("/r/anything/pdf/").status_code == 404
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("apps.pos.public_views")
+
+    from apps.pos import receipts
+
+    for gone in ("make_receipt_token", "resolve_receipt_token", "RECEIPT_SALT", "RECEIPT_MAX_AGE"):
+        assert not hasattr(receipts, gone), f"{gone} should have been removed with the token system"
+
+
+def test_share_receipt_sends_short_message_with_no_url_or_domain(
     client, django_user_model, variant
 ):
+    """The WhatsApp text is a plain thank-you — no link, no token, no domain
+    — since wa.me can't attach the PDF anyway; she attaches it manually
+    after downloading it separately (receipt_download)."""
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     owner = django_user_model.objects.create_superuser("rcpt_owner", "o@e.com", "x" * 12)
     client.force_login(owner)
@@ -2053,8 +2429,14 @@ def test_share_receipt_sends_short_message_with_link_not_itemised_text(
     from urllib.parse import unquote
 
     text = unquote(location.split("text=", 1)[1])
-    assert "/r/" in text  # points at the receipt page
+    assert text == "Спасибо за покупку, Sharer! Чек прикреплён."
+    assert "http" not in text
+    assert "/r/" not in text
+    assert "acocos" not in text.lower()
     assert "3200" not in text  # no itemised breakdown pasted into the chat
+
+    interaction = cust.interactions.get(kind=Interaction.MESSAGE)
+    assert interaction.note == "Чек отправлен"
 
 
 def test_dashboard_top_products_revenue_reflects_discount_not_sticker_price(variant):
@@ -2281,6 +2663,43 @@ def test_dashboard_booked_vs_received_vs_expected(variant, settings):
     assert m2["revenue"]["value"] == m2["received"]["value"] + m2["expected"]["value"]
 
 
+def test_dashboard_expected_surplus_state_is_clearly_labelled(client, django_user_model, variant, settings):
+    """When more OLD debt is collected today than NEW revenue is booked
+    today, `expected` (revenue - received) goes negative — real signal, not
+    a bug (see apps.reports.dashboard._metrics's docstring) — but a bare
+    "-1 959 300 сом" under a "Ожидается" (pending) label reads as an error
+    to a human, not information. This state must render as its own clearly
+    labelled, positive fact instead."""
+    from datetime import timedelta
+
+    from apps.reports.dashboard import dashboard_data
+
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="OldDebtor", phone="+996700000399")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("5000"))
+    confirm_sale(order)
+    order.confirmed_at = timezone.now() - timedelta(days=1)  # booked YESTERDAY
+    order.save(update_fields=["confirmed_at"])
+
+    record_payment(order, Decimal("5000"))  # but paid off TODAY
+
+    m = dashboard_data("today")["metrics"]
+    assert m["revenue"]["value"] == Decimal("0")  # nothing NEW booked today
+    assert m["received"]["value"] == Decimal("5000.00")  # but cash landed today
+    assert m["expected"]["value"] == Decimal("-5000.00")  # the raw signed figure, unchanged
+    assert m["expected"]["is_surplus"] is True
+    assert m["expected"]["display_value"] == Decimal("5000.00")  # always positive for display
+
+    owner = django_user_model.objects.create_superuser("dash_surplus", "s@e.com", "x" * 12)
+    client.force_login(owner)
+    body = client.get("/dashboard/?period=today").content.decode()
+    assert "Погашено старых долгов" in body
+    assert "получено больше, чем начислено" in body
+    assert "-5\xa0000" not in body  # no confusing bare negative money figure
+
+
 def test_dashboard_walkin_sale_counts_as_received_immediately(variant, settings):
     """A walk-in never gets a Payment row (record_payment returns None with
     no client — CLAUDE.md), but the cash still changed hands over the
@@ -2384,6 +2803,39 @@ def test_client_export_transaction_row_and_summary_math(variant):
     assert debt_row[1].value == Decimal("3000.00")
 
 
+def test_dashboard_debt_prev_period_boundary_uses_bishkek_local_not_utc(variant, settings):
+    """apps.reports.dashboard._debt compares each order's confirmed_at
+    against `prev_end` (a local date) — a bare .date() on the UTC-aware
+    confirmed_at used to read the UTC calendar date, one day behind Bishkek.
+    02:00 Bishkek on the 3rd is 20:00 UTC on the 2nd: with prev_end = the
+    2nd, the LOCAL date (the 3rd) is AFTER prev_end — this order must NOT
+    count as "already outstanding as of the previous period", or the
+    dashboard's debt delta-% silently misreports a brand new debt as
+    unchanged."""
+    from datetime import datetime, timezone as dt_timezone
+
+    from apps.reports.dashboard import _debt
+
+    settings.TIME_ZONE = "Asia/Bishkek"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="TZDash", phone="+996700000905")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    order.confirmed_at = datetime(2026, 8, 2, 20, 0, tzinfo=dt_timezone.utc)
+    order.save(update_fields=["confirmed_at"])
+
+    debt = _debt(prev_end=date(2026, 8, 2))
+    assert debt["value"] == Decimal("3200")
+    # Correct (local-date) reading: this debt didn't exist yet as of the
+    # 2nd, so there's no previous-period baseline to compare against. The
+    # UTC-date bug would instead count it as already outstanding then,
+    # reporting a 0% change on what is actually a brand-new debt.
+    assert debt["delta"]["has_baseline"] is False, (
+        f"expected no baseline (debt is newer than prev_end), got {debt['delta']}"
+    )
+
+
 def test_client_export_never_sums_debt_across_currencies(variant):
     from apps.reports.client_export import client_workbook_bytes
 
@@ -2408,6 +2860,40 @@ def test_client_export_never_sums_debt_across_currencies(variant):
     usd_debt_labels = [label for label in labels if "ЗАДОЛЖЕННОСТЬ" in label and "USD" in label]
     assert len(kgs_debt_labels) == 1
     assert len(usd_debt_labels) == 1  # two SEPARATE blocks, never combined into one number
+
+
+def test_client_export_date_column_uses_bishkek_local_not_utc(variant, settings):
+    """order.confirmed_at is a UTC-aware datetime (USE_TZ=True) — a bare
+    .date() reads the UTC calendar date, one day behind Bishkek (UTC+6) for
+    anything confirmed in the early-morning hours locally. 02:00 Bishkek on
+    the 3rd is 20:00 UTC on the 2nd — the exported «Дата» column must show
+    the 3rd, the date the sale actually happened for the shop, not the 2nd."""
+    from datetime import datetime, timezone as dt_timezone
+
+    from apps.reports.client_export import client_workbook_bytes
+
+    settings.TIME_ZONE = "Asia/Bishkek"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="TZBoundary", phone="+996700000904")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    # 20:00 UTC on the 2nd == 02:00 Bishkek on the 3rd.
+    order.confirmed_at = datetime(2026, 8, 2, 20, 0, tzinfo=dt_timezone.utc)
+    order.save(update_fields=["confirmed_at"])
+
+    wb = _load_export(client_workbook_bytes([cust]))
+    ws = wb.active
+    # openpyxl round-trips an xlsx DATE cell back as a datetime, not a plain
+    # date — normalize with .date() (a no-op for an actual date) before
+    # comparing.
+    dates = [
+        r[0].value.date() if isinstance(r[0].value, datetime) else r[0].value
+        for r in ws.iter_rows(min_row=2)
+        if isinstance(r[0].value, date)
+    ]
+    assert date(2026, 8, 3) in dates, f"expected the Bishkek-local date, got {dates}"
+    assert date(2026, 8, 2) not in dates  # the UTC date must never leak through
 
 
 def test_client_export_bulk_action_writes_one_sheet_per_client(variant):
@@ -2630,6 +3116,26 @@ def test_return_rejects_more_than_sold(variant):
         return_items(order, {item.pk: 5}, user=None)
     variant.refresh_from_db()
     assert variant.stock == 8  # unchanged — the whole return rolled back
+
+
+def test_return_form_has_double_submit_protection(client, django_user_model, variant):
+    """Unlike its sibling money/stock actions («Отменить продажу», sale
+    confirm), the return form used to be a bare <form> with no
+    data-network-safe — a double-tap on a flaky connection could fire two
+    physical POSTs. Since a partial return has no natural one-time status
+    gate to reject a repeat (unlike confirm/cancel), the client-side
+    disable-on-submit is what actually closes this gap; assert it's there."""
+    owner = django_user_model.objects.create_superuser("ret_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    resp = client.get(f"/pos/sale/{order.pk}/return/")
+    body = resp.content.decode()
+    assert "data-network-safe" in body
+    assert "data-confirm=" in body
 
 
 def test_units_sold_by_variant_counts_only_confirmed(variant):
@@ -3077,7 +3583,12 @@ def test_403_page_on_role_violation(client, django_user_model, settings):
     client.force_login(viewer)
     resp = client.get("/pos/sale/1/")  # Viewer has no sales.add_saleorder -> 403
     assert resp.status_code == 403
-    assert "Нет доступа" in resp.content.decode()
+    body = resp.content.decode()
+    assert "Нет доступа" in body
+    # A bare "no access" with no next step used to be the whole page — a
+    # Viewer/Editor hitting a role wall had no idea whether it was a bug, a
+    # session issue, or an actual restriction.
+    assert "обратитесь к владельцу" in body
 
 
 def test_csrf_failure_page_is_russian(settings):
@@ -4983,6 +5494,72 @@ def test_crafted_post_above_stock_is_clamped_not_saved_beyond_available(
     assert order.items.first().quantity == 15  # never the crafted 999999
 
 
+def test_order_rejects_a_second_item_in_a_different_currency(
+    client, django_user_model, variant, settings
+):
+    """OrderItem carries its own currency, but Order.total naively sums
+    unit_price*quantity across every line as one number — a second item
+    priced in a different currency used to be silently accepted, corrupting
+    that total (and, at handover, the resulting sale's total_kgs, since
+    SaleItem has no currency of its own and inherits the sale's single
+    order.currency). Must reject, same as the draft-sale cart already does."""
+    settings.CURRENCY = "KGS"
+    owner = django_user_model.objects.create_superuser("mix_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+
+    usd_variant = ProductVariant.objects.create(
+        product=variant.product,
+        sku="EVD-M-USD",
+        size="L",
+        color="blue",
+        cost_price=Decimal("20"),
+        sale_price=Decimal("20"),
+        currency="USD",
+    )
+    cust = Client.objects.create(first_name="MixCcy", phone="+996700002050")
+    from apps.orders.models import Order
+    from apps.orders.services import create_order
+
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 1, "unit_price": variant.sale_price}]
+    )
+    assert order.currency == "KGS"
+
+    resp = client.post(
+        f"/orders/{order.pk}/items/add/",
+        {"variant_id": usd_variant.pk, "quantity": "1"},
+        HTTP_HX_REQUEST="true",
+    )
+    assert resp.status_code == 200
+    assert "нельзя добавить" in resp.content.decode()
+
+    order = Order.objects.get(pk=order.pk)
+    assert order.currency == "KGS"  # unchanged
+    assert order.items.count() == 1  # the USD line was never added
+    assert order.total == variant.sale_price  # not corrupted by a mixed sum
+
+
+def test_order_deposit_form_has_a_confirmation_dialog(client, django_user_model, variant):
+    """Unlike every other money-write form in the app, the «Внести аванс»
+    form had no data-confirm at all — a manager could add a deposit with a
+    single accidental tap, no "are you sure" step. safety.js listens for
+    htmx:confirm too, so data-confirm works on this hx-post form exactly
+    like it does on a plain <form> submit."""
+    from apps.orders.services import create_order
+
+    owner = django_user_model.objects.create_superuser("dep_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="DepConfirm", phone="+996700002051")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 1, "unit_price": variant.sale_price}]
+    )
+
+    resp = client.get(f"/orders/{order.pk}/")
+    body = resp.content.decode()
+    assert "Внести аванс на эту сумму?" in body
+    assert 'data-confirm="Внести аванс на эту сумму?"' in body
+
+
 def test_reserved_stock_is_excluded_from_available_and_blocks_a_walkin_sale(variant, settings):
     """Part 1b/3c: stock promised to an open production order must not be
     sellable to a walk-in, even bypassing the cart-time cap entirely."""
@@ -5974,7 +6551,10 @@ def test_owner_only_can_cancel_order_via_admin(django_user_model):
     cust = Client.objects.create(first_name="AdminCancel", phone="+996700002211")
     order = Order.objects.create(client=cust)
     model_admin = site._registry[Order]
-    request = RequestFactory().post("/")
+    # "apply": "1" — the confirm_bulk_action gate (see test_admin_cancel_
+    # order_action_asks_before_cancelling for the two-step flow itself);
+    # this test is about the is_superuser check, so it confirms up front.
+    request = RequestFactory().post("/", {"apply": "1"})
     manager = django_user_model.objects.create_user("mgr_cancel", password="x" * 12, is_staff=True)
     request.user = manager
 
@@ -6136,10 +6716,13 @@ def test_every_report_sheet_is_navigable(variant):
             assert ws.column_dimensions["A"].width >= 9
 
 
-def test_receipt_context_shows_paid_and_balance_only_when_present(variant, settings):
-    """Скидка/Оплачено/Остаток are OMITTED entirely (None) when they don't
-    apply — many real receipts are goods-only with no payment line at all —
-    never rendered as a bare zero."""
+def test_receipt_context_shows_paid_and_balance_only_when_not_fully_paid(variant, settings):
+    """paid/balance are always real numbers in the context (the status badge
+    needs balance even at 0) — it's `status` that decides whether the
+    template SHOWS the Оплачено/Остаток lines: hidden once status is
+    'paid' (only Итого shows then), rendered for 'unpaid'/'partial'."""
+    from django.template.loader import render_to_string
+
     from apps.pos.receipts import receipt_context
 
     settings.CURRENCY = "KGS"
@@ -6152,25 +6735,34 @@ def test_receipt_context_shows_paid_and_balance_only_when_present(variant, setti
     )
     confirm_sale(goods_only)
     ctx = receipt_context(goods_only)
-    assert ctx["paid"] is None
-    assert ctx["balance"] is None  # goods-only sale, no payment line at all
+    assert ctx["status"] == "unpaid"
+    assert ctx["paid"] == Decimal("0")
+    assert ctx["balance"] == Decimal("3200")
     assert ctx["total_money"] == Decimal("3200")
+    html = render_to_string("receipts/receipt.html", ctx)
+    assert "Оплачено" in html and "Остаток" in html
 
     record_payment(goods_only, Decimal("1200"))
     ctx = receipt_context(goods_only)
+    assert ctx["status"] == "partial"
     assert ctx["paid"] == Decimal("1200.00")
     assert ctx["balance"] == Decimal("2000.00")
 
-    # Paying the rest drops the balance line — nothing left to show.
+    # Paying the rest hides the payment lines — nothing left to explain.
     record_payment(goods_only, Decimal("2000"))
     ctx = receipt_context(goods_only)
+    assert ctx["status"] == "paid"
     assert ctx["paid"] == Decimal("3200.00")
-    assert ctx["balance"] is None
+    assert ctx["balance"] == Decimal("0")
+    html = render_to_string("receipts/receipt.html", ctx)
+    assert "Оплачено" not in html and "Остаток" not in html
 
 
 def test_purchase_history_shows_the_debt_on_each_sale(client, django_user_model, variant, settings):
-    """«Откуда долг» answered in place: the client page lists each sale with
-    what's still owed ON THAT SALE, not just one total at the top."""
+    """«Откуда долг» answered in place: the client page's debt block lists
+    each unpaid sale with what's still owed ON THAT SALE (not just one total
+    at the top), while a fully-paid sale shows up in История покупок
+    instead — the two lists never overlap."""
     settings.CURRENCY = "KGS"
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     owner = django_user_model.objects.create_superuser("hist_owner", "h@e.com", "x" * 12)
@@ -6189,12 +6781,78 @@ def test_purchase_history_shows_the_debt_on_each_sale(client, django_user_model,
 
     resp = client.get(f"/pos/clients/{cust.pk}/")
     assert resp.status_code == 200
-    rows = {r["order"].pk: r for r in resp.context["order_rows"]}
+    unpaid_pks = {r["order"].pk for r in resp.context["unpaid_rows"]}
+    paid_pks = {r["order"].pk for r in resp.context["paid_rows"]}
+    assert unpaid_pks == {unpaid.pk}
+    assert paid_pks == {settled.pk}
+    rows = {r["order"].pk: r for r in resp.context["unpaid_rows"] + resp.context["paid_rows"]}
     assert rows[unpaid.pk]["balance"] == Decimal("2200.00")
     assert rows[settled.pk]["balance"] == Decimal("0")
     body = resp.content.decode()
     assert "2\xa0200\xa0сом" in body  # the per-sale debt is actually rendered
-    assert "оплачено полностью" in body
+    assert "Погасить" in body  # per-row repay button on the unpaid sale
+
+
+def test_client_page_has_no_separate_payments_card(client, django_user_model, variant):
+    """The «Платежи» card duplicated exactly what the debt block and История
+    покупок already show — it must be gone, not just relocated."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    owner = django_user_model.objects.create_superuser("noplay_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="NoPayCard", phone="+996700005033")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    record_payment(order, Decimal("1000"))
+
+    body = client.get(f"/pos/clients/{cust.pk}/").content.decode()
+    assert "Платежи" not in body
+
+
+def test_client_page_debt_block_shows_item_summary_and_repay_button(
+    client, django_user_model, variant
+):
+    """The debt block's own spec: total debt, then each unpaid sale with
+    date, what was bought, remaining, and a «Погасить» button — all in ONE
+    place, above История покупок (never mixed into it)."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    owner = django_user_model.objects.create_superuser("debtblk_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="DebtBlock", phone="+996700005044")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)  # unpaid — 3200 owed
+
+    resp = client.get(f"/pos/clients/{cust.pk}/")
+    body = resp.content.decode()
+    assert "Evening Dress" in body  # what was bought
+    debt_idx = body.index("Долг")
+    history_idx = body.index("История покупок")
+    pay_url = f"/pos/sale/{order.pk}/debt/"
+    assert pay_url in body
+    # The per-row repay link/button sits inside the debt block, before
+    # История покупок starts — never mixed into the paid-sales list.
+    assert debt_idx < body.index(pay_url) < history_idx
+
+
+def test_client_page_whatsapp_reminder_is_not_styled_destructive(
+    client, django_user_model, variant
+):
+    """A debt reminder isn't a destructive action — it must not carry the
+    same red/danger styling as «Отменить продажу»."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("wa_neutral", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+    cust = Client.objects.create(first_name="WaNeutral", phone="+996700005055")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order, user=editor)  # unpaid -> reminder button renders
+
+    body = client.get(f"/pos/clients/{cust.pk}/").content.decode()
+    assert "Напомнить о долге в WhatsApp" in body
+    assert "btn-ghost--debt" not in body
 
 
 # ---- Debt repayment from the client history page ("Погасить долг") -------
@@ -6216,6 +6874,51 @@ def test_debt_pay_detail_prefills_the_remaining_balance(client, django_user_mode
     assert resp.context["payment_amount"] == Decimal("2200.00")
 
 
+def test_debt_pay_detail_shows_item_list(client, django_user_model, variant):
+    """The repayment window used to show only money — no reminder of what
+    the debt is actually FOR. The sale's own items must render: товар,
+    размер, цвет, кол-во, сумма."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("dpi_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="ItemDebtor", phone="+996700005011")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    resp = client.get(f"/pos/sale/{order.pk}/debt/")
+    body = resp.content.decode()
+    assert "Evening Dress" in body
+    assert "красн" in body.lower() or "red" in body.lower()  # variant.color, untranslated item data
+    assert "M</td>" in body or ">M<" in body
+    assert "6\xa0400" in body  # 2 × 3200 line total
+
+
+def test_debt_pay_detail_shows_resend_receipt_only_with_a_phone(
+    client, django_user_model, variant
+):
+    """«Отправить чек ещё раз» reuses the existing share_receipt path — it
+    must only appear when there's actually a phone to send it to."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    owner = django_user_model.objects.create_superuser("dpr_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+
+    with_phone = Client.objects.create(first_name="HasPhone", phone="+996700005022")
+    order = SaleOrder.objects.create(client=with_phone, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    body = client.get(f"/pos/sale/{order.pk}/debt/").content.decode()
+    assert "Отправить чек ещё раз" in body
+    assert f"/pos/sale/{order.pk}/receipt/" in body
+
+    no_phone = Client.objects.create(first_name="NoPhone", phone="")
+    order2 = SaleOrder.objects.create(client=no_phone, currency="KGS")
+    SaleItem.objects.create(order=order2, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order2)
+    body2 = client.get(f"/pos/sale/{order2.pk}/debt/").content.decode()
+    assert "Отправить чек ещё раз" not in body2
+
+
 def test_debt_pay_confirm_full_repay_clears_debt(client, django_user_model, variant):
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     owner = django_user_model.objects.create_superuser("dpc_owner", "o2@e.com", "x" * 12)
@@ -6234,6 +6937,63 @@ def test_debt_pay_confirm_full_repay_clears_debt(client, django_user_model, vari
     assert order.balance == Decimal("0")
     assert order.payment_status == SaleOrder.PAID
     assert client_debt(cust) == {}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_record_payment_concurrent_double_tap_settles_exactly_once(variant):
+    """record_payment used to take no lock at all — every balance/change/
+    overpayment check read order.payments.all() unlocked, so two genuinely
+    concurrent payments against the same order's full balance (a double-
+    tapped «Оплачено полностью» on debt_pay_confirm) could each compute
+    against the SAME pre-payment balance and both succeed, overpaying by the
+    full amount a second time. Verified against real Postgres to fail on
+    the unpatched (unlocked) record_payment and pass on the fix — see the
+    matching note on test_cancel_sale_concurrent_double_tap_restocks_exactly_once
+    for why this doesn't discriminate under the sqlite test DB."""
+    import threading
+    import time
+
+    from django.db import connections
+    from django.db.utils import OperationalError
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create(client=Client.objects.create(
+        first_name="Race", phone="+996700005099"
+    ))
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    results = []
+    rejections = []
+    barrier = threading.Barrier(2)
+
+    def fire():
+        barrier.wait(timeout=5)
+        for attempt in range(8):
+            try:
+                record_payment(SaleOrder.objects.get(pk=order.pk), Decimal("3200"))
+                results.append("paid")
+                return
+            except ValidationError as exc:
+                rejections.append(exc)
+                return
+            except OperationalError:
+                time.sleep(0.05 * (attempt + 1))
+            finally:
+                connections.close_all()
+        raise AssertionError("gave up retrying after sqlite whole-file lock contention")
+
+    threads = [threading.Thread(target=fire) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+
+    assert len(results) == 1, f"expected exactly one payment to succeed, got {results}"
+    assert len(rejections) == 1, "expected the second, now-stale payment to be rejected"
+    order.refresh_from_db()
+    # The winner's payment settles the order exactly — never double-applied.
+    assert order.paid_amount == Decimal("3200")
 
 
 def test_debt_pay_confirm_partial_updates_sale_and_client_debt(client, django_user_model, variant):
@@ -7456,3 +8216,138 @@ def test_stock_action_wizard_colours_writeoff_red_and_receive_green(
     assert "btn-success" in receive_html
     assert "btn-danger" not in receive_html
     assert "btn-success" not in writeoff_html
+
+
+def test_admin_cancel_sale_action_asks_before_cancelling(client, django_user_model, variant):
+    """cancel_selected used to fire the instant "Go" was clicked — no
+    confirmation step, unlike approve_selected's existing two-step pattern.
+    The first POST (no `apply`) must show the list and NOT touch the sale;
+    only the second, confirmed POST actually cancels it."""
+    owner = django_user_model.objects.create_superuser("bulk_owner1", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    assert variant.stock == 8
+
+    changelist = "/panel/sales/saleorder/"
+    resp = client.post(
+        changelist, {"action": "cancel_selected", "_selected_action": [order.pk]}
+    )
+    assert resp.status_code == 200
+    assert "cannot be undone" in resp.content.decode() or "Cancel sales" in resp.content.decode()
+    order.refresh_from_db()
+    variant.refresh_from_db()
+    assert order.status == SaleOrder.CONFIRMED  # untouched
+    assert variant.stock == 8  # untouched
+
+    resp = client.post(
+        changelist,
+        {
+            "action": "cancel_selected",
+            "_selected_action": [order.pk],
+            "apply": "1",
+        },
+    )
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    variant.refresh_from_db()
+    assert order.status == SaleOrder.CANCELLED
+    assert variant.stock == 10
+
+
+def test_admin_void_payment_action_asks_before_voiding(client, django_user_model, variant):
+    owner = django_user_model.objects.create_superuser("bulk_owner2", "o2@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="VoidConfirm", phone="+996700009100")
+    order = SaleOrder.objects.create(client=cust)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    confirm_sale(order)
+    payment = Payment.objects.create(client=cust, order=order, amount=Decimal("3200"))
+
+    changelist = "/panel/sales/payment/"
+    resp = client.post(changelist, {"action": "void_selected", "_selected_action": [payment.pk]})
+    assert resp.status_code == 200
+    assert not Payment.objects.filter(reversed_payment=payment).exists()  # untouched
+
+    resp = client.post(
+        changelist,
+        {"action": "void_selected", "_selected_action": [payment.pk], "apply": "1"},
+    )
+    assert resp.status_code == 302
+    assert Payment.objects.filter(reversed_payment=payment).exists()
+
+
+def test_admin_cancel_order_action_asks_before_cancelling(client, django_user_model, variant):
+    from apps.orders.models import Order
+    from apps.orders.services import create_order
+
+    owner = django_user_model.objects.create_superuser("bulk_owner3", "o3@e.com", "x" * 12)
+    client.force_login(owner)
+    cust = Client.objects.create(first_name="OrderCancelConfirm", phone="+996700009101")
+    order = create_order(
+        cust, [{"variant": variant, "quantity": 1, "unit_price": variant.sale_price}]
+    )
+
+    changelist = "/panel/orders/order/"
+    resp = client.post(changelist, {"action": "cancel_selected", "_selected_action": [order.pk]})
+    assert resp.status_code == 200
+    order.refresh_from_db()
+    assert order.status == Order.NEW  # untouched
+
+    resp = client.post(
+        changelist,
+        {"action": "cancel_selected", "_selected_action": [order.pk], "apply": "1"},
+    )
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.status == Order.CANCELLED
+
+
+def test_admin_campaign_send_now_asks_before_sending(client, django_user_model, settings):
+    from apps.campaigns.models import Campaign
+
+    settings.CAMPAIGNS_ENABLED = True
+    owner = django_user_model.objects.create_superuser("bulk_owner4", "o4@e.com", "x" * 12)
+    client.force_login(owner)
+    campaign = Campaign.objects.create(name="ConfirmGate", text_ru="hi")
+
+    changelist = "/panel/campaigns/campaign/"
+    resp = client.post(changelist, {"action": "send_now", "_selected_action": [campaign.pk]})
+    assert resp.status_code == 200
+    assert "Send campaigns" in resp.content.decode() or "cannot be undone" in resp.content.decode()
+
+
+def test_campaign_send_failure_shows_no_raw_exception_text(
+    client, django_user_model, settings, monkeypatch
+):
+    """The admin used to interpolate str(exc) straight into the message —
+    a raw Python exception shown to a non-technical Owner with no next
+    step. Must show a plain Russian message instead, and log the real
+    exception for a developer to actually diagnose."""
+    from apps.campaigns.models import Campaign
+
+    settings.CAMPAIGNS_ENABLED = True
+    owner = django_user_model.objects.create_superuser("bulk_owner5", "o5@e.com", "x" * 12)
+    client.force_login(owner)
+    Client.objects.create(
+        first_name="Reachable", phone="+996700009102", telegram_chat_id=42, marketing_consent=True
+    )
+    campaign = Campaign.objects.create(name="BoomCampaign", text_ru="hi")
+
+    def boom(*a, **k):
+        raise RuntimeError("Traceback (most recent call last): something internal broke")
+
+    monkeypatch.setattr("apps.campaigns.admin.call_command", boom)
+
+    resp = client.post(
+        "/panel/campaigns/campaign/",
+        {"action": "send_now", "_selected_action": [campaign.pk], "apply": "1"},
+        follow=True,
+    )
+    body = resp.content.decode()
+    assert "Traceback" not in body
+    assert "something internal broke" not in body
+    assert "не удалась" in body

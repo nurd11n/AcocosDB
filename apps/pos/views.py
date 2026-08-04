@@ -6,6 +6,7 @@ apps/*/services.py functions; nothing here recomputes stock, money, or debt.
 import uuid
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import wraps
+from io import BytesIO
 from pathlib import Path
 
 from django.conf import settings
@@ -17,10 +18,12 @@ from django.db.models import IntegerField, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
+from xhtml2pdf import pisa
 
 from apps.clients.models import Client, Interaction
 from apps.clients.services import client_debt
@@ -50,7 +53,7 @@ from apps.sales.services import (
 from . import undo
 from .decorators import pos_view
 from .messaging import debt_reminder_text, receipt_share_text, wa_link
-from .receipts import make_receipt_token
+from .receipts import receipt_context
 
 RECENT_CLIENTS_LIMIT = 10
 PRODUCT_GRID_LIMIT = 24
@@ -535,8 +538,29 @@ def refresh_rates(request):
     Owner-only."""
     from apps.core.management.commands.fetch_rates import fetch_frankfurter_rates
 
-    fetch_frankfurter_rates(changed_by=request.user)
-    return render(request, "pos/partials/rates.html", {"rates": _today_rates()})
+    _updated, _rejected, details = fetch_frankfurter_rates(changed_by=request.user)
+    # Tapping «Обновить» during a network blip used to look identical to a
+    # real refresh — nothing told the manager whether it actually worked, or
+    # distinguished "already current" from "failed". Each currency gets its
+    # own outcome now (see fetch_frankfurter_rates's docstring); only set on
+    # the refresh path itself (never the plain page-load render), so it
+    # appears exactly once, right after the tap.
+    refresh_result = [
+        {
+            "currency": code,
+            "symbol": CURRENCY_SYMBOLS.get(code, code),
+            **info,
+        }
+        for code, info in details.items()
+    ]
+    return render(
+        request,
+        "pos/partials/rates.html",
+        {
+            "rates": _today_rates(),
+            "refresh_result": refresh_result,
+        },
+    )
 
 
 @pos_view
@@ -1444,19 +1468,26 @@ def debt_pay_detail(request, pk):
     sale's own); amount defaults to the remaining balance but partial is
     allowed, exactly like any other payment."""
     order = _payable_sale_or_404(request, pk)
-    return render(
+    context = _debt_pay_context(
+        order,
         request,
-        "pos/debt_pay.html",
-        _debt_pay_context(
-            order,
-            request,
-            # Pre-filled with the remaining balance — partial is still
-            # allowed, just edit the field before submitting.
-            payment_amount=order.balance,
-            payment_currency=order.currency,
-            can_override_rate=request.user.is_superuser,
-        ),
+        # Pre-filled with the remaining balance — partial is still
+        # allowed, just edit the field before submitting.
+        payment_amount=order.balance,
+        payment_currency=order.currency,
+        can_override_rate=request.user.is_superuser,
     )
+    # The screen used to show only money — no reminder of WHAT was bought.
+    # Rendered once here (not inside _debt_pay_context, which recalc_url's
+    # HTMX preview re-runs on every keystroke) since the item list never
+    # changes while the payment form is being filled in.
+    context["order_items"] = order.items.select_related("variant__product").order_by(
+        "variant__product__name", "variant__size", "variant__color"
+    )
+    context["can_resend_receipt"] = bool(
+        order.client and order.client.phone and request.user.has_perm("clients.add_interaction")
+    )
+    return render(request, "pos/debt_pay.html", context)
 
 
 @pos_view
@@ -1746,16 +1777,47 @@ def sale_return(request, pk):
     return render(request, "pos/return.html", {"order": order, "items": items, "active": "sale"})
 
 
-# ---- WhatsApp receipt + debt reminder (tap-to-send, logged) ----------------
+# ---- Receipt PDF (read-only) + WhatsApp receipt/debt reminder (logged) -----
+
+
+@pos_view
+def receipt_download(request, pk):
+    """Streams the receipt PDF, generated fresh from the database on THIS
+    request — nothing is stored (a saved file would go stale the moment a
+    return or repayment changes the numbers; the database never does) and
+    nothing is written (a plain GET is correct precisely because this is a
+    pure read — see the row-count test). Any authenticated staff who can view
+    the sale can download its receipt: it carries no cost price or anything
+    else a Viewer couldn't already see on this same sale's own page, so
+    there's no reason to scope it to "own sale" the way share_receipt is."""
+    if not request.user.has_perm("sales.view_saleorder"):
+        raise PermissionDenied
+    order = get_object_or_404(SaleOrder, pk=pk, status=SaleOrder.CONFIRMED)
+    # A filesystem path, not a <style> block, so this template never trips
+    # the CSP inline-style test — see receipt.css's own @font-face rules for
+    # why the receipt needs its Cyrillic glyphs embedded at all.
+    css_path = Path(settings.BASE_DIR) / "static" / "pos" / "receipt.css"
+    context = receipt_context(order)
+    context["receipt_css_path"] = str(css_path)
+    html = render_to_string("receipts/receipt.html", context)
+    buffer = BytesIO()
+    pisa.CreatePDF(html, dest=buffer, encoding="utf-8")
+    response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+    # A fixed generic filename, not "receipt-{pk}.pdf" — that number would
+    # reveal the running order count the moment this file is shared (WhatsApp
+    # shows an attached file's name to its recipient).
+    response["Content-Disposition"] = 'attachment; filename="chek.pdf"'
+    return response
 
 
 @pos_view
 @require_POST
 def share_receipt(request, pk):
-    """Open WhatsApp with a short message linking to the receipt web page
-    (apps.pos.receipts/public_views — grouped by product+size, «Скачать
-    PDF»), and log the touchpoint. A no-op redirect back if the sale has no
-    client/phone.
+    """Open WhatsApp with a short, link-free thank-you message, and log the
+    touchpoint. wa.me can't attach a file — she downloads the PDF (see
+    receipt_download / «Скачать чек») and attaches it herself inside
+    WhatsApp; this button only opens the chat with the text ready. A no-op
+    redirect back if the sale has no client/phone.
 
     POST-only and permission-gated because it WRITES an Interaction row. As a
     GET it was reachable by a Viewer (documented read-only) and, having no CSRF
@@ -1771,9 +1833,7 @@ def share_receipt(request, pk):
         raise PermissionDenied
     if not order.client or not order.client.phone:
         return redirect("pos:sale_result", pk=order.pk)
-    token = make_receipt_token(order)
-    receipt_url = request.build_absolute_uri(reverse("receipt-public", args=[token]))
-    link = wa_link(order.client.phone, receipt_share_text(order, receipt_url))
+    link = wa_link(order.client.phone, receipt_share_text(order))
     if not link:  # phone had no usable digits
         return redirect("pos:sale_result", pk=order.pk)
     Interaction.objects.create(
@@ -1897,25 +1957,53 @@ def clients(request):
     )
 
 
+def _order_item_summary(order) -> str:
+    """"Evening Dress / M / red и ещё 2" — the first line's own variant
+    description (see ProductVariant.__str__) plus a count of the rest, for a
+    compact one-line "what was bought" on the client page's debt/history
+    rows. Requires order.items (with variant__product) to already be
+    prefetched by the caller — never re-queries per row."""
+    items = list(order.items.all())
+    if not items:
+        return ""
+    first = str(items[0].variant)
+    if len(items) > 1:
+        return _("%(first)s и ещё %(n)d") % {"first": first, "n": len(items) - 1}
+    return first
+
+
 @pos_view
 def client_detail(request, pk):
-    from apps.clients.services import client_credits
+    from apps.clients.services import client_debt_and_credit
 
     client = get_object_or_404(Client, pk=pk)
-    debts = client_debt(client)
-    credits = client_credits(client)
+    # ONE indexed query pair (client_debt()+client_credits() back to back
+    # would each independently re-aggregate) — this is the highest-traffic
+    # client-facing page in the app, opened before/after nearly every sale.
+    debts, credits = client_debt_and_credit(client)
     orders = (
         client.sales.filter(status=SaleOrder.CONFIRMED)
-        .prefetch_related("payments")  # balance walks payments per order
+        .prefetch_related("payments", "items__variant__product")  # balance + item summary
         .order_by("-confirmed_at")[:20]
     )
-    # Each sale carries its own outstanding balance, so the history shows WHICH
-    # purchases the debt came from instead of only a single total at the top.
-    # Derived per order (never stored) — same numbers the POS and the debts
-    # report use, so the three can't drift apart.
-    order_rows = [{"order": o, "paid": o.paid_amount, "balance": o.balance} for o in orders]
+    # Each sale carries its own outstanding balance, so the debt/history
+    # blocks show WHICH purchases they came from instead of only a single
+    # total at the top. Derived per order (never stored) — same numbers the
+    # POS and the debts report use, so the three can't drift apart. Split
+    # into unpaid (the debt block) vs. fully-paid (История покупок) here
+    # rather than in the template, so both stay simple {% for %} loops.
+    order_rows = [
+        {
+            "order": o,
+            "paid": o.paid_amount,
+            "balance": o.balance,
+            "item_summary": _order_item_summary(o),
+        }
+        for o in orders
+    ]
+    unpaid_rows = [row for row in order_rows if row["balance"] > 0]
+    paid_rows = [row for row in order_rows if row["balance"] <= 0]
     interactions = client.interactions.order_by("-created_at")[:20]
-    payments = client.payments.order_by("-created_at")[:20]
     return render(
         request,
         "pos/client_detail.html",
@@ -1923,8 +2011,8 @@ def client_detail(request, pk):
             "client": client,
             "debts": debts,
             "credits": credits,
-            "order_rows": order_rows,
-            "payments": payments,
+            "unpaid_rows": unpaid_rows,
+            "paid_rows": paid_rows,
             "interactions": interactions,
             "active": "clients",
         },

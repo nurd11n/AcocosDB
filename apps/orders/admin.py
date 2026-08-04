@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
+from apps.core.admin_confirm import confirm_bulk_action
 from apps.core.currency import format_money
 
 from .models import Order, OrderItem
@@ -66,7 +67,21 @@ class OrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
             self.message_user(
                 request, _("Cancelling an order is Owner-only."), level=messages.ERROR
             )
-            return
+            return None
+        resp = confirm_bulk_action(
+            request,
+            queryset,
+            action_name="cancel_selected",
+            title=_("Cancel orders"),
+            warning=_(
+                "Each order's reservation is released immediately. This cannot "
+                "be undone from here."
+            ),
+            admin_site=self.admin_site,
+            model_opts=self.model._meta,
+        )
+        if resp is not None:
+            return resp
         cancelled = 0
         for order in queryset:
             try:
@@ -77,3 +92,4 @@ class OrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
                     request, f"#{order.pk}: " + "; ".join(exc.messages), level=messages.ERROR
                 )
         self.message_user(request, _("Cancelled %(n)s order(s).") % {"n": cancelled})
+        return None

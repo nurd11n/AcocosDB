@@ -15,7 +15,7 @@
   {% else %}
   {# Editor/Manager can pull the official rate but not hand-enter one. #}
   <button type="button" class="rates-refresh" hx-post="{% url 'pos:refresh_rates' %}"
-    hx-target="#rates-strip" hx-swap="outerHTML"
+    hx-target="#rates-strip" hx-swap="outerHTML" hx-disabled-elt="this"
     aria-label="{% trans 'Обновить курс НБКР' %}" title="{% trans 'Обновить курс НБКР' %}">
     <svg class="ic"><use href="#i-refresh"/></svg></button>
   {% endif %}

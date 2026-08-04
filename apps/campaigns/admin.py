@@ -9,13 +9,19 @@ production-ready yet) hides this module from the sidebar for EVERYONE,
 including the superuser, and every has_*_permission check below denies —
 not just hidden, actually unreachable even by direct URL."""
 
+import logging
+
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.management import call_command
 from django.utils.translation import gettext_lazy as _
 
+from apps.core.admin_confirm import confirm_bulk_action
+
 from .models import Campaign, CampaignRecipient
 from .services import campaign_preview_count
+
+logger = logging.getLogger(__name__)
 
 
 class CampaignRecipientInline(admin.TabularInline):
@@ -86,10 +92,24 @@ class CampaignAdmin(admin.ModelAdmin):
     def send_now(self, request, queryset):
         if not settings.CAMPAIGNS_ENABLED:
             self.message_user(request, _("Campaigns are disabled."), messages.ERROR)
-            return
+            return None
         if not request.user.is_superuser:
             self.message_user(request, _("Only the owner can send campaigns."), messages.ERROR)
-            return
+            return None
+        resp = confirm_bulk_action(
+            request,
+            queryset,
+            action_name="send_now",
+            title=_("Send campaigns"),
+            warning=_(
+                "Each campaign below goes out immediately to its full reachable "
+                "audience. This cannot be undone or recalled once sent."
+            ),
+            admin_site=self.admin_site,
+            model_opts=self.model._meta,
+        )
+        if resp is not None:
+            return resp
         for campaign in queryset:
             count = campaign_preview_count(campaign)
             if count == 0:
@@ -101,10 +121,19 @@ class CampaignAdmin(admin.ModelAdmin):
                 continue
             try:
                 call_command("send_campaign", campaign.pk)
-            except Exception as exc:  # surface any send error in the admin, don't 500
+            except Exception:
+                # The raw exception text is a Python-internals leak to a
+                # non-technical Owner, with no next step — log it for a
+                # developer to actually diagnose, show a plain Russian
+                # message that says what to do instead.
+                logger.exception("send_campaign failed for campaign #%s", campaign.pk)
                 self.message_user(
                     request,
-                    _("«%(name)s» failed: %(err)s") % {"name": campaign.name, "err": exc},
+                    _(
+                        "«%(name)s»: отправка не удалась. Попробуйте ещё раз позже; "
+                        "если повторится — обратитесь к разработчику."
+                    )
+                    % {"name": campaign.name},
                     messages.ERROR,
                 )
                 continue
@@ -113,3 +142,4 @@ class CampaignAdmin(admin.ModelAdmin):
                 _("«%(name)s» sent to %(n)s client(s).") % {"name": campaign.name, "n": count},
                 messages.SUCCESS,
             )
+        return None

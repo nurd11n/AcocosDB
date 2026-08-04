@@ -1,38 +1,57 @@
-{% load i18n static pos_extras %}
+{% load i18n pos_extras %}
 <!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% trans "Чек" %} №{{ order.pk }} — ACOCOS</title>
-{% if not for_pdf %}
-<link rel="stylesheet" href="{% static 'pos/receipt.css' %}">
-{% endif %}
+<link rel="stylesheet" href="{{ receipt_css_path }}">
 </head>
 <body>
 <div class="receipt">
- <div class="receipt__head">
-  <span class="receipt__date">{% if date %}{{ date|date:"d.m.Y" }}{% endif %}</span>
-  <span class="receipt__client">{{ client_name }}</span>
- </div>
+ <table class="receipt__header">
+  <tr>
+   <td class="receipt__wordmark" width="55%">ACOCOS</td>
+   <td class="receipt__badge-cell" width="45%">
+    {# A one-cell table, not a <span> — see receipt.css's header comment. #}
+    <table class="receipt__badge-table" align="right"><tr>
+    {% if status == "paid" %}
+    <td class="receipt__badge receipt__badge--paid">{% trans "ОПЛАЧЕНО" %}</td>
+    {% elif status == "partial" %}
+    <td class="receipt__badge receipt__badge--partial">{% trans "ЧАСТИЧНО" %} — {% trans "остаток" %} {{ balance|money:currency }}</td>
+    {% else %}
+    <td class="receipt__badge receipt__badge--debt">{% trans "ДОЛГ" %} {{ balance|money:currency }}</td>
+    {% endif %}
+    </tr></table>
+   </td>
+  </tr>
+ </table>
+ <p class="receipt__meta">
+  {% if date %}{{ date|date:"d.m.Y" }} · {% endif %}{% trans "Чек" %} №{{ order.pk }}
+  {% if client_name %} · {{ client_name }}{% endif %}
+ </p>
 
+ <hr class="receipt__rule">
+
+ {# Column widths: the HTML width= attribute on these <th> cells (see receipt.css). #}
+ {# Every <td> below must stay non-empty (&nbsp; if nothing to show) — a truly empty cell makes xhtml2pdf silently collapse that WHOLE COLUMN's width, corrupting even the header row (see receipt.css's top comment). #}
  <table class="receipt__table">
   <thead>
    <tr>
-    <th>{% trans "Товар" %}</th>
-    <th>{% trans "Размер" %}</th>
-    <th>{% trans "Цвет" %}</th>
-    <th class="num">{% trans "Кол-во" %}</th>
-    <th class="num">{% trans "Цена" %}</th>
-    <th class="num">{% trans "Сумма" %}</th>
+    {# Hardcoded uppercase, not text-transform — that CSS property is a no-op in xhtml2pdf. #}
+    <th width="32%">{% trans "ТОВАР" %}</th>
+    <th width="10%">{% trans "РАЗМЕР" %}</th>
+    <th width="18%">{% trans "ЦВЕТ" %}</th>
+    <th width="8%" class="num">{% trans "КОЛ-ВО" %}</th>
+    <th width="15%" class="num">{% trans "ЦЕНА" %}</th>
+    <th width="17%" class="num">{% trans "СУММА" %}</th>
    </tr>
   </thead>
   <tbody>
    {% for group in groups %}
     {% for row in group.rows %}
     <tr>
-     <td>{% if forloop.first %}{{ group.product.name }}{% endif %}</td>
-     <td>{% if forloop.first %}{{ group.size }}{% endif %}</td>
+     <td>{% if forloop.first %}{{ group.product.name }}{% else %}&nbsp;{% endif %}</td>
+     <td>{% if forloop.first %}{{ group.size }}{% else %}&nbsp;{% endif %}</td>
      <td>{{ row.color }}</td>
      <td class="num">{{ row.quantity }}</td>
      <td class="num">{{ row.unit_price|money:currency }}</td>
@@ -43,29 +62,25 @@
    <tr><td colspan="6" class="receipt__empty">{% trans "Нет позиций" %}</td></tr>
    {% endfor %}
   </tbody>
-  <tfoot>
-   <tr class="receipt__total">
-    <td colspan="3">{% trans "ИТОГО" %}:</td>
-    <td class="num">{{ total_quantity }}</td>
-    <td></td>
-    <td class="num">{{ total_money|money:currency }}</td>
-   </tr>
-  </tfoot>
  </table>
 
- {% if discount or paid or balance %}
- <div class="receipt__summary">
-  {% if discount %}<p class="receipt__line"><span>{% trans "Скидка" %}</span><span class="num">{{ discount|money:currency }}</span></p>{% endif %}
-  {% if paid %}<p class="receipt__line"><span>{% trans "Оплачено" %}</span><span class="num">{{ paid|money:currency }}</span></p>{% endif %}
-  {% if balance %}<p class="receipt__line receipt__line--debt"><span>{% trans "Остаток" %}</span><span class="num">{{ balance|money:currency }}</span></p>{% endif %}
- </div>
- {% endif %}
+ {# Totals: one thin rule above ИТОГО only (receipt.css .receipt__total). #}
+ <table class="receipt__summary">
+  <tr class="receipt__total">
+   <td width="45%">{% trans "ИТОГО" %}</td>
+   <td width="25%" class="num">{{ total_quantity }} {% trans "шт" %}</td>
+   <td width="30%" class="num">{{ total_money|money:currency }}</td>
+  </tr>
+  {% if discount %}
+  <tr><td>{% trans "Скидка" %}</td><td>&nbsp;</td><td class="num">{{ discount|money:currency }}</td></tr>
+  {% endif %}
+  {% if status != "paid" %}
+  <tr><td>{% trans "Оплачено" %}</td><td>&nbsp;</td><td class="num">{{ paid|money:currency }}</td></tr>
+  <tr class="receipt__line--debt"><td>{% trans "Остаток" %}</td><td>&nbsp;</td><td class="num">{{ balance|money:currency }}</td></tr>
+  {% endif %}
+ </table>
 
- {% if not for_pdf %}
- <a class="receipt__pdf" href="{% url 'receipt-pdf' token %}">{% trans "Скачать PDF" %}</a>
- {% endif %}
-
- <p class="receipt__footer">ACOCOS</p>
+ <p class="receipt__footer">{% trans "ACOCOS · спасибо за покупку!" %}{% if contact_line %} · {{ contact_line }}{% endif %}</p>
 </div>
 </body>
 </html>

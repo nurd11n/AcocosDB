@@ -341,9 +341,23 @@ def item_add(request, pk):
         qty = max(int(request.POST.get("quantity", "1")), 1)
     except (TypeError, ValueError):
         qty = 1
-    if not order.items.exists() and order.currency != variant.currency:
-        order.currency = variant.currency
-        order.save(update_fields=["currency"])
+    # OrderItem carries its own currency, but Order.total naively sums
+    # unit_price*quantity across every line as if they shared one currency —
+    # and hand_over copies unit_price straight onto SaleItem rows with no
+    # conversion. An empty order adopts the first item's currency; once
+    # items exist, a mismatched variant would silently corrupt that total
+    # (and, at handover, the resulting sale's total_kgs), so it's rejected
+    # instead of guessed at — same rule as the draft-sale cart
+    # (apps.pos.views.item_add).
+    if not order.items.exists():
+        if order.currency != variant.currency:
+            order.currency = variant.currency
+            order.save(update_fields=["currency"])
+    elif order.currency != variant.currency:
+        error = _(
+            "Товар в %(vc)s нельзя добавить в заказ в %(oc)s — оформите отдельным заказом."
+        ) % {"vc": variant.currency, "oc": order.currency}
+        return _after_mutation(request, order, error)
     existing = order.items.filter(variant=variant).first()
     if existing and existing.currency == variant.currency:
         existing.quantity += qty

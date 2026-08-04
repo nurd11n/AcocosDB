@@ -18,4 +18,4 @@ certifi>=2024.2  # explicit: config.settings points SSL_CERT_FILE at its CA bund
 aiogram>=3.13
 gunicorn>=23.0
 openpyxl>=3.1
-weasyprint>=62.0  # renders the receipt PDF from the same HTML/CSS as its web page
+xhtml2pdf>=0.2.16  # renders the receipt PDF; pure Python, no system C libraries

@@ -158,7 +158,15 @@ totals, завершение) belongs to an order that already exists.
  <p class="muted">{% trans "Аванс не внесён" %}</p>
  {% endfor %}
  {% if can_write and order.is_open %}
+ {% comment %}
+ data-confirm — read by safety.js's htmx:confirm listener, same as every
+ other money-write form — asks before firing, on top of the existing
+ form.htmx-request .btn { pointer-events:none } CSS rule (app.css) that
+ already blocks a repeat tap while the request is in flight.
+ {% endcomment %}
  <form hx-post="{% url 'orders:deposit_add' order.pk %}" hx-target="#order-body" hx-swap="innerHTML"
+   data-confirm="{% trans "Внести аванс на эту сумму?" %}"
+   data-confirm-ok="{% trans "Да, внести" %}" data-confirm-tone="primary"
    style="margin-top:var(--space-3)">
   {% csrf_token %}
   <label>{% trans "Сумма аванса" %}</label>

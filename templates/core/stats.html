@@ -47,7 +47,7 @@
  <div class="cards">
   <div class="card">
    <div class="label">{% trans "Revenue today" %}</div>
-   <div class="value">{{ disp.revenue_today|unlocalize }} <span class="unit">{{ disp.currency|currency_symbol }}</span></div>
+   <div class="value">{{ disp.revenue_today|money:disp.currency }}</div>
   </div>
   <div class="card">
    <div class="label">{% trans "Confirmed sales" %}</div>
@@ -63,7 +63,7 @@
   </div>
   <div class="card">
    <div class="label">{% trans "Outstanding debt" %}</div>
-   <div class="value">{{ disp.debt_total|unlocalize }} <span class="unit">{{ disp.currency|currency_symbol }}</span></div>
+   <div class="value">{{ disp.debt_total|money:disp.currency }}</div>
   </div>
   <div class="card {% if totals.pending_orders %}flag{% endif %}">
    <div class="label">{% trans "Pending approvals" %}</div>
@@ -78,7 +78,7 @@
    <div class="barrow">
     <span>{{ d.day|date:"D d M" }}</span>
     <span class="track"><span class="fill" style="width:{{ d.pct }}%"></span></span>
-    <span class="amt">{{ d.amount|unlocalize }} {{ disp.currency|currency_symbol }}</span>
+    <span class="amt">{{ d.amount|money:disp.currency }}</span>
    </div>
    {% endfor %}
   </div>
@@ -94,7 +94,7 @@
      <div class="barrow alt">
       <span>{{ c.label }}</span>
       <span class="track"><span class="fill" style="width:{{ c.pct }}%"></span></span>
-      <span class="amt">{{ c.amount|unlocalize }} {{ disp.currency|currency_symbol }}</span>
+      <span class="amt">{{ c.amount|money:disp.currency }}</span>
      </div>
      {% endfor %}
     </div>
@@ -109,7 +109,7 @@
      <tr><th>{% trans "Client" %}</th><th class="num">{% trans "Debt" %}</th></tr>
      {% for d in disp.debtors %}
      <tr><td>{{ d.name }}<br><span style="color:var(--muted)">{{ d.phone }}</span></td>
-         <td class="num">{{ d.amount|unlocalize }} {{ disp.currency|currency_symbol }}</td></tr>
+         <td class="num">{{ d.amount|money:disp.currency }}</td></tr>
      {% endfor %}
     </table>
     {% else %}<div class="empty">{% trans "No outstanding debts." %}</div>{% endif %}

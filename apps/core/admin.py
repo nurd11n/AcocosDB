@@ -35,7 +35,7 @@ class ExchangeRateAdmin(admin.ModelAdmin):
     place; staff normally refresh from the POS «Курс» card. Hand-entering or
     overriding a rate here is a money-affecting control, so it's Owner-only —
     enforced with explicit permission checks below, not just structural
-    exclusion from Editor/Viewer's Django permissions (BUSINESS_APPS)."""
+    exclusion from Editor/Viewer's Django permissions (BUSINESS_MODEL_PERMISSIONS)."""
 
     form = ExchangeRateForm
     list_display = ["currency", "one_unit", "date"]

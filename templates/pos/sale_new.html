@@ -20,7 +20,7 @@ over completely (see views.item_add_new/client_set_new/client_create_new).
     <svg class="ic"><use href="#i-refresh"/></svg></button>
   {% else %}
   <button type="button" class="rates-refresh" hx-post="{% url 'pos:refresh_rates' %}"
-    hx-target="#rates-strip" hx-swap="outerHTML"
+    hx-target="#rates-strip" hx-swap="outerHTML" hx-disabled-elt="this"
     aria-label="{% trans 'Обновить курс НБКР' %}" title="{% trans 'Обновить курс НБКР' %}">
     <svg class="ic"><use href="#i-refresh"/></svg></button>
   {% endif %}

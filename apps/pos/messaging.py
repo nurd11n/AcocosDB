@@ -18,20 +18,18 @@ def wa_link(phone: str, text: str) -> str:
     return f"https://wa.me/{digits}?text={quote(text)}"
 
 
-def receipt_share_text(order, receipt_url: str) -> str:
-    """Short WhatsApp message pointing at the receipt WEB PAGE (see
-    apps.pos.receipts / apps.pos.public_views) — the itemised breakdown,
-    discount, paid/balance all live on that page now, grouped by product+size
-    with colours nested, never pasted as raw text into the chat. Client-
-    facing, so first_name only (see Client.name's docstring — the staff-only
-    descriptor must never reach the client)."""
+def receipt_share_text(order) -> str:
+    """Short, link-free WhatsApp message — the receipt itself is a PDF she
+    attaches to this same chat manually (see apps.pos.receipts /
+    views.receipt_download); wa.me can't attach a file, and the text must
+    never carry a URL, domain, or token pointing back at this server (see
+    CLAUDE.md's receipt rework). Client-facing, so first_name only (see
+    Client.name's docstring — the staff-only descriptor must never reach the
+    client)."""
     name = order.client.first_name if order.client_id else ""
-    greeting = (
-        _("Спасибо за покупку, %(name)s! 🌸") % {"name": name}
-        if name
-        else _("Спасибо за покупку в ACOCOS! 🌸")
-    )
-    return f"{greeting}\n{_('Ваш чек')}: {receipt_url}"
+    if name:
+        return _("Спасибо за покупку, %(name)s! Чек прикреплён.") % {"name": name}
+    return _("Спасибо за покупку в ACOCOS! Чек прикреплён.")
 
 
 def debt_reminder_text(client, debts: dict[str, Decimal]) -> str:
