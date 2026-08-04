@@ -14,6 +14,14 @@ set -eu
 BACKUP_DIR=/backups
 INTERVAL=${BACKUP_INTERVAL_SECONDS:-21600} # 6 hours
 
+# pg_dump reads PGPASSWORD, not POSTGRES_PASSWORD (that name is specific to
+# the official postgres image's own first-run init, not a libpq client
+# convention) — without this, pg_dump has no password to offer the `db`
+# service over the network and every cycle fails auth (mirrors
+# restore_drill.sh, which already does this correctly for its psql/pg_restore
+# calls).
+export PGPASSWORD="${POSTGRES_PASSWORD:-}"
+
 mkdir -p "$BACKUP_DIR"
 
 while true; do
