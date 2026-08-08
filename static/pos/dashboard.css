@@ -158,6 +158,8 @@ html[data-theme="dark"] .metric, html[data-theme="dark"] .panel {
 
 /* --- product thumbnail cell (top products / dead stock) --- */
 .pcell { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.pcell__text { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.pcell__cat { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pcell__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thumb {
   width: 38px;

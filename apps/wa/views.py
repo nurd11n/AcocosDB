@@ -25,7 +25,6 @@ import json
 import logging
 
 from django.conf import settings
-from django.core.cache import cache
 from django.http import HttpResponse, HttpResponseForbidden, HttpResponseNotFound, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -36,6 +35,7 @@ from apps.clients.services import (
     start_handoff,
 )
 from apps.core.models import BotMessage
+from apps.core.ratelimit import cache_is_available, client_ip, is_rate_limited
 
 from .client_replies import build_client_reply
 from .services import send_whatsapp_text
@@ -51,29 +51,23 @@ RATE_LIMIT = 300  # requests per source IP...
 RATE_WINDOW = 60  # ...per this many seconds
 
 
-def _client_ip(request) -> str:
-    """The caller's real IP. Read X-Real-IP, which Caddy sets to the true TCP peer
-    and OVERWRITES (see Caddyfile) — so it can't be spoofed. We deliberately do NOT
-    read X-Forwarded-For: its leftmost entry is client-controlled (Caddy only
-    appends the real IP), so rotating it would defeat the per-IP limit. REMOTE_ADDR
-    is the fallback for a direct hit (dev, no proxy)."""
-    real = request.META.get("HTTP_X_REAL_IP", "").strip()
-    return real or request.META.get("REMOTE_ADDR", "unknown")
+def _rate_limited(ip: str) -> bool | None:
+    """True if blocked, False if OK to proceed, None if the cache itself is
+    unavailable — the caller MUST treat None as "reject", never as "allow".
 
-
-def _rate_limited(ip: str) -> bool:
-    """Fixed-window per-IP counter in the cache. add-then-incr so a missing key
-    (window rolled over, or Redis restarted) is seeded, never raises."""
-    key = f"wa:rl:{ip}"
-    count = cache.get(key)
-    if count is not None and count >= RATE_LIMIT:
-        return True
-    if not cache.add(key, 1, RATE_WINDOW):
-        try:
-            cache.incr(key)
-        except ValueError:
-            cache.set(key, 1, RATE_WINDOW)
-    return False
+    Previously used a bare cache.get(key) here: CACHES["default"]["OPTIONS"]
+    ["IGNORE_EXCEPTIONS"] is True (config/settings/base.py, deliberate for
+    the app's general graceful-degradation), so when Redis was down every
+    count silently read back as "0/None" — indistinguishable from "no
+    requests yet" — and this returned False (not limited) no matter how
+    fast the flood. That's a real fail-OPEN bug: the one time a flood is
+    most likely to coincide with infra trouble is exactly when the cache
+    that would have stopped it goes quiet. cache_is_available() is a real
+    write-then-read probe (see apps.core.ratelimit's module docstring) that
+    actually distinguishes "down" from "empty"."""
+    if not cache_is_available():
+        return None
+    return is_rate_limited(f"wa:rl:{ip}", RATE_LIMIT, RATE_WINDOW)
 
 
 def _valid_signature(request) -> bool:
@@ -108,10 +102,25 @@ def webhook(request):
         return HttpResponseForbidden()
 
     # Cheap rejects first, before the HMAC and before touching the DB.
-    declared = int(request.META.get("CONTENT_LENGTH") or 0)
+    # A malformed Content-Length ("abc") must not raise out of a public,
+    # unauthenticated endpoint — that turns a junk header into a 500 plus a
+    # stack trace in the logs for anyone on the internet. Django's OWN
+    # request.body raises ValueError on it too (it re-parses the header
+    # internally), so guarding only our int() here is not enough: the header
+    # is rejected up front as the malformed request it is. Meta always sends
+    # a valid one.
+    raw_length = request.META.get("CONTENT_LENGTH") or 0
+    try:
+        declared = int(raw_length)
+    except (TypeError, ValueError):
+        return HttpResponse(status=400)
     if declared > MAX_WEBHOOK_BYTES:
         return HttpResponse(status=413)
-    if _rate_limited(_client_ip(request)):
+    limited = _rate_limited(client_ip(request))
+    if limited is None:  # cache unavailable — fail CLOSED, never silently unlimited
+        logger.error("WhatsApp webhook: cache unavailable, failing closed.")
+        return HttpResponse(status=503)
+    if limited:
         return HttpResponse(status=429)
     if len(request.body) > MAX_WEBHOOK_BYTES:  # in case Content-Length lied
         return HttpResponse(status=413)

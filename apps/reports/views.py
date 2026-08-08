@@ -22,6 +22,7 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from apps.core.currency import KGS, RUB, USD, get_rate
+from apps.core.ratelimit import rate_limit
 from apps.inventory.cache import catalog_version
 
 from . import charts, export, storage
@@ -224,6 +225,7 @@ def dashboard(request):
     return render(request, template, context)
 
 
+@rate_limit("report", 10, 300)
 @owner_only
 def dashboard_export(request):
     """Download the dashboard for the selected period as an xlsx workbook (all
@@ -269,6 +271,7 @@ def storage_view(request):
     return render(request, "reports/storage.html", {**_storage_data(), "active": "storage"})
 
 
+@rate_limit("report", 10, 300)
 @owner_only
 def storage_export(request):
     """Download the storage report as xlsx (both sheets) or a single csv sheet.

@@ -129,7 +129,7 @@ def _business_snapshot() -> dict:
     sold = units_sold_by_variant(30)
     variants = list(
         ProductVariant.objects.filter(is_active=True)
-        .select_related("product")
+        .select_related("product__category")
         .annotate(_stock=Sum("movements__quantity"))
     )
     bestsellers = [

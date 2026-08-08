@@ -4,9 +4,13 @@ Every request increments two cache counters (Redis in prod): a daily total and a
 daily per-section counter. Cost per request: two cache ops, zero DB writes.
 """
 
+import logging
+
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 TTL = 60 * 60 * 24 * 8  # keep 8 days of counters
 
@@ -87,4 +91,39 @@ class RequestCounterMiddleware:
         section = request.path.strip("/").split("/")[0] or "root"
         _incr(f"reqcount:{day}:total")
         _incr(f"reqcount:{day}:{section}")
+        return response
+
+
+class SecurityEventLoggingMiddleware:
+    """Every 401/403 response gets a log line AND a SecurityEvent row — IP +
+    timestamp always, so "what's hitting us" is visible without grepping
+    logs, and apps.core.management.commands.send_security_digest has
+    something to count. 429s are logged/recorded at the point they're
+    produced (apps.core.ratelimit.check_rate_limit) instead of here, since
+    that's where the specific rate-limit prefix ("login", "search", ...) is
+    known — this middleware only sees a bare status code.
+
+    Deliberately does NOT log 404 — the entire point of the Caddy-level
+    probe-path blocking (see docker/Caddyfile) is that scans for /wp-admin,
+    /.env etc. never reach Django at all, so a 404 here is far more likely
+    to be a genuine typo/dead link than an attack; logging every one would
+    bury the signal this middleware exists to surface."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if response.status_code in (401, 403):
+            from .models import SecurityEvent
+            from .ratelimit import client_ip
+
+            ip = client_ip(request)
+            username = getattr(request.user, "username", "") if hasattr(request, "user") else ""
+            logger.warning(
+                "Forbidden: %s %s ip=%s user=%s", request.method, request.path, ip, username or "-"
+            )
+            SecurityEvent.objects.create(
+                event_type=SecurityEvent.FORBIDDEN, ip=ip, path=request.path[:255], username=username
+            )
         return response

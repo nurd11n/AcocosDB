@@ -12,7 +12,12 @@ Fixed times a day, in TIME_ZONE:
               the POS Курс card (apps.pos.views.refresh_rates) — automatic for
               reliability, manual for control; both stay in place.
   REPORT_HOUR (default 21:00) — pull rates again (so the report reflects the
-              latest), purge stale draft sales, then send the daily report.
+              latest), purge stale draft sales, send the daily report, then
+              check today's SecurityEvent counts and Telegram the Owner —
+              ONLY if a threshold is exceeded (send_security_digest stays
+              silent otherwise, on purpose: see its own module docstring) —
+              and finally age out SecurityEvent rows past 90 days, so the
+              abuse log stays bounded in the same DB as the sales data.
 
 A full scheduler (Celery/cron) is overkill for a handful of jobs a day; this
 reads env directly so it needs no django.setup(). Every command runs
@@ -42,7 +47,17 @@ def _build_jobs() -> list[tuple[str, list[str]]]:
         if hhmm:
             by_time[hhmm].append("backup_db")
     by_time[RATES_HOUR].append("fetch_rates")
-    for cmd in ("fetch_rates", "cleanup_draft_sales", "send_daily_report"):
+    for cmd in (
+        "fetch_rates",
+        "cleanup_draft_sales",
+        "send_daily_report",
+        "send_security_digest",
+        # Runs AFTER the digest, never before: the digest reads today's rows
+        # and this only ever deletes rows 90+ days old, but keeping the order
+        # explicit means a future retention change can't silently start
+        # deleting the very rows the digest was about to count.
+        "purge_security_events",
+    ):
         by_time[REPORT_HOUR].append(cmd)
     return [(hhmm, cmds) for hhmm, cmds in by_time.items()]
 

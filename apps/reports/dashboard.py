@@ -374,7 +374,9 @@ def _top_products(start, end, limit=8):
         SaleItem.objects.filter(
             order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__range=(start, end)
         )
-        .values("variant__product__id", "variant__product__name")
+        .values(
+            "variant__product__id", "variant__product__name", "variant__product__category__name"
+        )
         .annotate(
             revenue=Coalesce(
                 Sum(_LINE_KGS, output_field=_MONEY), Value(Decimal("0")), output_field=_MONEY
@@ -394,6 +396,7 @@ def _top_products(start, end, limit=8):
     return [
         {
             "name": r["variant__product__name"],
+            "category": r["variant__product__category__name"],
             "thumb": _thumb_url(covers.get(r["variant__product__id"], "")),
             "revenue": r["revenue"],
             "units": r["units"],
@@ -416,7 +419,7 @@ def _dead_stock(limit=8):
     )
     variants = list(
         ProductVariant.objects.filter(is_active=True)
-        .select_related("product")
+        .select_related("product__category")
         .annotate(_stock=Coalesce(stock_sq, 0))
         .filter(_stock__gt=0)
     )
@@ -624,7 +627,12 @@ def dashboard_sheets(data: dict) -> dict[str, export.Sheet]:
             export.Column("Прибыль, сом", export.MONEY),
         ],
         [
-            [t["name"], int(t["units"]), _num(t["revenue"]), _num(t["profit"])]
+            [
+                f"{t['category']} / {t['name']}",
+                int(t["units"]),
+                _num(t["revenue"]),
+                _num(t["profit"]),
+            ]
             for t in data["top_products"]
         ],
     )

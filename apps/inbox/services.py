@@ -241,7 +241,12 @@ def top_favourited(limit: int = 10):
     from apps.inventory.models import ProductVariant
 
     rows = Favourite.objects.values("variant").annotate(n=Count("id")).order_by("-n")[:limit]
-    variants = {v.pk: v for v in ProductVariant.objects.filter(pk__in=[r["variant"] for r in rows])}
+    variants = {
+        v.pk: v
+        for v in ProductVariant.objects.filter(
+            pk__in=[r["variant"] for r in rows]
+        ).select_related("product__category")
+    }
     return [(variants[r["variant"]], r["n"]) for r in rows if r["variant"] in variants]
 
 

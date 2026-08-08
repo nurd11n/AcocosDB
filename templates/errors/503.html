@@ -1,0 +1,9 @@
+{% extends "errors/base.html" %}
+{% load i18n %}
+{% block code %}503{% endblock %}
+{% block message %}{% trans "Сервис временно недоступен." %}{% endblock %}
+{% block extra %}
+<p class="muted" style="margin:0 0 var(--space-2)">
+  {% trans "Попробуйте обновить страницу через минуту." %}
+</p>
+{% endblock %}

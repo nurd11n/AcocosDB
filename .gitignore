@@ -7,6 +7,7 @@ db.sqlite3
 media/
 staticfiles/
 backups/
+caddy_logs/
 secrets/
 .pytest_cache/
 .ruff_cache/

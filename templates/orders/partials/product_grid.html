@@ -17,6 +17,7 @@ point of a заказ (CLAUDE.md Part 3g).
       </svg>
     </div>
   {% endif %}
+  <div class="tile__cat">{{ tile.category }}</div>
   <div class="tile__name">{{ tile.name }}</div>
   {% if tile.price is not None %}<div class="tile__price num">{{ tile.price|money:tile.currency }}</div>{% endif %}
   <span class="badge {% if tile.stock <= 0 %}badge--neutral{% else %}badge--paid{% endif %} tile__badge">

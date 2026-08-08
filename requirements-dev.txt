@@ -3,3 +3,7 @@ pytest>=8.3
 pytest-django>=4.9
 factory_boy>=3.3
 ruff>=0.6
+# Test-only: reads real generated PDFs (word positions, page count) for the
+# receipt layout tests — column alignment and pagination can't be verified
+# from the HTML/context alone. Never imported outside tests/.
+pymupdf>=1.24

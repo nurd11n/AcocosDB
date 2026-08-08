@@ -167,6 +167,7 @@ def _sales_sheet() -> export.Sheet:
 
 _STOCK_COLUMNS = [
     export.Column("Артикул", export.TEXT),
+    export.Column("Категория", export.TEXT),
     export.Column("Товар", export.TEXT),
     export.Column("Размер", export.TEXT),
     export.Column("Цвет", export.TEXT),
@@ -197,6 +198,7 @@ def _stock_sheet() -> export.Sheet:
         rows.append(
             [
                 v.sku,
+                v.product.category.name,
                 v.product.name,
                 v.size,
                 v.color,
@@ -211,8 +213,8 @@ def _stock_sheet() -> export.Sheet:
         )
     totals = [None] * len(_STOCK_COLUMNS)
     totals[0] = "ИТОГО"
-    totals[4] = units_total
-    totals[9] = value_base_total
+    totals[5] = units_total
+    totals[10] = value_base_total
     return export.Sheet(_STOCK_COLUMNS, rows, totals)
 
 

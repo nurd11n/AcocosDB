@@ -11,20 +11,56 @@
      - CSS `width` on a <td>/<th> via a class selector, `:nth-child`, or
        even inline `style="width:.."` is SILENTLY IGNORED — every column
        comes out equal-width regardless. The HTML `width="X%"` ATTRIBUTE on
-       the header row's <th> cells is the ONLY mechanism that actually
-       works (see templates/receipts/receipt.html) — body <td>s inherit it
-       and must not repeat it.
+       the header row's <th> cells (or, where there's no <thead> at all —
+       see .receipt__summary/.receipt__signature — the FIRST row's <td>
+       cells) is the ONLY mechanism that actually works (see
+       templates/receipts/receipt.html) — later cells inherit it and must
+       not repeat it.
      - `table-layout` is not implemented at all (harmless to set, does
        nothing).
      - `<span>` only ever gets a background-color HIGHLIGHT — border and
        padding on an inline element produce no visible box. A real pill/
-       badge needs a block-level element or (as used here) a one-cell
+       badge/bar needs a block-level element or (as used here) a one-cell
        table, which DOES get proper border/background/padding.
      - No CSS custom properties (var()) and no flexbox — layout uses tables
        and plain block flow throughout.
+     - `border-radius` is NOT implemented (grepped the source — no mapping
+       exists at all) — a "pill" is therefore a sharp-cornered compact box,
+       not a rounded one. Don't re-add border-radius expecting it to work.
+     - `letter-spacing` IS implemented, but ONLY in absolute units (pt/mm/
+       cm/in/px) — its value is run through getSize() with no `relative`
+       base, so `0.08em` silently resolves to 0 (a bare float() on the
+       string "0.08em" raises and falls back to the zero default). Every
+       letter-spacing below is hand-converted to pt from the spec's em
+       values against that rule's own font-size.
+     - @frame + `-pdf-frame-content: <id>` IS implemented (xhtml2pdf's own
+       "static frame" mechanism) — an element with that id anywhere in the
+       body is pulled OUT of normal flow and repeated inside the named
+       frame region on every page. This is what pins the footer to the
+       bottom of every page regardless of item count, instead of it
+       floating wherever normal flow happens to end. It MUST be nested
+       INSIDE @page's own braces, not written as a sibling rule after it —
+       xhtml2pdf builds each page's real Frame objects at the point it
+       finishes parsing @page's body, consuming every @frame parsed so
+       far; one that comes later in the file is parsed too late and its
+       content silently renders in normal flow instead (measured: this is
+       exactly what happened the first time).
+     - CSS `padding` (any side, shorthand or longhand) on a <td> is
+       SILENTLY DROPPED ENTIRELY whenever that table is nested inside
+       ANOTHER table's cell (confirmed with get_text("dict") + get_drawings()
+       measurements: a "padded" nested badge's background rect came out
+       pixel-identical to its text's own bbox — zero effective padding on
+       every side, not just visually small). Width (the HTML attribute),
+       border, background, and text-align all still work fine nested —
+       it's specifically padding that's affected. Where a nested cell
+       needs visual inset, either fake it with literal `&nbsp;` characters
+       in the text content (the badge) or with an extra unlabelled spacer
+       <td> sized by width (the totals block's right edge) — see each of
+       those rules below for the actual workaround in place.
    Given all that, don't "simplify" this file by reintroducing var()/flex/
-   nth-child-width without re-verifying against a rendered, pixel-measured
-   PDF first — every one of those has silently produced a broken layout in
+   nth-child-width/em-letter-spacing/border-radius/nested-cell-padding
+   without re-verifying against a rendered, pixel-measured PDF first —
+   every one of those has silently produced a broken or no-op layout in
    this renderer before.
 
    The @font-face rules below (relative paths resolved against THIS file's
@@ -37,16 +73,42 @@
    is a single fixed light palette sized for A4 print, not a themed web page
    (see CLAUDE.md's receipt rework: PDF-only, no web link). Colour is
    reinforcement only: every status is spelled out as a WORD too, so the
-   badge still reads correctly printed in black and white. */
+   badge still reads correctly printed in black and white. Restraint over
+   decoration: ONE accent (burgundy — wordmark, the signature rule under it,
+   and the badge) plus greys everywhere else; Остаток additionally borrows
+   the badge's own partial/debt colour so the one figure that matters reads
+   at a glance, never a second, disagreeing colour system. */
 
 @font-face { font-family: "DejaVu Sans"; src: url("fonts/pdf/DejaVuSans.ttf"); }
 @font-face { font-family: "DejaVu Sans"; font-weight: bold; src: url("fonts/pdf/DejaVuSans-Bold.ttf"); }
 @font-face { font-family: "DejaVu Serif"; src: url("fonts/pdf/DejaVuSerif.ttf"); }
 @font-face { font-family: "DejaVu Serif"; font-weight: bold; src: url("fonts/pdf/DejaVuSerif-Bold.ttf"); }
 
+/* 20mm on every side is where CONTENT stops. The footer is a repeating
+   static frame (see @frame below), positioned separately — its own bottom
+   edge sits at the same 20mm-from-page-bottom line the other three margins
+   use, so nothing on the page ever comes closer to an edge than 20mm. The
+   extra bottom margin here (38mm, not 20mm) is what reserves room for that
+   frame + a visible gap, so body content can never run into it. */
+/* @frame MUST be nested INSIDE @page's braces, not a sibling rule after
+   it — confirmed empirically. xhtml2pdf builds each page's real Frame
+   objects (consuming every @frame parsed so far) at the point it finishes
+   parsing @page's own body; a @frame that comes AFTER @page in the
+   stylesheet is parsed too late, so its content silently falls back to
+   normal in-flow rendering (which is exactly what happened here first —
+   the footer floated wherever the last item row ended, not the bottom of
+   the page). */
 @page {
   size: A4;
-  margin: 20mm 16mm;
+  margin: 20mm 20mm 38mm 20mm;
+
+  @frame receipt_footer {
+    -pdf-frame-content: receipt_footer_content;
+    left: 20mm;
+    right: 20mm;
+    bottom: 20mm;
+    height: 14mm;
+  }
 }
 
 body {
@@ -65,15 +127,23 @@ body {
   border-collapse: collapse;
 }
 
+/* No `border: none` reset here on purpose — `.receipt__header td` (a class
+   + element selector) would outrank `.receipt__badge`'s own border (a
+   single class) on CSS specificity alone and silently strip it, since the
+   badge's <td> is a DESCENDANT of this one (nested nested table). There is
+   no default td border in this renderer to reset in the first place. */
 .receipt__header td {
   padding: 0;
-  border: none;
   vertical-align: middle;
 }
 
+/* The only serif on the page — everything else is DejaVu Sans. 26pt with
+   0.08em letter-spacing (26pt * 0.08 = 2.08pt, see the top comment on why
+   this can't just be written "0.08em"). */
 .receipt__wordmark {
   font-family: "DejaVu Serif", serif;
-  font-size: 22pt;
+  font-size: 26pt;
+  letter-spacing: 2.1pt;
   color: #8C2F44;
 }
 
@@ -81,63 +151,112 @@ body {
   text-align: right;
 }
 
-/* A pill needs real box-model support (border/background/padding), which
+/* A pill needs real box-model support (border/background), which
    xhtml2pdf only gives block-level elements / table cells — never a plain
    inline <span> (verified: background shows as a text highlight only,
-   border and padding are silently dropped). This one-cell table is what
-   actually renders as a filled, bordered pill. */
+   border is silently dropped). This one-cell table is what actually
+   renders as a filled, bordered pill — AUTO width (no width attribute set
+   here), so it hugs its one-word content instead of stretching to fill
+   the row.
+
+   NO padding here — it's nested inside .receipt__header's <td>, where
+   padding on a <td> is silently dropped entirely (see the top comment).
+   The horizontal inset is literal `&nbsp;` characters padding the word
+   itself in the template; the vertical inset is this rule's own
+   line-height, wider than the text needs, since line-height (unlike
+   padding) still applies normally when nested. */
 .receipt__badge-table {
   border-collapse: collapse;
 }
 
 .receipt__badge {
-  padding: 6px 14px;
   border: 1pt solid;
   font-weight: bold;
-  font-size: 9pt;
+  font-size: 8.5pt;
+  line-height: 2.2;
   text-align: center;
+  white-space: nowrap;
 }
 .receipt__badge--paid { color: #1F7A46; background-color: #E8F4EC; border-color: #1F7A46; }
 .receipt__badge--partial { color: #9A6B00; background-color: #FCF3DC; border-color: #9A6B00; }
 .receipt__badge--debt { color: #B3271F; background-color: #FAE9E8; border-color: #B3271F; }
 
-.receipt__meta {
-  margin: 10px 0 0;
-  color: #5B6670;
-  font-size: 9.5pt;
+/* --- signature mark: a short burgundy rule under the wordmark ---------- */
+/* Sized via the HTML width= attribute (24% of the 170mm content box ==
+   ~40mm — see the top comment on why this can't be plain CSS width), not
+   an <hr>: xhtml2pdf never gives a bare block element a background/border
+   box reliably, but a table cell always does (same trick as the badge). */
+.receipt__signature {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+}
+/* No `border: none` reset here either — same specificity trap as the
+   header comment above (this rule would outrank .receipt__signature-bar's
+   own border-top and silently strip it). */
+.receipt__signature td {
+  padding: 0;
+}
+.receipt__signature-bar {
+  border-top: 1.5pt solid #8C2F44;
+  font-size: 1px;
+  line-height: 1px;
 }
 
-.receipt__rule {
-  margin: 14px 0;
-  border: none;
-  border-top: 1pt solid #E3E6E9;
+.receipt__meta {
+  margin: 16px 0 0;
+  color: #5B6670;
+  font-size: 9pt;
+  letter-spacing: 0.3pt;
 }
 
 /* --- items table -------------------------------------------------------- */
 .receipt__table {
   width: 100%;
   border-collapse: collapse;
+  margin-top: 18px;
 }
 
 .receipt__table th,
 .receipt__table td {
-  padding: 8px 8px 8px 0;
+  padding: 10px 8px 10px 0;
   text-align: left;
   vertical-align: top;
+}
+
+/* Exactly one hairline in the whole item table — under the header row.
+   Every other line (a border-bottom on every <td>) has been removed on
+   purpose: generous row padding is what separates rows now, not a ruled
+   grid — see the file's restraint/whitespace note at the top. */
+.receipt__table thead th {
   border-bottom: 0.5pt solid #E3E6E9;
 }
 
 /* Header text is hardcoded UPPERCASE in the template, not text-transform —
-   that CSS property is a no-op in xhtml2pdf. */
+   that CSS property is a no-op in xhtml2pdf. 8pt / 0.1em letter-spacing
+   (8pt * 0.1 = 0.8pt) / muted grey / NOT bold, NOT black — a quiet label,
+   never competing with the data beneath it. */
 .receipt__table th {
-  font-size: 7.5pt;
-  font-weight: bold;
+  font-size: 8pt;
+  font-weight: normal;
   color: #5B6670;
-  letter-spacing: 0.5pt;
+  letter-spacing: 0.8pt;
 }
 
 .receipt__table .num {
   text-align: right;
+}
+
+/* Category: its own muted, smaller line above the product name — secondary
+   information, never competing with the product name for attention. */
+.receipt__cat {
+  color: #5B6670;
+  font-size: 8pt;
+}
+
+.receipt__name {
+  font-size: 11pt;
+  font-weight: normal;
 }
 
 .receipt__empty {
@@ -146,37 +265,107 @@ body {
   padding: 16px 0;
 }
 
-/* --- totals: one thin rule above ИТОГО, everything else quiet ---------- */
+/* --- totals -------------------------------------------------------------- */
+/* The whole block (Сумма..Остаток) is wrapped in a ONE-CELL outer table in
+   the template (.receipt__totals-wrap) — reportlab's Table flowable splits
+   BETWEEN rows by default when a table doesn't fully fit in the remaining
+   page space, which is exactly what orphaned ИТОГО onto its own page 2
+   while Сумма/Скидка stayed on page 1 in testing. A table with exactly one
+   row has no row boundary to split at, so it moves to the next page WHOLE
+   instead — same "wrap it in a one-cell table for different box behaviour"
+   trick as the badge/signature bar, applied for pagination instead of
+   border/background this time. */
+.receipt__totals-wrap {
+  width: 100%;
+  border-collapse: collapse;
+}
+.receipt__totals-wrap td {
+  padding: 0;
+}
+
+/* Сумма -> Скидка (optional) -> ИТОГО -> Оплачено/Остаток (optional).
+   THREE columns, not two: label (80.5%), money (17% — the SAME width as
+   the item table's own Сумма column), and a final unlabelled 2.5% spacer.
+   That spacer is what makes this block's right edge land on the item
+   table's own Сумма right edge — real padding would do this more simply,
+   but padding is silently dropped on a <td> this deep in nested tables
+   (see the top comment), so the inset has to come from width instead:
+   measured (pymupdf word bounding boxes) that the item table's own 8px
+   cell padding puts its Сумма text ~12pt short of the true page margin —
+   12pt / 481.9pt content width ≈ 2.5%, hence the spacer's size. */
 .receipt__summary {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .receipt__summary td {
-  padding: 3px 0;
-  border: none;
+  padding: 0;
 }
 
 .receipt__summary .num {
   text-align: right;
 }
 
+/* Скидка: muted, signed with a real minus (see the template), never bold —
+   a plain line item, not something still needing to be worked out. */
+.receipt__line--discount td {
+  color: #5B6670;
+}
+
+/* ИТОГО: one hairline above (muted grey, NOT the burgundy accent or a
+   heavy black bar — the accent is spent on the wordmark/signature/badge
+   already), bold, and the largest number on the page — the one that
+   matters. No padding-top for the usual reason (nested <td>) — the larger
+   font-size (13pt vs the 10.5pt body) is what gives this row its own extra
+   breathing room above and below, via line-height alone. */
 .receipt__total td {
-  padding-top: 10px;
-  border-top: 1pt solid #14181C;
+  border-top: 0.5pt solid #E3E6E9;
   font-weight: bold;
-  font-size: 11.5pt;
+  font-size: 13pt;
 }
 
-.receipt__line--debt td {
-  color: #B3271F;
-  font-weight: bold;
+.receipt__qty-note {
+  font-weight: normal;
+  font-size: 8pt;
+  color: #5B6670;
 }
 
-.receipt__footer {
-  margin-top: 22px;
+.receipt__line--balance td {
+  font-weight: bold;
+}
+.receipt__line--balance--partial td { color: #9A6B00; }
+.receipt__line--balance--unpaid td { color: #B3271F; }
+
+/* --- footer: pinned to the bottom of every page (see @frame above) ----- */
+/* A one-cell table, not <hr> — confirmed empirically that <hr> in this
+   renderer (pisaTagHR) reads its colour/thickness from HTML `color`/`size`
+   ATTRIBUTES, never from CSS `border-*` at all, so CSS-styling an <hr>
+   here would silently do nothing (same "real box needs a table cell"
+   rule as the badge and signature bar above, for a different reason). */
+.receipt__footer-rule {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 8px;
+}
+.receipt__footer-rule td {
+  padding: 0;
+  border-top: 0.5pt solid #E3E6E9;
+  font-size: 1px;
+  line-height: 1px;
+}
+
+.receipt__footer-brand {
+  margin: 0;
   text-align: center;
   color: #5B6670;
-  font-size: 8.5pt;
+  font-size: 9pt;
+  letter-spacing: 1.5pt;
+}
+
+.receipt__footer-contact {
+  margin: 3px 0 0;
+  text-align: center;
+  color: #5B6670;
+  font-size: 8pt;
 }

@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -6,6 +8,8 @@ from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
 from apps.core.currency import CURRENCY_CHOICES
+
+logger = logging.getLogger(__name__)
 
 # Movement-type groupings, at module level so the model's CheckConstraints (in a
 # nested Meta, which can't see class-body names) share the same source of truth
@@ -62,6 +66,63 @@ class Product(models.Model):
         return cover.thumbnail or cover.image
 
 
+# A modern phone photo is 2-8MB; 15MB leaves headroom without accepting an
+# arbitrarily large upload. Checked BEFORE Pillow touches the file (see
+# validate_product_image) — cheap, byte-length only.
+PRODUCT_IMAGE_MAX_BYTES = 15 * 1024 * 1024
+# Per side. Generous for any real camera photo (a 48MP phone photo is at most
+# ~8000px on its long side) — this exists to reject a crafted/absurd image
+# (a 20000×20000 PNG is tiny on disk but a huge pixel buffer once decoded)
+# BEFORE Pillow decodes it, not to constrain legitimate photos.
+PRODUCT_IMAGE_MAX_DIMENSION = 8000
+
+
+def validate_product_image(file) -> None:
+    """Runs as an ImageField validator — during form/full_clean validation,
+    BEFORE the model is saved, so a rejected file never reaches disk or
+    ProductImage._make_thumbnail (which forces a full decode via
+    .convert("RGB")). Checks size first (a free byte-length check, no Pillow
+    involved), then opens the file ONLY far enough to read its header
+    (Image.open() does not decode pixel data — that happens on .load()/
+    .convert()/.thumbnail(), none of which run here), so a hostile or
+    malformed file never gets fully decoded just to be told no.
+
+    Deliberately not just re-using Pillow's own DecompressionBombError as
+    the only safety net: that guard exists (Image.MAX_IMAGE_PIXELS, ~89M
+    px) and stays as defense in depth, but relying on it alone means (a) the
+    error message Django's own ImageField shows is the generic, WRONG
+    "corrupted file" text — a manager can't tell "resize this" from "this
+    file is actually broken" — and (b) it's a third-party default, not a
+    number this app has decided on and could tune."""
+    if file.size > PRODUCT_IMAGE_MAX_BYTES:
+        raise ValidationError(
+            _("Файл слишком большой (%(mb).1f МБ) — максимум %(max)d МБ.")
+            % {"mb": file.size / 1024 / 1024, "max": PRODUCT_IMAGE_MAX_BYTES // 1024 // 1024}
+        )
+    from PIL import Image
+    from PIL import UnidentifiedImageError
+
+    try:
+        file.seek(0)
+        with Image.open(file) as img:
+            width, height = img.size
+    except Image.DecompressionBombError:
+        raise ValidationError(
+            _("Изображение слишком большое по размеру (%(max)d×%(max)d макс.).")
+            % {"max": PRODUCT_IMAGE_MAX_DIMENSION}
+        ) from None
+    except (UnidentifiedImageError, OSError):
+        raise ValidationError(_("Файл повреждён или не является изображением.")) from None
+    finally:
+        file.seek(0)
+
+    if width > PRODUCT_IMAGE_MAX_DIMENSION or height > PRODUCT_IMAGE_MAX_DIMENSION:
+        raise ValidationError(
+            _("Изображение слишком большое по размеру (%(w)d×%(h)d, максимум %(max)d×%(max)d).")
+            % {"w": width, "h": height, "max": PRODUCT_IMAGE_MAX_DIMENSION}
+        )
+
+
 class ProductImage(models.Model):
     """One photo in a product's gallery — a product can have as many as a
     manager wants (CLAUDE.md previously only allowed one; this is the fix).
@@ -80,7 +141,9 @@ class ProductImage(models.Model):
     product = models.ForeignKey(
         Product, verbose_name=_("product"), on_delete=models.CASCADE, related_name="images"
     )
-    image = models.ImageField(_("image"), upload_to="products/")
+    image = models.ImageField(
+        _("image"), upload_to="products/", validators=[validate_product_image]
+    )
     # A ~400px JPEG derived from `image` on save — a grid tile ships this, not
     # the original (a 4MB phone photo × dozens of tiles would wreck load time).
     thumbnail = models.ImageField(
@@ -105,8 +168,23 @@ class ProductImage(models.Model):
         super().save(*args, **kwargs)  # write the image to disk first (need a pk for the filename)
         current = self.image.name if self.image else None
         if current != self._orig_image_name or not self.thumbnail:
-            self._make_thumbnail()
-            super().save(update_fields=["thumbnail"])
+            # A thumbnail failure must never lose the upload that's already
+            # on disk with a real row — validate_product_image already
+            # rejected anything implausible before this ever runs, so a
+            # failure here means something genuinely unexpected (a corrupt
+            # write, an out-of-memory blip). Product.grid_image already
+            # falls back to the original (`cover.thumbnail or cover.image`)
+            # when thumbnail is empty, so leaving it unset is a safe,
+            # visible-in-logs degradation, not a silent one.
+            try:
+                self._make_thumbnail()
+                super().save(update_fields=["thumbnail"])
+            except Exception:
+                logger.exception(
+                    "Thumbnail generation failed for ProductImage %s — image saved, "
+                    "thumbnail left empty (grid_image falls back to the original).",
+                    self.pk,
+                )
         self._orig_image_name = current
 
     def _make_thumbnail(self):
@@ -149,7 +227,14 @@ class ProductVariant(models.Model):
         ordering = ["product__name", "size", "color"]
 
     def __str__(self):
-        parts = [self.product.name, self.size, self.color]
+        # Category FIRST — products in different categories can share a name,
+        # so the bare product name alone is ambiguous everywhere this is
+        # shown (cart lines, order lists, dashboard panels, admin
+        # autocomplete...). Category is a required FK (never null), so no
+        # guard needed there — callers that loop over many variants must
+        # select_related("product__category") to keep this a JOIN, not an
+        # N+1 (see query-budget tests in tests/test_flows.py).
+        parts = [self.product.category.name, self.product.name, self.size, self.color]
         return " / ".join(p for p in parts if p)
 
     @property

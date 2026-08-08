@@ -1,6 +1,7 @@
 {% load i18n pos_extras %}
 <div class="card">
- <h2>{{ product.name }}</h2>
+ <p class="hint" style="margin:0">{{ product.category.name }}</p>
+ <h2 style="margin-top:2px">{{ product.name }}</h2>
  <form hx-post="{% url 'pos:item_add_new' %}" hx-target="#variant-picker" hx-swap="innerHTML">
   <label>{% trans "Вариант" %}</label>
   <select name="variant_id" id="variant-select" required>

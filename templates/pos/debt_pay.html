@@ -23,6 +23,7 @@
  <table class="table" style="margin-top:var(--space-3)">
   <thead>
    <tr>
+    <th>{% trans "Категория" %}</th>
     <th>{% trans "Товар" %}</th>
     <th>{% trans "Размер" %}</th>
     <th>{% trans "Цвет" %}</th>
@@ -33,6 +34,7 @@
   <tbody>
    {% for item in order_items %}
    <tr>
+    <td class="muted">{{ item.variant.product.category.name }}</td>
     <td>{{ item.variant.product.name }}</td>
     <td>{{ item.variant.size }}</td>
     <td>{{ item.variant.color }}</td>

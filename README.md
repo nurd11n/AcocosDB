@@ -197,6 +197,96 @@ decrypt, checksum, restore to a scratch DB, assert row counts — and only
 starts the automated 6-hourly loop at the very end. A backup nobody has
 restored is not a backup.
 
+**13. Application-layer hardening.** Go through the **Application-layer
+hardening** section below — install fail2ban and confirm the SSH jail is
+active. Django-side rate limiting and Caddy hardening are already live the
+moment the stack is up (no extra step); this is the one piece that needs a
+manual install on the host.
+
+## Application-layer hardening
+
+The network layer (UFW, Caddy TLS) only stops what arrives outside HTTPS.
+Everything below protects against abuse that arrives over legitimate HTTPS —
+credential stuffing, scraping, probe scans, slow-loris connections.
+
+**Rate limiting** (`apps.core.ratelimit`, cache-backed, per real client IP —
+`X-Real-IP`, which Caddy sets unspoofably in `docker/Caddyfile`; never
+`X-Forwarded-For`, whose leftmost hop the client controls). Limits: login 30
+POSTs/IP/5min (on top of django-axes' own 5-fails-per-*account* lockout — axes
+blocks the account, this blocks the flood from one source), receipt download
+120/IP/5min, dashboard/storage report export 10/IP/5min, search/autocomplete
+300/IP/min. Every limited endpoint returns 429 with a plain-Russian page
+(`templates/errors/429.html`), never a stack trace. **Fails closed**: if the
+cache backend is unreachable, a rate-limited endpoint returns 503
+(`templates/errors/503.html`) instead of silently allowing unlimited
+requests — verified with a real write-then-read probe each time
+(`apps.core.ratelimit.cache_is_available`), not a try/except around the
+normal read (a plain `cache.get()` miss and a dead Redis look identical
+otherwise). The WhatsApp webhook (`apps/wa/views.py`) uses the same
+fail-closed helper.
+
+**Caddy-level hardening** (`docker/Caddyfile`): request bodies capped at
+200MB (well above the real bulk-photo-upload need — `PRODUCT_IMAGE_MAX_BYTES`
+× a dozen-plus files — but nowhere near unlimited); common scanner probe
+paths (`/wp-admin`, `/.env`, `/.git`, `/phpmyadmin`, `/vendor`, etc.) get an
+immediate 404 with no Django involvement and no log noise (`log_skip`); the
+upstream `Server` header is stripped from every response; global
+`read_body`/`read_header`/`write`/`idle` timeouts bound how long a
+slow-loris-style connection can occupy a worker. The site's JSON access log
+writes to `/var/log/caddy/access.log` inside the container, bind-mounted to
+`./caddy_logs/access.log` on the host (`docker-compose.prod.yml`) so
+fail2ban — which runs on the host, not in a container — can tail it.
+
+**fail2ban on the VPS** — bans an IP at the firewall after repeated
+401/403/429 responses (20 hits in 10 minutes → 1 hour ban):
+```bash
+sudo apt install fail2ban
+# Copy the filter as-is:
+sudo cp docker/fail2ban/caddy-abuse.conf /etc/fail2ban/filter.d/caddy-abuse.conf
+# Copy the jail fragment, then fix the logpath to your real deploy path:
+sudo cp docker/fail2ban/caddy-abuse.jail.conf /etc/fail2ban/jail.d/caddy-abuse.local
+sudo sed -i "s#/path/to/acocosDB#$(pwd)#" /etc/fail2ban/jail.d/caddy-abuse.local
+sudo systemctl restart fail2ban
+sudo fail2ban-client status caddy-abuse   # "Currently banned: 0" confirms the jail loaded
+```
+Confirm the SSH jail (fail2ban's default `[sshd]`) is active too — it's easy
+to assume it's on and never check:
+```bash
+sudo fail2ban-client status sshd
+# If it errors "Sorry but the jail 'sshd' does not exist", enable it:
+#   sudo tee /etc/fail2ban/jail.d/sshd.local <<'EOF'
+#   [sshd]
+#   enabled = true
+#   EOF
+#   sudo systemctl restart fail2ban
+```
+**If you (or she) lock yourselves out**, unban from any still-open session
+(console access via the VPS provider's dashboard if SSH itself is banned):
+```bash
+sudo fail2ban-client set sshd unbanip <IP>
+sudo fail2ban-client set caddy-abuse unbanip <IP>
+```
+
+**Monitoring** — every auth failure, 403, 429, and receipt download is
+logged with IP + timestamp (`apps.core.signals`, `apps.core.middleware.
+SecurityEventLoggingMiddleware`, `apps.core.ratelimit`) and, except receipt
+access, written to `SecurityEvent` (Owner-only, read-only at
+`/panel/core/securityevent/`). `manage.py send_security_digest` runs daily
+alongside the daily report (`REPORT_HOUR`, `scheduler.py`) and Telegrams the
+Owner **only** when today's counts exceed a threshold (>50 failed logins or
+>10 distinct rate-limited IPs) — silent on a normal day, on purpose: an alert
+that fires daily gets muted, and then the day it actually matters gets muted
+right along with it.
+
+A rate-limit block records **one** `SecurityEvent` per IP per 5 minutes, not
+one per blocked request: the digest counts distinct IPs, and writing a row
+per request meant a flood the limiter had already rejected still cost one
+INSERT each into the same database that holds sales and debts — the defence
+amplifying DB load under attack instead of shedding it. `manage.py
+purge_security_events` then ages the table out at 90 days, nightly from
+`scheduler.py` right after the digest, so an abuse log written by traffic the
+shop doesn't control can never grow without bound next to the business data.
+
 ## Feature flags
 
 Bots are not production-ready — `BOTS_ENABLED`, `WHATSAPP_ENABLED`, and

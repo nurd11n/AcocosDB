@@ -112,7 +112,7 @@ def low_stock_variants():
     regardless of catalog size (the old Python loop was one query per variant)."""
     return list(
         ProductVariant.objects.filter(is_active=True)
-        .select_related("product")
+        .select_related("product__category")
         .annotate(_stock=Coalesce(Sum("movements__quantity"), 0))
         .filter(_stock__lte=F("low_stock_threshold"))
         .order_by("product__name", "size", "color")
@@ -123,7 +123,7 @@ def variants_with_stock():
     """Every active variant with stock annotated in SQL — used by the daily report."""
     return (
         ProductVariant.objects.filter(is_active=True)
-        .select_related("product")
+        .select_related("product__category")
         .annotate(_stock=Sum("movements__quantity"))
         .order_by("product__name", "size", "color")
     )

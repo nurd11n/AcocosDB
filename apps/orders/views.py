@@ -234,6 +234,7 @@ def _build_grid_tiles(q: str) -> list[dict]:
             {
                 "product_id": p.pk,
                 "name": p.name,
+                "category": p.category.name,
                 "image_url": image.url if image else "",
                 "stock": stock.get(p.pk, 0),
                 "price": price,
@@ -260,7 +261,7 @@ def product_grid(request, pk):
 @require_can_sell
 def variant_picker(request, pk, product_id):
     order = get_object_or_404(Order, pk=pk)
-    product = get_object_or_404(Product, pk=product_id)
+    product = get_object_or_404(Product.objects.select_related("category"), pk=product_id)
     variants = product.variants.filter(is_active=True).annotate(
         stock_qty=Sum("movements__quantity")
     )
