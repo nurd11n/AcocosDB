@@ -28,8 +28,11 @@ from django.contrib.auth.signals import user_login_failed
 from django.contrib.auth.views import LoginView
 from django.http import HttpResponseRedirect
 from django.urls import reverse
+from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 from django_otp.forms import OTPAuthenticationForm
+
+from apps.core.ratelimit import rate_limit
 
 # One message for every kind of failure — revealing *which* factor was wrong
 # ("no such user", "wrong password", "wrong code") tells an attacker whether
@@ -103,7 +106,26 @@ class UnifiedAuthenticationForm(OTPAuthenticationForm):
             raise forms.ValidationError(GENERIC_LOGIN_ERROR_WITH_OTP, code="invalid") from exc
 
 
+@method_decorator(rate_limit("login", 30, 300), name="post")
 class UnifiedLoginView(LoginView):
+    """30 POSTs per IP per 5 minutes (apps.core.ratelimit), ON TOP OF
+    django-axes' own 5-failure-per-account lockout below — axes blocks by
+    ACCOUNT (a single username getting hammered), this blocks the FLOOD
+    (many usernames, or many attempts before axes' own count even matters)
+    from one source. GETs (just viewing the form) aren't limited, only
+    POSTs — the actual login attempt.
+
+    30, not the 10 originally specified, because every limit here is keyed on
+    the IP and ALL 2-4 staff share ONE office IP (mobile NAT or a single
+    router). With OTP on in production the code is submitted in the same POST
+    as the password, and TOTP codes roll every 30 seconds, so a mistimed code
+    is an ordinary daily event, not user error. Four people × two or three
+    attempts each on a normal morning is ~12 POSTs — over a limit of 10, which
+    would have locked the entire shop out of its own till for five minutes at
+    opening time. 30 still stops the thing this exists to stop: credential
+    stuffing arrives in the hundreds or thousands, nowhere near 30, and axes
+    independently locks any single account after 5 failures regardless."""
+
     template_name = "registration/login.html"
 
     @property

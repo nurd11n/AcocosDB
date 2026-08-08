@@ -8,7 +8,8 @@ Falls back to a normal POST + redirect when JS is unavailable (see
 apps.orders.views._after_mutation).
 {% endcomment %}
 <div class="card">
- <h2>{{ product.name }}</h2>
+ <p class="hint" style="margin:0">{{ product.category.name }}</p>
+ <h2 style="margin-top:2px">{{ product.name }}</h2>
  <form method="post" action="{% url 'orders:item_add' order.pk %}"
    hx-post="{% url 'orders:item_add' order.pk %}" hx-target="#order-body" hx-swap="innerHTML">
   {% csrf_token %}

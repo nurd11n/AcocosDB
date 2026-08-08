@@ -1,4 +1,54 @@
+# Global options — server-wide timeouts, applied before any site block.
+# These bound how long Caddy will wait on a connection: a slow-loris client
+# that opens a connection and trickles bytes in one at a time (or never
+# finishes sending headers/body) gets cut off instead of tying up a worker
+# indefinitely. `idle` also caps how long a kept-alive connection can sit
+# between requests.
+{
+	servers {
+		timeouts {
+			read_body 10s
+			read_header 5s
+			write 30s
+			idle 120s
+		}
+	}
+}
+
 {$DOMAIN} {
+	# Structured access log, tailable by fail2ban on the host (see the bind
+	# mount in docker-compose.prod.yml and README's "Application-layer
+	# hardening" section for the jail that reads it). Probe-path hits below
+	# are deliberately excluded via log_skip — that block's entire point is
+	# 404 with NO log noise, so the noise doesn't just move here.
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 20mb
+			roll_keep 10
+			roll_keep_for 720h
+		}
+	}
+
+	# Reject a request body bigger than the real multi-image bulk-upload need
+	# ever requires: PRODUCT_IMAGE_MAX_BYTES (15MB, apps/inventory/models.py)
+	# per file, well over a dozen photos in one batch, plus form overhead.
+	# Well short of "unlimited" so a single request can't be used to exhaust
+	# disk/memory on its own.
+	request_body {
+		max_size 200MB
+	}
+
+	# Common vulnerability-scanner probe paths — WordPress, raw dotfiles,
+	# phpMyAdmin, vendor dirs. This app is Django-only and serves none of
+	# these; answering instantly at the edge means Django, gunicorn, and the
+	# rate limiter never even see the request, and the noise never reaches
+	# apps.core.middleware.SecurityEventLoggingMiddleware or the access log.
+	@probes path /wp-admin* /wp-login* /.env* /.git* /phpmyadmin* /pma* /vendor* /xmlrpc.php /.aws* /.ssh* /config.php /wp-includes* /wp-content*
+	handle @probes {
+		log_skip
+		respond 404
+	}
+
 	# Uploaded product photos. Django only routes /media/ when DEBUG=True, so in
 	# production nothing served them and every photo 404'd. Caddy serves them
 	# straight off the shared volume — no gunicorn worker tied up per image, and
@@ -26,6 +76,10 @@
 		# it can't be spoofed (unlike X-Forwarded-For, whose leftmost entry the
 		# client controls — Caddy only appends the real IP to that one).
 		header_up X-Real-IP {remote_host}
+
+		# Never let the upstream (gunicorn) Server header reach the client —
+		# no free hint about the app server or its version.
+		header_down -Server
 	}
 	encode gzip
 }

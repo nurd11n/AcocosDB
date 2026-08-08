@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import admin, messages
@@ -19,6 +20,8 @@ from .resources import (
     StaffProductVariantResource,
 )
 from .services import add_movement, adjust_to_count
+
+logger = logging.getLogger(__name__)
 
 
 @admin.register(Category)
@@ -65,6 +68,15 @@ class VariantInline(admin.TabularInline):
         return fields
 
 
+def _next_image_position(product) -> int:
+    """One past this product's highest existing ProductImage position (0 if
+    it has none yet) — shared by save_formset (the single-file-per-row inline)
+    and bulk_image_upload_view (the real multi-file picker) so upload order
+    keeps meaning regardless of which path added a photo."""
+    highest = ProductImage.objects.filter(product=product).aggregate(m=Max("position"))["m"]
+    return 0 if highest is None else highest + 1
+
+
 @admin.register(Product)
 class ProductAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     list_display = ["name", "category", "current_stock", "is_active", "created_at"]
@@ -72,6 +84,7 @@ class ProductAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     search_fields = ["name"]
     inlines = [ProductImageInline, VariantInline]
     list_select_related = ["category"]
+    change_form_template = "admin/inventory/product_change_form.html"
 
     def get_queryset(self, request):
         # Stock per product = sum across its variants, annotated in SQL.
@@ -94,10 +107,7 @@ class ProductAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
             formset.save()
             return
         instances = formset.save(commit=False)
-        next_position = ProductImage.objects.filter(product=form.instance).aggregate(
-            m=Max("position")
-        )["m"]
-        next_position = 0 if next_position is None else next_position + 1
+        next_position = _next_image_position(form.instance)
         for obj in instances:
             if obj.pk is None:
                 obj.position = next_position
@@ -106,6 +116,93 @@ class ProductAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         for obj in formset.deleted_objects:
             obj.delete()
         formset.save_m2m()
+
+    # --- Bulk photo upload on the change page: a REAL multiple-file picker,
+    # unlike ProductImageInline above (one <input type="file"> per row, "Add
+    # another" per extra photo — the actual reason "uploading several images"
+    # failed: there was no way to select more than one file at a time). Each
+    # file is validated and saved independently so one bad file can't lose
+    # the rest of the batch, and every result — success or the specific
+    # Russian reason for failure — is reported back per filename. ---
+
+    def get_urls(self):
+        custom = [
+            path(
+                "<int:pk>/images/bulk-upload/",
+                self.admin_site.admin_view(self.bulk_image_upload_view),
+                name="inventory_product_images_bulk_upload",
+            ),
+        ]
+        return custom + super().get_urls()
+
+    def bulk_image_upload_view(self, request, pk):
+        from django.http import JsonResponse
+
+        product = self.get_object(request, pk)
+        if product is None:
+            raise Http404
+        if not self.has_change_permission(request, product):
+            raise PermissionDenied
+        if request.method != "POST":
+            raise Http404
+
+        files = request.FILES.getlist("images")
+        next_position = _next_image_position(product)
+        results = []
+        saved = 0
+        for f in files:
+            try:
+                # full_clean() runs the image field's validators (including
+                # validate_product_image — size + dimensions, rejected before
+                # ProductImage.save()'s thumbnail generation ever decodes the
+                # file) exactly once; no need to call it separately first.
+                img = ProductImage(product=product, image=f, position=next_position)
+                img.full_clean(exclude=["thumbnail"])
+                img.save()
+            except ValidationError as exc:
+                message = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+                results.append({"name": f.name, "ok": False, "error": message})
+            except Exception:
+                logger.exception(
+                    "Unexpected error saving uploaded image %r for product %s", f.name, pk
+                )
+                results.append(
+                    {"name": f.name, "ok": False, "error": str(_("Не удалось сохранить файл."))}
+                )
+            else:
+                next_position += 1
+                saved += 1
+                results.append({"name": f.name, "ok": True})
+
+        failed = [r for r in results if not r["ok"]]
+        if saved:
+            self.message_user(
+                request, _("Загружено фото: %(n)s.") % {"n": saved}, level=messages.SUCCESS
+            )
+        for r in failed:
+            self.message_user(
+                request,
+                _("«%(name)s» — %(error)s") % {"name": r["name"], "error": r["error"]},
+                level=messages.ERROR,
+            )
+        return JsonResponse({"results": results, "saved": saved, "failed": len(failed)})
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        product = self.get_object(request, object_id)
+        if product is not None:
+            from .models import PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_MAX_DIMENSION
+
+            extra_context.update(
+                {
+                    "bulk_upload_url": reverse(
+                        "admin:inventory_product_images_bulk_upload", args=[object_id]
+                    ),
+                    "bulk_upload_max_mb": PRODUCT_IMAGE_MAX_BYTES // 1024 // 1024,
+                    "bulk_upload_max_dimension": PRODUCT_IMAGE_MAX_DIMENSION,
+                }
+            )
+        return super().change_view(request, object_id, form_url, extra_context)
 
 
 def _parse_qty(raw: str) -> int | None:
@@ -122,6 +219,7 @@ class ProductVariantAdmin(
 ):
     list_display = [
         "sku",
+        "category",
         "product",
         "size",
         "color",
@@ -153,12 +251,16 @@ class ProductVariantAdmin(
 
     def get_queryset(self, request):
         # One query for the whole list page: join product, aggregate stock in SQL.
-        qs = super().get_queryset(request).select_related("product")
+        qs = super().get_queryset(request).select_related("product__category")
         return qs.annotate(_stock=Sum("movements__quantity"))
 
     @admin.display(description=_("stock"), ordering="_stock")
     def current_stock(self, obj):
         return obj._stock or 0
+
+    @admin.display(description=_("category"), ordering="product__category__name")
+    def category(self, obj):
+        return obj.product.category.name
 
     def get_list_display(self, request):
         cols = list(super().get_list_display(request))
@@ -302,7 +404,7 @@ class ProductVariantAdmin(
     # scenes via apps.inventory.services. ---
 
     def _intake_or_writeoff(self, request, queryset, movement_type, title, action_name):
-        variants = list(queryset.select_related("product"))
+        variants = list(queryset.select_related("product__category"))
         if request.POST.get("apply"):
             applied = 0
             for v in variants:
@@ -348,7 +450,7 @@ class ProductVariantAdmin(
 
     @admin.action(description=_("Recount (Пересчёт)"))
     def recount_selected(self, request, queryset):
-        variants = list(queryset.select_related("product"))
+        variants = list(queryset.select_related("product__category"))
         if request.POST.get("apply"):
             reason = request.POST.get("reason", "").strip()
             if not reason:

@@ -1,0 +1,9 @@
+{% extends "errors/base.html" %}
+{% load i18n %}
+{% block code %}429{% endblock %}
+{% block message %}{% trans "Слишком много запросов." %}{% endblock %}
+{% block extra %}
+<p class="muted" style="margin:0 0 var(--space-2)">
+  {% trans "Подождите немного и попробуйте снова." %}
+</p>
+{% endblock %}

@@ -3,6 +3,7 @@ swaps — no API layer, no JS framework. Every screen calls the existing
 apps/*/services.py functions; nothing here recomputes stock, money, or debt.
 """
 
+import logging
 import uuid
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import wraps
@@ -35,6 +36,7 @@ from apps.core.currency import (
     rate_info,
     to_base,
 )
+from apps.core.ratelimit import client_ip, rate_limit
 from apps.inventory.cache import catalog_version
 from apps.inventory.models import Product, ProductVariant, StockMovement
 from apps.sales.models import Payment, SaleItem, SaleOrder
@@ -54,6 +56,8 @@ from . import undo
 from .decorators import pos_view
 from .messaging import debt_reminder_text, receipt_share_text, wa_link
 from .receipts import receipt_context
+
+logger = logging.getLogger(__name__)
 
 RECENT_CLIENTS_LIMIT = 10
 PRODUCT_GRID_LIMIT = 24
@@ -293,7 +297,7 @@ def _sale_body_context(
     change_amount_override=None,
     change_adjust_reason="",
 ):
-    items = list(order.items.select_related("variant__product"))
+    items = list(order.items.select_related("variant__product__category"))
     total = sum((i.line_total for i in items), Decimal("0"))
     total_discount = sum((i.discount_amount for i in items), Decimal("0"))
     today = timezone.localdate()
@@ -714,6 +718,7 @@ def sale_new(request):
     return render(request, "pos/sale_new.html", {"active": "sale", "rates": _today_rates()})
 
 
+@rate_limit("search", 300, 60)
 @pos_view
 @require_can_sell
 def client_search_new(request):
@@ -748,6 +753,7 @@ def client_section_reset_new(request):
     return render(request, "pos/partials/client_section_new.html", {})
 
 
+@rate_limit("search", 300, 60)
 @pos_view
 @require_can_sell
 def product_grid_new(request):
@@ -772,7 +778,7 @@ def variant_picker_new(request, product_id):
     real yet), so available_qty is simply on_hand minus reserved."""
     from apps.inventory.services import reserved_by_variant
 
-    product = get_object_or_404(Product, pk=product_id)
+    product = get_object_or_404(Product.objects.select_related("category"), pk=product_id)
     variants = list(
         product.variants.filter(is_active=True).annotate(stock_qty=Sum("movements__quantity"))
     )
@@ -862,6 +868,7 @@ def sale_detail(request, pk):
 # ---- Client section (HTMX partials) ---------------------------------------
 
 
+@rate_limit("search", 300, 60)
 @pos_view
 @require_can_sell
 def client_search(request, pk):
@@ -1032,6 +1039,7 @@ def _build_grid_tiles(q: str) -> list[dict]:
             {
                 "product_id": p.pk,
                 "name": p.name,
+                "category": p.category.name,
                 "image_url": image.url if image else "",
                 "stock": stock,
                 "reserved": reserved,
@@ -1045,6 +1053,7 @@ def _build_grid_tiles(q: str) -> list[dict]:
     return tiles
 
 
+@rate_limit("search", 300, 60)
 @pos_view
 @require_can_sell
 def product_grid(request, pk):
@@ -1069,7 +1078,7 @@ def variant_picker(request, pk, product_id):
     from apps.inventory.services import reserved_by_variant
 
     order = _own_draft_or_404(request, pk)
-    product = get_object_or_404(Product, pk=product_id)
+    product = get_object_or_404(Product.objects.select_related("category"), pk=product_id)
     variants = list(
         product.variants.filter(is_active=True).annotate(stock_qty=Sum("movements__quantity"))
     )
@@ -1481,7 +1490,7 @@ def debt_pay_detail(request, pk):
     # Rendered once here (not inside _debt_pay_context, which recalc_url's
     # HTMX preview re-runs on every keystroke) since the item list never
     # changes while the payment form is being filled in.
-    context["order_items"] = order.items.select_related("variant__product").order_by(
+    context["order_items"] = order.items.select_related("variant__product__category").order_by(
         "variant__product__name", "variant__size", "variant__color"
     )
     context["can_resend_receipt"] = bool(
@@ -1715,7 +1724,7 @@ def sale_result(request, pk):
     order = get_object_or_404(SaleOrder, pk=pk)
     if order.status == SaleOrder.DRAFT:
         return redirect("pos:sale_detail", pk=order.pk)
-    items = list(order.items.select_related("variant__product"))
+    items = list(order.items.select_related("variant__product__category"))
     status = order.payment_status if order.status == SaleOrder.CONFIRMED else None
     payments = list(order.payments.order_by("-created_at")) if order.client_id else []
     return render(
@@ -1755,7 +1764,7 @@ def sale_return(request, pk):
     order = get_object_or_404(SaleOrder, pk=pk)
     if not _can_cancel(request.user, order):
         raise PermissionDenied
-    items = list(order.items.select_related("variant__product"))
+    items = list(order.items.select_related("variant__product__category"))
 
     if request.method == "POST":
         returns = {}
@@ -1780,6 +1789,7 @@ def sale_return(request, pk):
 # ---- Receipt PDF (read-only) + WhatsApp receipt/debt reminder (logged) -----
 
 
+@rate_limit("receipt", 120, 300)
 @pos_view
 def receipt_download(request, pk):
     """Streams the receipt PDF, generated fresh from the database on THIS
@@ -1789,10 +1799,24 @@ def receipt_download(request, pk):
     pure read — see the row-count test). Any authenticated staff who can view
     the sale can download its receipt: it carries no cost price or anything
     else a Viewer couldn't already see on this same sale's own page, so
-    there's no reason to scope it to "own sale" the way share_receipt is."""
+    there's no reason to scope it to "own sale" the way share_receipt is.
+
+    Access is LOGGED (IP + timestamp, via the logger only) for visibility —
+    deliberately NOT into SecurityEvent/the DB: this view's whole point is
+    being a pure read with zero writes (see the row-count test this
+    docstring already points at), and a security audit row on every
+    download would quietly break that guarantee for a feature the daily
+    digest doesn't even need DB-level counts for.
+
+    Rate limit 120 per IP per 5 minutes, not 30: the limit is keyed on IP and
+    all staff share one office IP, so the ceiling is the whole shop's combined
+    activity, not one person's. Re-printing a busy day's receipts in one go is
+    ordinary end-of-day work and would have tripped a limit of 30 mid-task.
+    120 still ends a scripted scrape of every sale long before it finishes."""
     if not request.user.has_perm("sales.view_saleorder"):
         raise PermissionDenied
     order = get_object_or_404(SaleOrder, pk=pk, status=SaleOrder.CONFIRMED)
+    logger.info("Receipt accessed: order=%s ip=%s user=%s", pk, client_ip(request), request.user)
     # A filesystem path, not a <style> block, so this template never trips
     # the CSP inline-style test — see receipt.css's own @font-face rules for
     # why the receipt needs its Cyrillic glyphs embedded at all.
@@ -1803,10 +1827,19 @@ def receipt_download(request, pk):
     buffer = BytesIO()
     pisa.CreatePDF(html, dest=buffer, encoding="utf-8")
     response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
-    # A fixed generic filename, not "receipt-{pk}.pdf" — that number would
-    # reveal the running order count the moment this file is shared (WhatsApp
-    # shows an attached file's name to its recipient).
-    response["Content-Disposition"] = 'attachment; filename="chek.pdf"'
+    # Sortable + searchable in any file manager: sale number, then ISO date.
+    # Latin "chek", not Cyrillic «чек» — a plain-ASCII filename needs no
+    # RFC 5987 filename* encoding at all, sidestepping the real, historical
+    # non-ASCII-filename quirks some Android/iOS in-app browsers and file
+    # viewers (WhatsApp's own included) have had; nothing here could actually
+    # be verified against a real device from this environment, so this is
+    # the option with the least room for a device-specific surprise. The
+    # order number is no longer hidden from the client (see receipt.html /
+    # CLAUDE.md's "a receipt without a number isn't a receipt"), so putting
+    # it in the filename too doesn't reopen anything that was deliberately hidden.
+    date_str = context["date"].strftime("%Y-%m-%d") if context["date"] else timezone.localdate().isoformat()
+    filename = f"ACOCOS-chek-{order.pk}-{date_str}.pdf"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
 
@@ -1983,7 +2016,7 @@ def client_detail(request, pk):
     debts, credits = client_debt_and_credit(client)
     orders = (
         client.sales.filter(status=SaleOrder.CONFIRMED)
-        .prefetch_related("payments", "items__variant__product")  # balance + item summary
+        .prefetch_related("payments", "items__variant__product__category")  # balance + item summary
         .order_by("-confirmed_at")[:20]
     )
     # Each sale carries its own outstanding balance, so the debt/history

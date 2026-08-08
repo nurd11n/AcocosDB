@@ -120,12 +120,17 @@ def thread(request, client_id):
     thread_messages = list(
         BotMessage.objects.filter(client=client).order_by("created_at")[:THREAD_LIMIT]
     )
-    order_requests = list(client.order_requests.order_by("-created_at")[:10])
+    order_requests = list(
+        client.order_requests.order_by("-created_at")
+        .prefetch_related("items__variant__product__category")[:10]
+    )
     open_orders = list(
         Order.objects.filter(client=client, status__in=Order.OPEN_STATUSES).order_by("due_date")
     )
     last_sale = client.sales.filter(status="confirmed").order_by("-confirmed_at").first()
-    favourites = list(Favourite.objects.filter(client=client).select_related("variant__product"))
+    favourites = list(
+        Favourite.objects.filter(client=client).select_related("variant__product__category")
+    )
 
     return render(
         request,

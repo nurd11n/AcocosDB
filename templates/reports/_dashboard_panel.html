@@ -265,7 +265,10 @@ visible at once.{% endcomment %}
      <td>
       <span class="pcell">
        {% if p.thumb %}<img class="thumb" src="{{ p.thumb }}" alt="" loading="lazy" width="38" height="38">{% else %}<span class="thumb thumb--empty"><svg class="ic"><use href="#i-units"/></svg></span>{% endif %}
-       <span class="pcell__name">{{ p.name }}</span>
+       <span class="pcell__text">
+        <span class="pcell__cat">{{ p.category }}</span>
+        <span class="pcell__name">{{ p.name }}</span>
+       </span>
       </span>
      </td>
      <td class="num">{{ p.units|grp }}</td>

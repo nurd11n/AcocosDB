@@ -12,6 +12,7 @@
       </svg>
     </div>
   {% endif %}
+  <div class="tile__cat">{{ tile.category }}</div>
   <div class="tile__name">{{ tile.name }}</div>
   {% if tile.price is not None %}
     <div class="tile__price num">{% if tile.price_varies %}{% trans "от" %} {% endif %}{{ tile.price|money:tile.currency }}</div>

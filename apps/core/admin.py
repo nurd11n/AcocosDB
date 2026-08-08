@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from .currency import CURRENCY_CODES
-from .models import BotMessage, BotUser, ExchangeRate, RateChangeLog
+from .models import BotMessage, BotUser, ExchangeRate, RateChangeLog, SecurityEvent
 
 
 class ExchangeRateForm(forms.ModelForm):
@@ -127,6 +127,34 @@ class BotMessageAdmin(admin.ModelAdmin):
     list_display = ["created_at", "channel", "direction", "external_id", "text"]
     list_filter = ["channel", "direction"]
     search_fields = ["external_id", "text"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(SecurityEvent)
+class SecurityEventAdmin(admin.ModelAdmin):
+    """Append-only abuse log — Owner-only, read-only, same discipline as
+    RateChangeLogAdmin above. apps.core.management.commands.send_security_digest
+    reads this same table for the daily Telegram summary; this is where the
+    Owner can browse the raw events any time, not just wait for a threshold."""
+
+    list_display = ["created_at", "event_type", "ip", "path", "username"]
+    list_filter = ["event_type"]
+    search_fields = ["ip", "path", "username"]
+    date_hierarchy = "created_at"
+
+    def has_module_permission(self, request):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_superuser
 
     def has_add_permission(self, request):
         return False

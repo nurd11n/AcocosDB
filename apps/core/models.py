@@ -150,3 +150,46 @@ class BotMessage(models.Model):
 
     def __str__(self):
         return f"{self.channel}/{self.direction} {self.external_id}: {self.text[:40]}"
+
+
+class SecurityEvent(models.Model):
+    """Append-only log of abuse-relevant events — a failed login, a 403, a
+    429 (rate limit tripped), or a receipt download — each with the real
+    client IP (apps.core.ratelimit.client_ip) and a timestamp, so "what's
+    hitting us" is queryable rather than only visible by grepping server
+    logs (which are ALSO written for each of these, via logger calls
+    alongside every place that creates one of these rows — this table exists
+    for apps.core.management.commands.send_security_digest's daily counts,
+    not as a replacement for the log line).
+
+    Never editable, never deleted by hand — same discipline as StockMovement:
+    a security audit trail that could be quietly edited isn't one."""
+
+    AUTH_FAILURE = "auth_failure"
+    FORBIDDEN = "forbidden"
+    RATE_LIMITED = "rate_limited"
+    RECEIPT_ACCESS = "receipt_access"
+    EVENT_CHOICES = [
+        (AUTH_FAILURE, _("Failed login")),
+        (FORBIDDEN, _("Forbidden (403)")),
+        (RATE_LIMITED, _("Rate limited (429)")),
+        (RECEIPT_ACCESS, _("Receipt accessed")),
+    ]
+
+    event_type = models.CharField(_("type"), max_length=20, choices=EVENT_CHOICES)
+    ip = models.GenericIPAddressField(_("IP address"))
+    path = models.CharField(_("path"), max_length=255, blank=True)
+    username = models.CharField(_("username"), max_length=150, blank=True)
+    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("security event")
+        verbose_name_plural = _("security events")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["event_type", "created_at"]),
+            models.Index(fields=["ip", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_event_type_display()} · {self.ip} · {self.created_at:%Y-%m-%d %H:%M}"

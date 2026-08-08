@@ -1,0 +1,120 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% comment %}
+Bulk photo upload panel, rendered after the main form so this form isn't
+nested inside it (same reason variant_change_form.html's stock panel sits
+below block.super, not inside {% block field_sets %}). This is the actual
+fix for "multiple image upload fails": ProductImageInline above gives you
+ONE <input type="file"> per row (add-another per extra photo, no way to
+select several at once) — this panel is a real multi-file picker.
+{% endcomment %}
+{% block content %}
+{{ block.super }}
+
+{% if bulk_upload_url %}
+<div class="card card-outline card-primary mt-3" id="bulk-photo-panel">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="fas fa-images" style="margin-right:8px"></i>{% trans "Загрузить несколько фото" %}</h3>
+  </div>
+  <div class="card-body">
+    <p class="text-muted" style="font-size:12px">
+      {% blocktrans %}Можно выбрать сразу несколько файлов. Каждый файл максимум {{ bulk_upload_max_mb }} МБ, размер до {{ bulk_upload_max_dimension }}×{{ bulk_upload_max_dimension }} px.{% endblocktrans %}
+    </p>
+    <div class="form-inline mb-2">
+      <input type="file" id="bulk-photo-input" accept="image/*" multiple
+             class="form-control form-control-sm" style="max-width:420px">
+      <button type="button" id="bulk-photo-submit" class="btn btn-sm btn-primary ml-2" disabled>
+        {% trans "Загрузить" %}
+      </button>
+    </div>
+    <div id="bulk-photo-progress-wrap" class="progress mb-2" style="height:8px;display:none;max-width:420px">
+      <div id="bulk-photo-progress-bar" class="progress-bar" role="progressbar" style="width:0%"></div>
+    </div>
+    <ul id="bulk-photo-results" class="list-unstyled mb-0" style="font-size:13px"></ul>
+  </div>
+</div>
+
+<script>
+(function () {
+  var input = document.getElementById("bulk-photo-input");
+  var submitBtn = document.getElementById("bulk-photo-submit");
+  var progressWrap = document.getElementById("bulk-photo-progress-wrap");
+  var progressBar = document.getElementById("bulk-photo-progress-bar");
+  var resultsList = document.getElementById("bulk-photo-results");
+  var uploadUrl = "{{ bulk_upload_url|escapejs }}";
+  // CSRF_COOKIE_HTTPONLY is on (config/settings/base.py) — JS can never read
+  // the cookie, by design. The token is injected server-side instead, same
+  // as templates/pos/base.html's hx-headers.
+  var csrfTokenValue = "{{ csrf_token|escapejs }}";
+
+  input.addEventListener("change", function () {
+    submitBtn.disabled = !input.files || input.files.length === 0;
+    resultsList.innerHTML = "";
+  });
+
+  submitBtn.addEventListener("click", function () {
+    if (!input.files || input.files.length === 0) return;
+    var formData = new FormData();
+    for (var i = 0; i < input.files.length; i++) {
+      formData.append("images", input.files[i]);
+    }
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", uploadUrl, true);
+    xhr.setRequestHeader("X-CSRFToken", csrfTokenValue);
+    xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+
+    submitBtn.disabled = true;
+    input.disabled = true;
+    progressWrap.style.display = "block";
+    progressBar.style.width = "0%";
+    resultsList.innerHTML = "";
+
+    xhr.upload.addEventListener("progress", function (e) {
+      if (e.lengthComputable) {
+        var pct = Math.round((e.loaded / e.total) * 100);
+        progressBar.style.width = pct + "%";
+      }
+    });
+
+    xhr.addEventListener("loadend", function () {
+      submitBtn.disabled = false;
+      input.disabled = false;
+      progressWrap.style.display = "none";
+      var data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (err) { data = null; }
+      resultsList.innerHTML = "";
+      if (!data) {
+        var li = document.createElement("li");
+        li.className = "text-danger";
+        li.textContent = "{% trans 'Загрузка не удалась — попробуйте ещё раз.' %}";
+        resultsList.appendChild(li);
+        return;
+      }
+      data.results.forEach(function (r) {
+        var li = document.createElement("li");
+        if (r.ok) {
+          li.className = "text-success";
+          li.innerHTML = '<i class="fas fa-check"></i> ' + r.name;
+        } else {
+          li.className = "text-danger";
+          li.innerHTML = '<i class="fas fa-times"></i> ' + r.name + ': ' + r.error;
+        }
+        resultsList.appendChild(li);
+      });
+      if (data.saved > 0) {
+        // Reload so the new photos show up in the gallery inline above —
+        // the results list stays on screen just long enough to read first.
+        setTimeout(function () { window.location.reload(); }, 900);
+      }
+      input.value = "";
+      submitBtn.disabled = true;
+    });
+
+    xhr.send(formData);
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

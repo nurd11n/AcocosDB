@@ -36,7 +36,7 @@ def stock_reply(query: str) -> str:
         ProductVariant.objects.filter(
             Q(sku__icontains=query) | Q(product__name__icontains=query), is_active=True
         )
-        .select_related("product")
+        .select_related("product__category")
         .annotate(_stock=Coalesce(Sum("movements__quantity"), 0))[:10]
     )
     if not variants:

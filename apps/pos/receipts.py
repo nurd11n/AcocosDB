@@ -28,9 +28,17 @@ def receipt_groups(order: SaleOrder) -> list[dict]:
     Two cart lines of the SAME variant (never merged at add-time) combine
     into one colour row here — quantity and money summed, the displayed unit
     price re-derived from that combined total, rather than showing two rows
-    for what the client experiences as one line of the same item."""
+    for what the client experiences as one line of the same item.
+
+    ЦЕНА/СУММА here are always the STICKER (pre-discount) price —
+    item.subtotal, never item.line_total. A discount is never shown per
+    line: it's called out exactly once, in aggregate, as the Скидка row in
+    the totals block (see receipt_context). This is what makes "Сумма row
+    == sticker × qty" true by construction — the totals block's Сумма is
+    just the sum of this same column, not a second, differently-derived
+    number that could quietly disagree with it."""
     items = list(
-        order.items.select_related("variant__product").order_by(
+        order.items.select_related("variant__product__category").order_by(
             "variant__product__name", "variant__size", "variant__color"
         )
     )
@@ -38,10 +46,10 @@ def receipt_groups(order: SaleOrder) -> list[dict]:
     for item in items:
         bucket = by_variant.setdefault(
             item.variant_id,
-            {"variant": item.variant, "quantity": 0, "line_total": Decimal("0")},
+            {"variant": item.variant, "quantity": 0, "subtotal": Decimal("0")},
         )
         bucket["quantity"] += item.quantity
-        bucket["line_total"] += item.line_total
+        bucket["subtotal"] += item.subtotal
 
     groups: OrderedDict[tuple, dict] = OrderedDict()
     for bucket in by_variant.values():
@@ -54,11 +62,11 @@ def receipt_groups(order: SaleOrder) -> list[dict]:
                 "size": variant.size,
                 "rows": [],
                 "quantity": 0,
-                "line_total": Decimal("0"),
+                "subtotal": Decimal("0"),
             },
         )
         unit_price = (
-            (bucket["line_total"] / bucket["quantity"]).quantize(Decimal("0.01"))
+            (bucket["subtotal"] / bucket["quantity"]).quantize(Decimal("0.01"))
             if bucket["quantity"]
             else Decimal("0")
         )
@@ -67,25 +75,34 @@ def receipt_groups(order: SaleOrder) -> list[dict]:
                 "color": variant.color,
                 "quantity": bucket["quantity"],
                 "unit_price": unit_price,
-                "line_total": bucket["line_total"],
+                "line_total": bucket["subtotal"],
             }
         )
         group["quantity"] += bucket["quantity"]
-        group["line_total"] += bucket["line_total"]
+        group["subtotal"] += bucket["subtotal"]
 
     return list(groups.values())
 
 
 def receipt_context(order: SaleOrder) -> dict:
     """Everything templates/receipts/receipt.html needs to render the PDF.
-    Скидка is OMITTED entirely (None) rather than shown as zero whenever it
-    doesn't apply. Оплачено/Остаток only render when the sale ISN'T fully
-    paid — a paid receipt shows just Итого, per the status badge already
-    saying everything else needed. `status` drives that badge: 'paid' /
-    'partial' / 'unpaid', the SAME classifier the rest of the app uses
+
+    Totals block, always in this order (never Итого-then-discount — that
+    reads as though the discount still needs subtracting):
+        Сумма    subtotal   sticker, pre-discount — sum of the item table's
+                            own Сумма column, so it can never disagree with
+                            what's printed above it.
+        Скидка   discount   OMITTED entirely (None) when there's no
+                            discount, rather than shown as zero.
+        ИТОГО    total_money   subtotal − discount, exactly (order.total).
+    Оплачено/Остаток only render when the sale ISN'T fully paid — a paid
+    receipt shows just Итого, per the status badge already saying
+    everything else needed. `status` drives that badge: 'paid' / 'partial'
+    / 'unpaid', the SAME classifier the rest of the app uses
     (SaleOrder.payment_status) — never a second definition of "paid" that
     could disagree with the POS screens showing this same sale."""
     groups = receipt_groups(order)
+    subtotal = sum((g["subtotal"] for g in groups), Decimal("0"))
     total_discount = sum((i.discount_amount for i in order.items.all()), Decimal("0"))
     return {
         "order": order,
@@ -96,6 +113,7 @@ def receipt_context(order: SaleOrder) -> dict:
         "client_name": order.client.first_name if order.client_id else "",
         "groups": groups,
         "total_quantity": sum(g["quantity"] for g in groups),
+        "subtotal": subtotal,
         "total_money": order.total,
         "currency": order.currency,
         "discount": total_discount if total_discount > 0 else None,

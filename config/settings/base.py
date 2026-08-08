@@ -178,6 +178,7 @@ MIDDLEWARE = [
     "simple_history.middleware.HistoryRequestMiddleware",
     "apps.core.errors.CorrelationIdMiddleware",  # logs unhandled exceptions with a cid
     "apps.core.middleware.RequestCounterMiddleware",
+    "apps.core.middleware.SecurityEventLoggingMiddleware",
     "axes.middleware.AxesMiddleware",  # must be last
 ]
 
@@ -395,6 +396,12 @@ CAMPAIGNS_ENABLED = env.bool("CAMPAIGNS_ENABLED", default=False)
 # public and must never be able to reach that data even by accident.
 TELEGRAM_STAFF_TOKEN = env("TELEGRAM_STAFF_TOKEN", default="")
 TELEGRAM_CLIENT_TOKEN = env("TELEGRAM_CLIENT_TOKEN", default="")
+# The Owner's Telegram chat id — already used by docker/restore_drill.sh (a
+# shell script, reads it straight from the environment) for the weekly
+# backup-restore drill result. apps.core.management.commands.
+# send_security_digest reuses this SAME setting/recipient rather than adding
+# a new one: same person, same "an ops alert only the Owner needs" purpose.
+DRILL_CHAT_ID = env("DRILL_CHAT_ID", default="")
 WHATSAPP_VERIFY_TOKEN = env("WHATSAPP_VERIFY_TOKEN", default="")
 WHATSAPP_TOKEN = env("WHATSAPP_TOKEN", default="")
 WHATSAPP_PHONE_NUMBER_ID = env("WHATSAPP_PHONE_NUMBER_ID", default="")
@@ -499,6 +506,7 @@ JAZZMIN_SETTINGS = {
         "core.BotUser": "fas fa-robot",
         "core.BotMessage": "fab fa-whatsapp",
         "core.ExchangeRate": "fas fa-money-bill-transfer",
+        "core.SecurityEvent": "fas fa-shield-alt",
     },
     "custom_links": {
         "core": [

@@ -132,7 +132,7 @@ def _variant_rows() -> list[dict]:
     queries total regardless of order count (lines + one stock aggregate)."""
     open_items = list(
         OrderItem.objects.filter(order__status__in=[Order.NEW, Order.IN_PRODUCTION]).select_related(
-            "order__client", "variant__product"
+            "order__client", "variant__product__category"
         )
     )
     if not open_items:
@@ -239,7 +239,7 @@ def _rollup_by_product(variant_rows: list[dict]) -> list[dict]:
                 "key": f"p{product.pk}",
                 "product": product,
                 "variant": None,
-                "label": product.name,
+                "label": f"{product.category.name} / {product.name}",
                 "ordered": 0,
                 "produced": 0,
                 "remaining": 0,
@@ -360,7 +360,7 @@ def order_line_progress(order: Order) -> list[dict]:
     queue's aggregate job (apps.orders.services.production_queue), and a
     second per-order allocation would double-count whenever two clients want
     the same SKU."""
-    items = list(order.items.select_related("variant__product"))
+    items = list(order.items.select_related("variant__product__category"))
     if not items:
         return []
 

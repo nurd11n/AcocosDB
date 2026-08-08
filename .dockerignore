@@ -1,5 +1,20 @@
+# docker/Dockerfile does `COPY . .`, so anything NOT listed here is baked into
+# the web/bot/scheduler image layers — permanently, and readable by anyone who
+# can pull, `docker save`, or exec into the image, even if the file is deleted
+# later. Secrets must therefore be excluded here as well as in .gitignore;
+# the two files are NOT interchangeable and drifting apart is easy to miss.
 .env
 .git
+
+# The age PRIVATE key — the single thing that can decrypt every backup. It
+# lives on the server at ./secrets/age_identity.txt because the weekly
+# restore-drill container needs it (mounted read-only, chmod 600 — see
+# README's backup setup). Without this line a `docker compose up -d --build`
+# on the server would copy it into the image, handing anyone who can read
+# that image both the encrypted dumps and the key that opens them, which is
+# exactly the separation the whole backup design exists to maintain.
+secrets/
+
 .venv/
 venv/
 __pycache__/
@@ -8,6 +23,9 @@ db.sqlite3
 media/
 staticfiles/
 backups/
+# Caddy's access log (bind-mounted from the host). Not secret, but it's
+# runtime data that would bloat every image build for no reason.
+caddy_logs/
 .pytest_cache/
 .ruff_cache/
 *.mo

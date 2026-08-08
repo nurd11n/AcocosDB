@@ -124,6 +124,11 @@ services:
       # Caddyfile). READ-ONLY on purpose: Caddy only ever needs to read these,
       # so a flaw here can't write into the volume the web container uploads to.
       - media:/srv/media:ro
+      # Access log (see the Caddyfile's `log` block), bind-mounted (not a
+      # named volume) so fail2ban — which runs on the HOST, not in a
+      # container — can tail it directly at ./caddy_logs/access.log. See
+      # README's "Application-layer hardening" section for the jail.
+      - ./caddy_logs:/var/log/caddy
 
   # Encrypted, checksummed backups every 6 hours, synced offsite to B2.
   backup:

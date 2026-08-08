@@ -10,6 +10,7 @@ import requests
 from django.contrib.admin.sites import site
 from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import RequestFactory
 from django.utils import timezone
@@ -29,7 +30,14 @@ from apps.core.management.commands.send_daily_report import (
 )
 from apps.core.models import ExchangeRate, RateChangeLog
 from apps.core.permissions import EDITOR, VIEWER
-from apps.inventory.models import Category, Product, ProductImage, ProductVariant, StockMovement
+from apps.inventory.models import (
+    PRODUCT_IMAGE_MAX_BYTES,
+    Category,
+    Product,
+    ProductImage,
+    ProductVariant,
+    StockMovement,
+)
 from apps.inventory.services import add_movement, adjust_to_count
 from apps.sales.models import Payment, SaleItem, SaleOrder
 from apps.sales.services import (
@@ -2160,7 +2168,14 @@ def test_receipt_context_shows_discount_only_when_present(variant):
     confirm_sale(order2)
     ctx = receipt_context(order2)
     assert ctx["discount"] == Decimal("200")
-    assert ctx["groups"][0]["rows"][0]["line_total"] == Decimal("3000")  # discounted
+    # Line rows always show the STICKER (pre-discount) price/total — the
+    # discount is called out exactly once, in aggregate, as the Скидка row
+    # in the totals block (see receipt_context's docstring). subtotal
+    # (Сумма) minus discount (Скидка) must equal total_money (ИТОГО)
+    # exactly, reconciling by construction.
+    assert ctx["groups"][0]["rows"][0]["line_total"] == Decimal("3200")  # sticker, undiscounted
+    assert ctx["subtotal"] == Decimal("3200")
+    assert ctx["subtotal"] - ctx["discount"] == ctx["total_money"] == Decimal("3000")
 
 
 # ---- Receipt format: grouped by product+size, colours nested; signed link -
@@ -2286,6 +2301,29 @@ def test_receipt_download_pdf_writes_no_db_rows(client, django_user_model, varia
     assert Client.objects.count() == client_before
 
 
+def test_receipt_download_filename_is_sortable_ascii_and_dated(client, django_user_model, variant):
+    """ACOCOS-chek-<pk>-<ISO date>.pdf — sorts chronologically in any file
+    manager, is searchable by sale number, and stays plain ASCII (Latin
+    "chek", not Cyrillic «чек») so it needs no RFC 5987 filename* encoding —
+    the one thing guaranteed to work identically on every client device."""
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    viewer = django_user_model.objects.create_user("rcpt_fn_viewer", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
+
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    resp = client.get(f"/pos/sale/{order.pk}/receipt/pdf/")
+    assert resp.status_code == 200
+    disposition = resp["Content-Disposition"]
+    today = timezone.localdate().isoformat()
+    assert disposition == f'attachment; filename="ACOCOS-chek-{order.pk}-{today}.pdf"'
+    disposition.encode("ascii")  # raises if anything non-ASCII slipped in
+
+
 def test_receipt_download_requires_a_real_permission(client, django_user_model, variant):
     """Downloading is authenticated now (the old surface was public-by-
     design token access) — a logged-in user with no sales.view_saleorder
@@ -2381,6 +2419,196 @@ def test_receipt_pdf_prints_a4_with_word_labelled_status_badges():
 
     css = (Path(settings.BASE_DIR) / "static" / "pos" / "receipt.css").read_text()
     assert "size: A4" in css
+
+
+def _render_receipt_pdf(order) -> bytes:
+    """Same path apps.pos.views.receipt_download uses, without the HTTP/
+    permission plumbing — for tests that need the REAL rendered PDF (word
+    positions, page count), not just the HTML/context."""
+    from io import BytesIO
+    from pathlib import Path
+
+    from django.conf import settings
+    from django.template.loader import render_to_string
+    from xhtml2pdf import pisa
+
+    from apps.pos.receipts import receipt_context
+
+    css_path = Path(settings.BASE_DIR) / "static" / "pos" / "receipt.css"
+    ctx = receipt_context(order)
+    ctx["receipt_css_path"] = str(css_path)
+    html = render_to_string("receipts/receipt.html", ctx)
+    buffer = BytesIO()
+    pisa.CreatePDF(html, dest=buffer, encoding="utf-8")
+    return buffer.getvalue()
+
+
+def test_receipt_totals_reconcile_exactly(variant):
+    """Сумма (sticker subtotal) minus Скидка must equal ИТОГО (order.total)
+    exactly, always — the arithmetic the redesigned totals block depends
+    on reading correctly at a glance (Сумма above, Скидка signed below it,
+    ИТОГО last and boldest — never Итого-then-discount, which used to read
+    as though the discount still needed subtracting)."""
+    from apps.pos.receipts import receipt_context
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(
+        order=order,
+        variant=variant,
+        quantity=3,
+        unit_price=Decimal("1550"),
+        discount_type=SaleItem.DISCOUNT_PERCENT,
+        discount_value=Decimal("10"),
+    )
+    confirm_sale(order)
+
+    ctx = receipt_context(order)
+    assert ctx["subtotal"] == Decimal("4650")  # 1550 * 3, sticker (pre-discount)
+    assert ctx["discount"] == Decimal("465")  # 10% of 4650
+    assert ctx["total_money"] == Decimal("4185")
+    assert ctx["subtotal"] - ctx["discount"] == ctx["total_money"]
+
+
+def test_receipt_no_discount_row_when_no_discount(variant):
+    """An empty/zero Скидка row must never render — the row is simply
+    absent, not shown as «Скидка 0 сом»."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    from django.template.loader import render_to_string
+
+    from apps.pos.receipts import receipt_context
+
+    ctx = receipt_context(order)
+    assert ctx["discount"] is None
+    html = render_to_string("receipts/receipt.html", ctx)
+    assert "Скидка" not in html
+
+
+def test_receipt_headers_align_pixel_perfect_with_columns(variant):
+    """Verified with a ruler, not by eye: text-column headers share their
+    LEFT edge with their data, numeric-column headers share their RIGHT
+    edge, and the totals block's money column lands on the exact same
+    right edge as the item table's own Сумма column above it — the literal
+    bug this redesign fixed (measured misalignment before the fix: ~12pt).
+    A few points of tolerance is left for ordinary glyph-shape variance
+    between different characters sharing the same cell edge (e.g. "О" vs
+    "1"), never for an actual column-width mismatch."""
+    import fitz
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    pdf_bytes = _render_receipt_pdf(order)
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    words = doc[0].get_text("words")  # (x0, y0, x1, y1, text, block, line, word_no)
+
+    def find(text):
+        matches = [w for w in words if w[4] == text]
+        assert matches, f"{text!r} not found on the rendered receipt"
+        return matches[0]
+
+    TOL = 5  # pt
+
+    # Text columns (ТОВАР/РАЗМЕР/ЦВЕТ): header and data share the left edge.
+    assert abs(find("ТОВАР")[0] - find("Dresses")[0]) < TOL
+    assert abs(find("РАЗМЕР")[0] - find("M")[0]) < TOL
+    assert abs(find("ЦВЕТ")[0] - find("red")[0]) < TOL
+
+    # Numeric column (КОЛ-ВО): header and data share the right edge.
+    assert abs(find("КОЛ-ВО")[2] - find("1")[2]) < TOL
+
+    # The item table's own Сумма column (header vs data right edge).
+    summa_header = find("СУММА")
+    summa_label = find("Сумма")  # totals block's label row (sentence case,
+    # distinct string from the header) — anchors where the totals block
+    # starts, so "сом" tokens can be split into item-table vs totals-block.
+    item_row_sums = [w for w in words if w[4] == "сом" and w[3] < summa_label[1]]
+    totals_sums = [w for w in words if w[4] == "сом" and w[1] >= summa_label[1]]
+    assert item_row_sums and totals_sums
+    item_summa_right = max(w[2] for w in item_row_sums)
+    assert abs(summa_header[2] - item_summa_right) < TOL
+
+    # The actual bug: totals block numbers on the SAME right edge as the
+    # item table's Сумма column — tight tolerance, this must be exact.
+    for w in totals_sums:
+        assert abs(w[2] - item_summa_right) < 1
+
+
+def test_multi_page_receipt_does_not_split_or_orphan_totals_block(variant):
+    """reportlab's Table flowable splits BETWEEN rows by default when a
+    table doesn't fully fit in the remaining page space — before the fix
+    (wrapping the totals block in a one-row outer table, see receipt.css's
+    .receipt__totals-wrap comment), that put Сумма/Скидка on one page and
+    ИТОГО/Остаток alone on the next. The whole block must always land on
+    one page together."""
+    import fitz
+
+    cat = Category.objects.create(name="Категория")
+    order = SaleOrder.objects.create(currency="KGS")
+    for i in range(14):
+        product = Product.objects.create(
+            category=cat, name=f"Товар с очень длинным названием номер {i}"
+        )
+        v = ProductVariant.objects.create(
+            product=product,
+            sku=f"LONGNAME-{i}",
+            size="L",
+            color=f"цвет{i}",
+            sale_price=Decimal("1000"),
+            cost_price=Decimal("500"),
+            currency="KGS",
+        )
+        add_movement(v, StockMovement.PRODUCTION_IN, 5)
+        SaleItem.objects.create(order=order, variant=v, quantity=2, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    pdf_bytes = _render_receipt_pdf(order)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    assert len(doc) >= 2, "this many long-named items should span multiple pages"
+
+    itogo_page = summa_page = None
+    for i, page in enumerate(doc):
+        words = page.get_text("words")
+        if any(w[4] == "ИТОГО" for w in words):
+            itogo_page = i
+        if any(w[4] == "Сумма" for w in words):
+            summa_page = i
+    assert itogo_page is not None, "ИТОГО must appear somewhere in the PDF"
+    assert itogo_page == summa_page, "totals block split across two pages"
+
+
+def test_receipt_status_badge_grayscale_legible(variant):
+    """The badge must survive a black-and-white printout: the status WORD
+    is real extractable text (works regardless of colour), and the pill
+    itself renders as a real bordered/filled shape (non-white pixels),
+    not just coloured text with no visible box once colour is gone."""
+    import fitz
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="GrayBadge", phone="+996700006099")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    record_payment(order, Decimal("400"))  # partial
+
+    pdf_bytes = _render_receipt_pdf(order)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    page = doc[0]
+
+    words = page.get_text("words")
+    badge_words = [w for w in words if w[4] == "ЧАСТИЧНО"]
+    assert badge_words, "status word must be real text, not an image"
+    x0, y0, x1, y1 = badge_words[0][:4]
+
+    gray = page.get_pixmap(dpi=150, colorspace=fitz.csGRAY, clip=fitz.Rect(x0 - 6, y0 - 4, x1 + 6, y1 + 4))
+    pixels = gray.samples
+    assert any(p < 250 for p in pixels), "badge region is blank in grayscale"
 
 
 def test_no_public_receipt_route_exists_anywhere(client):
@@ -3776,6 +4004,214 @@ def test_wa_webhook_rate_limit_uses_real_ip_not_forged_xff(client, settings, mon
         HTTP_X_REAL_IP="203.0.113.7",
         HTTP_X_FORWARDED_FOR="8.8.8.8",  # forged, rotated — must NOT create a new bucket
     )
+    assert resp.status_code == 429
+
+
+def test_login_rate_limited_after_ten_posts_from_one_ip(client, settings):
+    """30 POSTs/IP/5min (apps.core.ratelimit) is layered ON TOP OF django-
+    axes' own lockout (AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"] —
+    5 fails against EITHER axis locks, so a flood of distinct usernames from
+    one IP would trip axes' own IP-based lockout well before request 10,
+    also as a 429 — see AXES_FAILURE_LIMIT in config/settings/base.py).
+    AXES_ENABLED=False isolates the layer actually under test here: apps.
+    core.ratelimit's own 30-per-5-minute counter, independent of axes.
+    30 rather than 10 because every staff member shares one office IP —
+    see UnifiedLoginView's docstring for why 10 locked out the whole shop."""
+    settings.AXES_ENABLED = False
+    for i in range(30):
+        resp = client.post("/login/", {"username": f"nouser{i}", "password": "wrong"})
+        assert resp.status_code != 429
+    resp = client.post("/login/", {"username": "nouser30", "password": "wrong"})
+    assert resp.status_code == 429
+    assert "Слишком много запросов" in resp.content.decode()
+
+
+def test_login_rate_limit_fails_closed_when_cache_is_down(client, settings, monkeypatch):
+    """A dead cache must never look like "no requests recorded yet" — the
+    real bug this replaces (see apps/wa/views.py's old _rate_limited) was a
+    plain cache.get() miss being indistinguishable from Redis actually being
+    down. apps.core.ratelimit.cache_is_available does a real write-then-read
+    round trip, so simulating IGNORE_EXCEPTIONS-style silent failure (set is
+    a no-op, get always returns None) must produce a 503, not a 200/302."""
+    settings.AXES_ENABLED = False
+    from django.core import cache as cache_module
+
+    monkeypatch.setattr(cache_module.cache, "set", lambda *a, **k: False)
+    monkeypatch.setattr(cache_module.cache, "get", lambda *a, **k: None)
+    resp = client.post("/login/", {"username": "whoever", "password": "wrong"})
+    assert resp.status_code == 503
+
+
+def test_cache_probe_does_not_false_negative_under_concurrency():
+    """cache_is_available() must probe a key unique to ITS OWN call. It used
+    to write one shared "ratelimit:probe" key, so two concurrent callers
+    overwrote each other's token and BOTH read back a mismatch — concluding
+    the cache was down and 503ing every rate-limited endpoint (login, search,
+    receipt, report) under exactly the concurrent load the limiter exists to
+    survive. Measured against a realistic 2ms Redis round trip: 98.5% false
+    "cache down" on the shared key, 0% on per-call keys.
+
+    The sleep simulates that round trip — without it LocMemCache is fast
+    enough to hide the race and the test would pass against the broken code
+    too."""
+    import threading
+    import time
+    from unittest.mock import patch
+
+    from django.core.cache import cache as real_cache
+
+    from apps.core.ratelimit import cache_is_available
+
+    original_get = real_cache.get
+
+    def slow_get(*args, **kwargs):
+        time.sleep(0.002)  # Redis network RTT, between the probe's set and get
+        return original_get(*args, **kwargs)
+
+    results = []
+    lock = threading.Lock()
+
+    def worker():
+        for _ in range(10):
+            ok = cache_is_available()
+            with lock:
+                results.append(ok)
+
+    with patch.object(real_cache, "get", slow_get):
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    assert results, "probe never ran"
+    assert all(results), (
+        f"{results.count(False)}/{len(results)} concurrent probes falsely reported the cache "
+        "as DOWN — the probe key is shared again, and every rate-limited endpoint will 503 "
+        "under concurrent load"
+    )
+
+
+def test_blocked_requests_do_not_write_one_security_event_each(client, settings):
+    """The limiter must SHED load under attack, not amplify it. Recording a
+    SecurityEvent row per blocked request meant a flood the limiter had
+    already rejected still cost one INSERT each into the primary business
+    database — measured at 200 rows for 200 blocked requests — growing the
+    table fastest exactly when nobody is watching. One row per IP per window
+    is all send_security_digest needs (it counts DISTINCT IPs)."""
+    from apps.core.models import SecurityEvent
+
+    settings.AXES_ENABLED = False
+    for _ in range(30):  # exhaust the 30-per-5-min login budget
+        client.post("/login/", {"username": "x", "password": "y"})
+
+    before = SecurityEvent.objects.filter(event_type=SecurityEvent.RATE_LIMITED).count()
+    for _ in range(50):
+        assert client.post("/login/", {"username": "x", "password": "y"}).status_code == 429
+    written = SecurityEvent.objects.filter(event_type=SecurityEvent.RATE_LIMITED).count() - before
+
+    assert written <= 1, f"{written} rows written for 50 blocked requests — write amplification"
+    # ...but the block IS still recorded, so the digest can still see it.
+    assert (
+        SecurityEvent.objects.filter(event_type=SecurityEvent.RATE_LIMITED).count() >= 1
+    ), "the block must still be recorded once — silence would hide a real attack"
+
+
+def test_rate_limit_decorator_preserves_view_attributes():
+    """functools.wraps, not a hand-rolled __name__/__doc__ copy — Django
+    stashes view FLAGS (csrf_exempt, and anything else a decorator sets) in
+    the function's __dict__. Dropping those meant @rate_limit stacked above
+    @csrf_exempt would silently re-enable CSRF on a webhook that must not
+    have it."""
+    from django.views.decorators.csrf import csrf_exempt
+
+    from apps.core.ratelimit import rate_limit
+
+    @rate_limit("attrs", 10, 60)
+    @csrf_exempt
+    def some_view(request):
+        """Original docstring."""
+
+    assert getattr(some_view, "csrf_exempt", False) is True, "csrf_exempt flag was dropped"
+    assert some_view.__name__ == "some_view"
+    assert some_view.__doc__ == "Original docstring."
+
+
+def test_security_events_are_purged_after_retention(settings):
+    """SecurityEvent was the only growing table with no retention at all —
+    unbounded abuse-log growth in the SAME database as sales/clients/debts.
+    Rows past the window go; anything inside it stays."""
+    from datetime import timedelta
+
+    from apps.core.models import SecurityEvent
+    from apps.core.management.commands.purge_security_events import RETAIN
+
+    now = timezone.now()
+    old = SecurityEvent.objects.create(event_type=SecurityEvent.AUTH_FAILURE, ip="10.0.0.1")
+    recent = SecurityEvent.objects.create(event_type=SecurityEvent.AUTH_FAILURE, ip="10.0.0.2")
+    # created_at is auto_now_add, so backdate with an explicit update().
+    SecurityEvent.objects.filter(pk=old.pk).update(created_at=now - RETAIN - timedelta(days=1))
+    SecurityEvent.objects.filter(pk=recent.pk).update(created_at=now - timedelta(days=1))
+
+    call_command("purge_security_events")
+
+    assert not SecurityEvent.objects.filter(pk=old.pk).exists(), "stale row not purged"
+    assert SecurityEvent.objects.filter(pk=recent.pk).exists(), "in-window row wrongly purged"
+
+
+def test_wa_webhook_survives_a_malformed_content_length(client, settings):
+    """A junk Content-Length must not raise ValueError out of a public,
+    unauthenticated endpoint — that turns a bad header into a 500 (plus a
+    stack trace in the logs) for anyone on the internet. Django's own
+    request.body re-parses the header and raises too, so the header has to be
+    rejected BEFORE the body is ever touched."""
+    settings.WHATSAPP_ENABLED = True
+    settings.WHATSAPP_APP_SECRET = "topsecret"
+    resp = client.post(
+        "/wa/webhook/",
+        data=b"{}",
+        content_type="application/json",
+        CONTENT_LENGTH="not-a-number",
+    )
+    assert resp.status_code == 400  # malformed request, never a 500
+
+
+def test_receipt_download_rate_limited_per_ip(client, django_user_model, variant):
+    """120 receipt downloads/IP/5min — a scripted scrape of every sale's PDF
+    must eventually get a 429, not stream forever. The ceiling is deliberately
+    well above a full day of end-of-day re-printing, since all staff share one
+    office IP (see receipt_download's docstring)."""
+    call_command("setup_roles")
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    viewer = django_user_model.objects.create_user("rcpt_rl_viewer", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
+
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order)
+
+    for _ in range(120):
+        resp = client.get(f"/pos/sale/{order.pk}/receipt/pdf/")
+        assert resp.status_code == 200
+    resp = client.get(f"/pos/sale/{order.pk}/receipt/pdf/")
+    assert resp.status_code == 429
+
+
+def test_search_endpoint_rate_limited_per_ip(client, django_user_model):
+    """Client-search autocomplete (300/IP/min) is the endpoint most exposed
+    to a scripted enumeration attempt (typing every 2-letter prefix)."""
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user(
+        "search_rl_editor", password="x" * 12, is_staff=True
+    )
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    for _ in range(300):
+        resp = client.get("/pos/sale/new/clients/search/", {"q": "a"})
+        assert resp.status_code == 200
+    resp = client.get("/pos/sale/new/clients/search/", {"q": "a"})
     assert resp.status_code == 429
 
 
@@ -8351,3 +8787,316 @@ def test_campaign_send_failure_shows_no_raw_exception_text(
     assert "Traceback" not in body
     assert "something internal broke" not in body
     assert "не удалась" in body
+
+
+# ---- Category shown everywhere a product is identified (products in ------
+# ---- different categories can share a name) ------------------------------
+
+
+def test_variant_str_leads_with_category(variant):
+    """ProductVariant.__str__ is the shared string used by the cart's
+    remove-confirm, result/return screens, order lines, and several
+    dashboard panels — category must lead so a bare product name is never
+    shown ambiguously through any of them."""
+    assert str(variant) == "Dresses / Evening Dress / M / red"
+
+
+def test_receipt_pdf_shows_category_with_no_column_overlap(variant):
+    """The receipt table renders the category as its own line above the
+    product name (see templates/receipts/receipt.html) — verified here at
+    the data level (receipt_context/rendered HTML); the actual PDF layout
+    (no column overlap at 1 item, 6 items/2 products, and long category+
+    product names) was verified visually against a real rendered PDF."""
+    from django.template.loader import render_to_string
+
+    from apps.pos.receipts import receipt_context
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    ctx = receipt_context(order)
+    assert ctx["groups"][0]["product"].category.name == "Dresses"
+    html = render_to_string("receipts/receipt.html", ctx)
+    assert "Dresses" in html
+    assert html.index("Dresses") < html.index("Evening Dress")  # category ABOVE product name
+
+
+def test_product_grid_tile_and_variant_picker_show_category(client, django_user_model, variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("catgrid1", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+    order = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP)
+
+    resp = client.get(f"/pos/sale/{order.pk}/products/")
+    assert "Dresses" in resp.content.decode()
+
+    resp2 = client.get(f"/pos/sale/{order.pk}/products/{variant.product_id}/variants/")
+    assert "Dresses" in resp2.content.decode()
+
+
+def test_cart_line_shows_category(client, django_user_model, variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("catcart1", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+    order = SaleOrder.objects.create(created_by=editor, channel=SaleOrder.SHOP)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+
+    resp = client.get(f"/pos/sale/{order.pk}/")
+    assert "Dresses" in resp.content.decode()
+
+
+def test_debt_pay_item_table_shows_category(client, django_user_model, variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("catdebt1", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+    cust = Client.objects.create(first_name="Debtor", phone="+996700007771")
+    order = SaleOrder.objects.create(client=cust, created_by=editor)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order, user=editor)
+
+    resp = client.get(f"/pos/sale/{order.pk}/debt/")
+    assert "Dresses" in resp.content.decode()
+
+
+def test_client_history_item_summary_shows_category(client, django_user_model, variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("cathist1", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+    cust = Client.objects.create(first_name="Histo", phone="+996700007772")
+    order = SaleOrder.objects.create(client=cust, created_by=editor)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order, user=editor)
+
+    resp = client.get(f"/pos/clients/{cust.pk}/")
+    assert "Dresses" in resp.content.decode()
+
+
+def test_admin_variant_list_has_category_column(client, django_user_model, variant):
+    owner = django_user_model.objects.create_superuser("catadmin1", "a@e.com", "x" * 12)
+    client.force_login(owner)
+    resp = client.get("/panel/inventory/productvariant/")
+    body = resp.content.decode()
+    assert "Category" in body or "category" in body.lower()
+    assert "Dresses" in body
+
+
+def test_daily_report_stock_sheet_includes_category(variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    sheet = _stock_sheet()
+    assert sheet.columns[1].header == "Категория"
+    row = next(r for r in sheet.rows if r[0] == variant.sku)
+    assert row[1] == "Dresses"
+    assert row[2] == "Evening Dress"
+
+
+def test_dashboard_top_products_and_dead_stock_sheets_include_category(variant):
+    from apps.reports.dashboard import dashboard_data, dashboard_sheets
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 20)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    data = dashboard_data("month")
+    assert data["top_products"][0]["category"] == "Dresses"
+
+    sheets = dashboard_sheets(data)
+    top_row = sheets["Топ товаров"].rows[0]
+    assert top_row[0] == "Dresses / Evening Dress"
+
+
+def test_production_queue_product_rollup_label_includes_category(variant):
+    from apps.orders.models import Order, OrderItem
+    from apps.orders.services import GROUP_PRODUCT, production_queue
+
+    cust = Client.objects.create(first_name="QueueCat", phone="+996700007773")
+    order = Order.objects.create(client=cust, currency="KGS")
+    OrderItem.objects.create(order=order, variant=variant, quantity=3, unit_price=Decimal("3200"))
+
+    rows = production_queue(group_by=GROUP_PRODUCT)
+    assert rows[0]["label"] == "Dresses / Evening Dress"
+
+
+# ---- Multiple product-image upload — the real fix was a real multi-file ---
+# ---- picker (apps.inventory.admin.ProductAdmin.bulk_image_upload_view), --
+# ---- ProductImageInline never supported selecting more than one file at --
+# ---- a time. Plus: size/dimension validation and per-file failure -------
+# ---- isolation (apps.inventory.models.validate_product_image). ----------
+
+
+def _bulk_upload(client, product, files):
+    return client.post(
+        f"/panel/inventory/product/{product.pk}/images/bulk-upload/",
+        {"images": files},
+        format="multipart",
+    )
+
+
+def test_bulk_upload_ten_images_succeeds(client, django_user_model):
+    owner = django_user_model.objects.create_superuser("bulk10", "b10@e.com", "x" * 12)
+    client.force_login(owner)
+    cat = Category.objects.create(name="BulkCat")
+    product = Product.objects.create(category=cat, name="BulkProduct")
+
+    files = [_tiny_image(f"p{i}.png") for i in range(10)]
+    resp = _bulk_upload(client, product, files)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["saved"] == 10
+    assert data["failed"] == 0
+    assert all(r["ok"] for r in data["results"])
+    assert ProductImage.objects.filter(product=product).count() == 10
+    # Upload order is preserved as sequential positions (see _next_image_position).
+    positions = list(
+        ProductImage.objects.filter(product=product).order_by("position").values_list(
+            "position", flat=True
+        )
+    )
+    assert positions == list(range(10))
+
+
+def test_bulk_upload_rejects_oversized_file_but_saves_the_valid_ones(client, django_user_model):
+    """The old ProductImageInline formset path is all-or-nothing (Django
+    validates every row before saving any) — one bad file loses the whole
+    batch, silently, with a generic message. The bulk endpoint validates and
+    saves each file independently: the two good photos must survive even
+    though the third file is rejected, and the rejection must name the file
+    and say clearly that it's oversized — not "corrupted"."""
+    owner = django_user_model.objects.create_superuser("bulkbad", "bb@e.com", "x" * 12)
+    client.force_login(owner)
+    cat = Category.objects.create(name="BulkBadCat")
+    product = Product.objects.create(category=cat, name="BulkBadProduct")
+
+    oversized = SimpleUploadedFile(
+        "toobig.jpg",
+        b"0" * (PRODUCT_IMAGE_MAX_BYTES + 1),
+        content_type="image/jpeg",
+    )
+    files = [_tiny_image("good1.png"), oversized, _tiny_image("good2.png")]
+    resp = _bulk_upload(client, product, files)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["saved"] == 2
+    assert data["failed"] == 1
+    assert ProductImage.objects.filter(product=product).count() == 2
+
+    bad = next(r for r in data["results"] if not r["ok"])
+    assert bad["name"] == "toobig.jpg"
+    assert "МБ" in bad["error"]  # size-specific Russian message, not "corrupted"
+    assert "поврежд" not in bad["error"]
+
+
+def test_oversized_dimensions_rejected_before_pillow_decodes_pixels():
+    """A file whose HEADER declares dimensions past PRODUCT_IMAGE_MAX_DIMENSION
+    must be rejected from just the header read (Image.open() — cheap, lazy,
+    format plugins only parse metadata) WITHOUT ever calling .load()/
+    .convert(), which is what actually decodes the full pixel buffer. Patching
+    Image.Image.load to blow up proves the rejection happens strictly before
+    that — the literal "before Pillow decodes it fully" requirement."""
+    from io import BytesIO
+    from unittest.mock import patch
+
+    from PIL import Image as PILImage
+
+    from apps.inventory.models import PRODUCT_IMAGE_MAX_DIMENSION, validate_product_image
+
+    # A single scanline is nothing to encode/decode — only the header lies.
+    wide = PILImage.new("RGB", (PRODUCT_IMAGE_MAX_DIMENSION + 500, 10), color=(1, 1, 1))
+    buf = BytesIO()
+    wide.save(buf, format="PNG")
+    f = SimpleUploadedFile("wide.png", buf.getvalue(), content_type="image/png")
+
+    with patch.object(PILImage.Image, "load", side_effect=AssertionError("full decode ran")):
+        with pytest.raises(ValidationError) as exc_info:
+            validate_product_image(f)
+    assert str(PRODUCT_IMAGE_MAX_DIMENSION) in str(exc_info.value)
+
+
+def test_true_decompression_bomb_gets_the_clear_dimension_message_not_generic_corrupted():
+    """A 20000x20000 PNG (tiny on disk, a huge pixel buffer once decoded) —
+    Pillow's own DecompressionBombError still exists as defense in depth, but
+    our validator must translate it into the SAME clear "too large" Russian
+    message as an explicit over-PRODUCT_IMAGE_MAX_DIMENSION rejection, not
+    Django's generic (and here actively misleading) "file is corrupted" text."""
+    from io import BytesIO
+
+    from PIL import Image as PILImage
+
+    from apps.inventory.models import validate_product_image
+
+    bomb = PILImage.new("RGB", (20000, 20000), color=(1, 1, 1))
+    buf = BytesIO()
+    bomb.save(buf, format="PNG")
+    f = SimpleUploadedFile("bomb.png", buf.getvalue(), content_type="image/png")
+
+    with pytest.raises(ValidationError) as exc_info:
+        validate_product_image(f)
+    assert "большое" in str(exc_info.value)
+    assert "поврежд" not in str(exc_info.value)
+
+
+def test_thumbnail_failure_does_not_lose_the_uploaded_image(monkeypatch):
+    """A synthetic thumbnail-generation failure (anything unexpected — disk
+    hiccup, memory blip) must not crash the save or lose the already-valid,
+    already-on-disk image; Product.grid_image already falls back to the
+    original when thumbnail is empty, so this must leave a saved row with an
+    empty thumbnail rather than raising."""
+    from apps.inventory.models import ProductImage as PI
+
+    def boom(self):
+        raise RuntimeError("simulated Pillow failure")
+
+    monkeypatch.setattr(PI, "_make_thumbnail", boom)
+    cat = Category.objects.create(name="ThumbFailCat")
+    product = Product.objects.create(category=cat, name="ThumbFailProduct")
+
+    img = ProductImage.objects.create(product=product, image=_tiny_image("t.png"))
+    img.refresh_from_db()
+    assert img.pk is not None
+    assert not img.thumbnail
+    assert product.grid_image == img.image  # falls back to the original, per docstring
+
+
+def test_product_image_inline_formset_also_rejects_oversized_file(client, django_user_model):
+    """The validator lives on the model field, so the OLD ProductImageInline
+    path (still there for reordering/deleting) is covered too, not just the
+    new bulk endpoint — one path of truth for what counts as a valid photo."""
+    owner = django_user_model.objects.create_superuser("inlinebad", "ib@e.com", "x" * 12)
+    client.force_login(owner)
+    cat = Category.objects.create(name="InlineBadCat")
+    product = Product.objects.create(category=cat, name="InlineBadProduct")
+
+    oversized = SimpleUploadedFile(
+        "toobig.jpg", b"0" * (PRODUCT_IMAGE_MAX_BYTES + 1), content_type="image/jpeg"
+    )
+    data = {
+        "name": product.name,
+        "category": product.category_id,
+        "description": "",
+        "is_active": "on",
+        "images-TOTAL_FORMS": "1",
+        "images-INITIAL_FORMS": "0",
+        "images-MIN_NUM_FORMS": "0",
+        "images-MAX_NUM_FORMS": "1000",
+        "images-0-image": oversized,
+        "images-0-product": str(product.pk),
+        "variants-TOTAL_FORMS": "0",
+        "variants-INITIAL_FORMS": "0",
+        "variants-MIN_NUM_FORMS": "0",
+        "variants-MAX_NUM_FORMS": "1000",
+        "_save": "Save",
+    }
+    resp = client.post(f"/panel/inventory/product/{product.pk}/change/", data)
+    assert resp.status_code == 200  # redisplayed with a form error, not saved
+    assert "МБ" in resp.content.decode()
+    assert ProductImage.objects.filter(product=product).count() == 0

@@ -13,24 +13,36 @@
    <td class="receipt__wordmark" width="55%">ACOCOS</td>
    <td class="receipt__badge-cell" width="45%">
     {# A one-cell table, not a <span> — see receipt.css's header comment. #}
+    {% comment %}
+    Word only, no amount inline — a compact pill, not a highlighter smear.
+    Остаток (with the amount, in the same status colour) lives in the
+    totals block below; showing the figure twice would be the opposite
+    of restraint. &nbsp;&nbsp; on each side of the word is the pill's
+    horizontal padding — real CSS padding is silently dropped on a <td>
+    nested this deep (see receipt.css's top comment).
+    {% endcomment %}
     <table class="receipt__badge-table" align="right"><tr>
     {% if status == "paid" %}
-    <td class="receipt__badge receipt__badge--paid">{% trans "ОПЛАЧЕНО" %}</td>
+    <td class="receipt__badge receipt__badge--paid">&nbsp;&nbsp;{% trans "ОПЛАЧЕНО" %}&nbsp;&nbsp;</td>
     {% elif status == "partial" %}
-    <td class="receipt__badge receipt__badge--partial">{% trans "ЧАСТИЧНО" %} — {% trans "остаток" %} {{ balance|money:currency }}</td>
+    <td class="receipt__badge receipt__badge--partial">&nbsp;&nbsp;{% trans "ЧАСТИЧНО" %}&nbsp;&nbsp;</td>
     {% else %}
-    <td class="receipt__badge receipt__badge--debt">{% trans "ДОЛГ" %} {{ balance|money:currency }}</td>
+    <td class="receipt__badge receipt__badge--debt">&nbsp;&nbsp;{% trans "ДОЛГ" %}&nbsp;&nbsp;</td>
     {% endif %}
     </tr></table>
    </td>
   </tr>
  </table>
+
+ <table class="receipt__signature"><tr>
+  <td width="24%" class="receipt__signature-bar">&nbsp;</td>
+  <td width="76%">&nbsp;</td>
+ </tr></table>
+
  <p class="receipt__meta">
   {% if date %}{{ date|date:"d.m.Y" }} · {% endif %}{% trans "Чек" %} №{{ order.pk }}
   {% if client_name %} · {{ client_name }}{% endif %}
  </p>
-
- <hr class="receipt__rule">
 
  {# Column widths: the HTML width= attribute on these <th> cells (see receipt.css). #}
  {# Every <td> below must stay non-empty (&nbsp; if nothing to show) — a truly empty cell makes xhtml2pdf silently collapse that WHOLE COLUMN's width, corrupting even the header row (see receipt.css's top comment). #}
@@ -38,6 +50,7 @@
   <thead>
    <tr>
     {# Hardcoded uppercase, not text-transform — that CSS property is a no-op in xhtml2pdf. #}
+    {# Widths UNCHANGED from the already-validated 32/10/18/8/15/17 split — measured: the bold, letter-spaced header LABELS themselves (not the data) are what's binding on Размер/Кол-во, so there was no slack to reclaim there for Товар. Category rides inside the Товар cell instead (its own muted line, via span+br — see receipt.css's header comment on why NOT nested <div>s). #}
     <th width="32%">{% trans "ТОВАР" %}</th>
     <th width="10%">{% trans "РАЗМЕР" %}</th>
     <th width="18%">{% trans "ЦВЕТ" %}</th>
@@ -50,7 +63,7 @@
    {% for group in groups %}
     {% for row in group.rows %}
     <tr>
-     <td>{% if forloop.first %}{{ group.product.name }}{% else %}&nbsp;{% endif %}</td>
+     <td>{% if forloop.first %}<span class="receipt__cat">{{ group.product.category.name }}</span><br/><span class="receipt__name">{{ group.product.name }}</span>{% else %}&nbsp;{% endif %}</td>
      <td>{% if forloop.first %}{{ group.size }}{% else %}&nbsp;{% endif %}</td>
      <td>{{ row.color }}</td>
      <td class="num">{{ row.quantity }}</td>
@@ -64,23 +77,60 @@
   </tbody>
  </table>
 
- {# Totals: one thin rule above ИТОГО only (receipt.css .receipt__total). #}
+ {% comment %}
+ Totals: Сумма (sticker) -> Скидка (optional, signed, muted) -> ИТОГО
+ (bold, largest, one hairline above) -> Оплачено/Остаток (only when not
+ fully paid). THREE columns per row (label 80.5% / money 17% / spacer
+ 2.5%, explicit on every row, not just the first — see receipt.css's top
+ comment on why nested tables need this repeated rather than relying on
+ inheritance): that spacer is what lands the money column's right edge on
+ the item table's own Сумма right edge above.
+
+ The whole block is wrapped in a one-cell outer table
+ (.receipt__totals-wrap) so it moves to the next page AS ONE UNIT if it
+ doesn't fit, instead of reportlab splitting the inner table between rows
+ (orphaning ИТОГО alone — see receipt.css's comment on
+ .receipt__totals-wrap).
+ {% endcomment %}
+ <table class="receipt__totals-wrap"><tr><td>
  <table class="receipt__summary">
-  <tr class="receipt__total">
-   <td width="45%">{% trans "ИТОГО" %}</td>
-   <td width="25%" class="num">{{ total_quantity }} {% trans "шт" %}</td>
-   <td width="30%" class="num">{{ total_money|money:currency }}</td>
+  <tr>
+   <td width="80.5%">{% trans "Сумма" %}</td>
+   <td width="17%" class="num">{{ subtotal|money:currency }}</td>
+   <td width="2.5%">&nbsp;</td>
   </tr>
   {% if discount %}
-  <tr><td>{% trans "Скидка" %}</td><td>&nbsp;</td><td class="num">{{ discount|money:currency }}</td></tr>
+  <tr class="receipt__line--discount">
+   <td width="80.5%">{% trans "Скидка" %}</td>
+   <td width="17%" class="num">−{{ discount|money:currency }}</td>
+   <td width="2.5%">&nbsp;</td>
+  </tr>
   {% endif %}
+  <tr class="receipt__total">
+   <td width="80.5%">{% trans "ИТОГО" %} <span class="receipt__qty-note">· {{ total_quantity }} {% trans "шт" %}</span></td>
+   <td width="17%" class="num">{{ total_money|money:currency }}</td>
+   <td width="2.5%">&nbsp;</td>
+  </tr>
   {% if status != "paid" %}
-  <tr><td>{% trans "Оплачено" %}</td><td>&nbsp;</td><td class="num">{{ paid|money:currency }}</td></tr>
-  <tr class="receipt__line--debt"><td>{% trans "Остаток" %}</td><td>&nbsp;</td><td class="num">{{ balance|money:currency }}</td></tr>
+  <tr>
+   <td width="80.5%">{% trans "Оплачено" %}</td>
+   <td width="17%" class="num">{{ paid|money:currency }}</td>
+   <td width="2.5%">&nbsp;</td>
+  </tr>
+  <tr class="receipt__line--balance receipt__line--balance--{{ status }}">
+   <td width="80.5%">{% trans "Остаток" %}</td>
+   <td width="17%" class="num">{{ balance|money:currency }}</td>
+   <td width="2.5%">&nbsp;</td>
+  </tr>
   {% endif %}
  </table>
+ </td></tr></table>
 
- <p class="receipt__footer">{% trans "ACOCOS · спасибо за покупку!" %}{% if contact_line %} · {{ contact_line }}{% endif %}</p>
+ <div id="receipt_footer_content">
+  <table class="receipt__footer-rule"><tr><td>&nbsp;</td></tr></table>
+  <p class="receipt__footer-brand">ACOCOS</p>
+  <p class="receipt__footer-contact">{% trans "Спасибо за покупку!" %}{% if contact_line %} · {{ contact_line }}{% endif %}</p>
+ </div>
 </div>
 </body>
 </html>
