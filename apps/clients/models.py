@@ -126,19 +126,20 @@ class ClientOpeningBalance(models.Model):
     client_statement (as the ledger's very first row, or folded into
     `opening` when a date filter starts after `as_of_date`).
 
-    Owner-only to create or edit (see ClientOpeningBalanceAdmin — the exact
-    has_*_permission pattern apps.core.admin.ExchangeRateAdmin already uses
-    for the same reason: a money-affecting control an Editor should never
-    reach even via a crafted POST). Audit-logged via simple_history, since a
-    later dispute over the ORIGINAL figure ("who set this, and when") needs
-    a real trail, not just whatever the row currently says.
+    Owner-only to create or edit (see ClientOpeningBalanceAdmin and
+    apps.pos.views.opening_balance_add — the exact has_*_permission pattern
+    apps.core.admin.ExchangeRateAdmin already uses for the same reason: a
+    money-affecting control an Editor should never reach even via a crafted
+    POST). Audit-logged via simple_history, since a later dispute over the
+    ORIGINAL figure ("who set this, and when") needs a real trail, not just
+    whatever the row currently says. Entered ONE AT A TIME, by hand — there
+    is deliberately no bulk import (a one-time xlsx importer was tried and
+    removed: more risk than it saved for a handful of clients).
 
     One row per (client, currency, as_of_date) — see the constraint below —
-    so re-importing the same bulk-import row (apps.clients.management.
-    commands.import_opening_balances) upserts in place instead of doubling
-    the debt on a second run, and editing the row in the admin is
-    unambiguous: there is exactly one place THIS client's THIS currency's
-    THIS baseline lives."""
+    so editing the row in the admin (or re-adding for the same date, which
+    updates in place) is unambiguous: there is exactly one place THIS
+    client's THIS currency's THIS baseline lives."""
 
     client = models.ForeignKey(
         Client,
@@ -188,82 +189,3 @@ class ClientOpeningBalance(models.Model):
 
     def __str__(self):
         return f"{self.client} — {self.amount} {self.currency} ({self.as_of_date})"
-
-
-class HistoricalPurchase(models.Model):
-    """A purchase a client made BEFORE this database existed — free-text, so
-    the pre-system transfer works even when the item no longer exists as a
-    tracked ProductVariant/SKU at all. Purely informational: shown merged
-    into «История покупок» on the client page (apps.pos.views.client_detail),
-    each row marked «до системы» so staff never mistake it for a real,
-    stock-backed sale.
-
-    NEVER a SaleOrder (would decrement CURRENT stock for an item that may
-    not even exist in today's catalog, and would corrupt revenue/profit —
-    see apps.sales.services.confirm_sale, the ONLY place stock actually
-    leaves the system) and NEVER counted in client_debts_by_currency or
-    client_statement — this is about WHAT she bought, not what she owes;
-    ClientOpeningBalance already covers pre-system debt and stays the only
-    money-affecting pre-system record. `amount` here is shown for context
-    only (so the row reads like a real purchase line), never summed into
-    any financial total anywhere in the app.
-
-    Owner-only to create or edit — same tier and the same explicit
-    is_superuser has_*_permission pattern as ClientOpeningBalanceAdmin/
-    ExchangeRateAdmin, even though this doesn't move money itself: it's
-    bulk-imported client history, not a figure an Editor should be able to
-    plant on a client's record via a crafted POST. Audit-logged via
-    simple_history for the same reason.
-
-    UniqueConstraint on the full row (client, date, description, amount,
-    currency) is deliberate content-based dedup, not a real-world identity
-    key — unlike ClientOpeningBalance's (client, currency, as_of_date),
-    which is a single snapshot VALUE that naturally upserts, a purchase is
-    an EVENT and the same client can have several genuinely different
-    purchases on the same day. This only catches an EXACT re-run of the
-    same import row (apps.clients.management.commands.
-    import_purchase_history) landing twice; it does NOT support "correct
-    a typo by re-importing" the way opening balances do — a typo'd row is
-    fixed in the admin, not by re-running the file with different text."""
-
-    client = models.ForeignKey(
-        Client,
-        verbose_name=_("client"),
-        on_delete=models.CASCADE,
-        related_name="historical_purchases",
-    )
-    purchase_date = models.DateField(_("purchase date"))
-    # Free text on purpose — see the model docstring. "3 вечерних платья L,
-    # 2 карнавальных костюма", not a structured line-item list.
-    description = models.CharField(_("description"), max_length=500)
-    amount = models.DecimalField(_("amount"), max_digits=12, decimal_places=2)
-    currency = models.CharField(
-        _("currency"), max_length=3, choices=CURRENCY_CHOICES, default=settings.CURRENCY
-    )
-    note = models.CharField(_("note"), max_length=255, blank=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        verbose_name=_("created by"),
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-    )
-    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
-    history = HistoricalRecords()
-
-    class Meta:
-        verbose_name = _("historical purchase")
-        verbose_name_plural = _("historical purchases")
-        ordering = ["-purchase_date"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["client", "purchase_date", "description", "amount", "currency"],
-                name="unique_historical_purchase_row",
-            ),
-            models.CheckConstraint(
-                condition=models.Q(amount__gt=0), name="historical_purchase_amount_positive"
-            ),
-        ]
-
-    def __str__(self):
-        return f"{self.client} — {self.description} ({self.purchase_date})"

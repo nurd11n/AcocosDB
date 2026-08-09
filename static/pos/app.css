@@ -818,6 +818,11 @@ body:has(#order-modal:not(:empty)) { overflow: hidden; }
 /* --- compact item table (e.g. the repayment window's "what was bought"
    list) — a real <table> because it genuinely has independent columns
    (товар/размер/цвет/кол-во/сумма), unlike .line-row's label+total shape. */
+/* Wraps a wide .table (5+ columns of real content — a description plus
+   several money columns) so IT scrolls sideways in its own bounded strip
+   on a narrow phone, never the page body — the rest of the card (a balance
+   line above, an action button below) stays fixed in place either way. */
+.table-scroll { overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th, .table td { padding: var(--space-1) var(--space-2); text-align: left; }
 .table th:first-child, .table td:first-child { padding-left: 0; }

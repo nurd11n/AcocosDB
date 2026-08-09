@@ -131,6 +131,27 @@
   {% if change_amount_override %}<input type="hidden" name="change_amount_override" value="{{ change_amount_override|stringformat:'s' }}">
   <input type="hidden" name="change_adjust_reason" value="{{ change_adjust_reason }}">{% endif %}
   {% if rate_override %}<input type="hidden" name="rate_override" value="{{ rate_override|stringformat:'s' }}">{% endif %}
+  {% comment %}
+  Backdating is Owner-only, enforced again server-side (see
+  apps.pos.views._check_historical_sale) regardless of this checkbox being
+  hidden from Editor/Viewer here. See SaleOrder.is_historical's own
+  docstring: no stock movement, excluded from revenue — for a sale that
+  already happened before this database existed.
+  {% endcomment %}
+  {% if request.user.is_superuser %}
+  <div class="pay-note" style="margin-top:var(--space-2)">
+   <label>
+    <input type="checkbox" name="is_historical" value="1" data-toggle-target="historical-date-row">
+    {% trans "Историческая продажа (уже произошла раньше)" %}
+   </label>
+   <div id="historical-date-row" hidden style="margin-top:var(--space-2)">
+    <label>{% trans "Дата продажи" %}</label>
+    <input type="date" name="historical_date">
+    <p class="muted" style="margin-top:var(--space-1)">
+      {% trans "Склад не изменится, продажа не войдёт в выручку — только история клиента." %}</p>
+   </div>
+  </div>
+  {% endif %}
   {% if conv.requires_ack %}
   <div class="pay-note pay-note--risk">
    <strong>{% trans "Требуется подтверждение платежа:" %}</strong>

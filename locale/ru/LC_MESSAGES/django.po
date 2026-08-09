@@ -331,18 +331,6 @@ msgstr "начальный долг"
 msgid "opening balances"
 msgstr "начальные долги"
 
-#: apps/clients/models.py:235
-msgid "purchase date"
-msgstr "дата покупки"
-
-#: apps/clients/models.py:255
-msgid "historical purchase"
-msgstr "покупка до системы"
-
-#: apps/clients/models.py:256
-msgid "historical purchases"
-msgstr "покупки до системы"
-
 #: apps/core/admin.py:20 apps/core/models.py:24 apps/core/models.py:66
 #: apps/inventory/models.py:134 apps/orders/models.py:48
 #: apps/orders/models.py:137 apps/sales/models.py:62 apps/sales/models.py:386

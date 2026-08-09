@@ -144,8 +144,15 @@ def _metrics(start, end, prev_start, prev_end):
     # immediately, same special case SaleOrder.balance/payment_status already
     # make. Without this, "Ожидается" would wrongly show every walk-in as
     # still-unpaid forever, since it never gets a Payment row to sum.
+    # is_historical excluded — see SaleOrder.is_historical's own docstring: a
+    # backdated entry must never inflate this period's revenue (or, via
+    # walkin_cur/prev below, "received" — the historical+walk-in combination
+    # doesn't really occur in practice, since backdating exists specifically
+    # to itemize a real CLIENT's past purchase).
     rev = SaleOrder.objects.filter(
-        status=SaleOrder.CONFIRMED, confirmed_at__date__range=(prev_start, end)
+        status=SaleOrder.CONFIRMED,
+        confirmed_at__date__range=(prev_start, end),
+        is_historical=False,
     ).aggregate(
         cur=_cond_sum(F("total_kgs"), _in(cur)),
         prev=_cond_sum(F("total_kgs"), _in(prev)),
@@ -177,7 +184,9 @@ def _metrics(start, end, prev_start, prev_end):
     # rounding ambiguity at all, so subtracting the ALREADY-authoritative
     # total_kgs from it is exact by construction, not just "close".
     uc = SaleItem.objects.filter(
-        order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__range=(prev_start, end)
+        order__status=SaleOrder.CONFIRMED,
+        order__confirmed_at__date__range=(prev_start, end),
+        order__is_historical=False,
     ).aggregate(
         units_cur=Coalesce(Sum(Case(When(_in(cur, "order__"), then=F("quantity")), default=0)), 0),
         units_prev=Coalesce(
@@ -299,10 +308,15 @@ def _debt(prev_end):
 def _calendar_days(start, end):
     """{date: {revenue(сом), orders, units}} for every day WITH sales in the
     range — two grouped queries, no per-day N+1. The view gap-fills the calendar
-    grid from the date range and looks each day up here."""
+    grid from the date range and looks each day up here. Excludes
+    is_historical (see SaleOrder.is_historical)."""
     by: dict = {}
     rev = (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__range=(start, end))
+        SaleOrder.objects.filter(
+            status=SaleOrder.CONFIRMED,
+            confirmed_at__date__range=(start, end),
+            is_historical=False,
+        )
         .annotate(d=TruncDate("confirmed_at"))
         .values("d")
         .annotate(rev=Sum("total_kgs"), n=Count("id"))
@@ -311,7 +325,9 @@ def _calendar_days(start, end):
         by[r["d"]] = {"revenue": r["rev"] or Decimal("0"), "orders": r["n"], "units": 0}
     units = (
         SaleItem.objects.filter(
-            order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__range=(start, end)
+            order__status=SaleOrder.CONFIRMED,
+            order__confirmed_at__date__range=(start, end),
+            order__is_historical=False,
         )
         .annotate(d=TruncDate("order__confirmed_at"))
         .values("d")
@@ -325,9 +341,14 @@ def _calendar_days(start, end):
 
 
 def _channels(start, end):
+    """Excludes is_historical (see SaleOrder.is_historical)."""
     labels = dict(SaleOrder.CHANNEL_CHOICES)
     rows = (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__range=(start, end))
+        SaleOrder.objects.filter(
+            status=SaleOrder.CONFIRMED,
+            confirmed_at__date__range=(start, end),
+            is_historical=False,
+        )
         .values("channel")
         .annotate(v=Sum("total_kgs"))
         .order_by("-v")
@@ -370,9 +391,13 @@ def _thumb_url(name):
 
 
 def _top_products(start, end, limit=8):
+    """Excludes is_historical (see SaleOrder.is_historical) — a backdated
+    entry must not skew which products rank as top sellers this period."""
     rows = list(
         SaleItem.objects.filter(
-            order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__range=(start, end)
+            order__status=SaleOrder.CONFIRMED,
+            order__confirmed_at__date__range=(start, end),
+            order__is_historical=False,
         )
         .values(
             "variant__product__id", "variant__product__name", "variant__product__category__name"
@@ -423,9 +448,14 @@ def _dead_stock(limit=8):
         .annotate(_stock=Coalesce(stock_sq, 0))
         .filter(_stock__gt=0)
     )
+    # is_historical excluded: a backdated entry has nothing to do with
+    # current sales velocity (stock was never decremented for it — see
+    # SaleOrder.is_historical) and would otherwise mask genuinely dead stock.
     last_sale = {
         r["variant_id"]: r["last"]
-        for r in SaleItem.objects.filter(order__status=SaleOrder.CONFIRMED)
+        for r in SaleItem.objects.filter(
+            order__status=SaleOrder.CONFIRMED, order__is_historical=False
+        )
         .values("variant_id")
         .annotate(last=Max("order__confirmed_at"))
     }

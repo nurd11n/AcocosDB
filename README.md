@@ -359,71 +359,11 @@ docker compose -f docker-compose.prod.yml exec web python manage.py import_catal
 docker compose -f docker-compose.prod.yml exec web python manage.py import_catalog /app/catalog.xlsx
 ```
 
-She also has pre-system client debt — `import_opening_balances` loads it from
-an `.xlsx` file with these exact Russian column headers (any order, row 1):
-
-```
-клиент или телефон | сумма | валюта | дата | заметка
-```
-
-A filled example (with an «Инструкция» sheet) ships at
-`docs/opening_balances_import_example.xlsx` — copy its structure. Notes:
-
-- `клиент или телефон` is matched by **phone first** (digit-exact, tolerant
-  of `+996`/`0`/no-prefix formats), then by exact client first name if the
-  cell isn't phone-shaped at all. A miss, or a name matching more than one
-  client, is **reported with a row number — never guessed**, and no client is
-  ever created to satisfy an unmatched row.
-- Every row is validated **before** anything is written; one bad row (a bad
-  amount, an unknown currency, an unparseable date, or an unmatched client)
-  aborts the whole file with a Russian, row-numbered error list.
-- Idempotent by (client, currency, `дата`) — re-running the same file updates
-  those rows in place instead of doubling the balance. This is the important
-  guarantee: an accidental second import must never double every balance.
-- Before writing, the command prints a preview (clients affected, total per
-  currency) and asks for explicit confirmation; `--dry-run` only validates,
-  `--yes` skips the prompt for scripted/CI runs, `--user <username>` records
-  who ran the import on each new row.
-
-```bash
-docker compose -f docker-compose.prod.yml exec web python manage.py import_opening_balances /app/balances.xlsx --dry-run
-docker compose -f docker-compose.prod.yml exec web python manage.py import_opening_balances /app/balances.xlsx --user owner_username
-```
-
-She also wants clients' PRE-SYSTEM purchase history visible, not just their
-debt — `import_purchase_history` is the companion command for that, loading
-free-text purchase rows from an `.xlsx` file with these exact Russian column
-headers (any order, row 1):
-
-```
-клиент или телефон | дата | описание | сумма | валюта | заметка
-```
-
-A filled example (with an «Инструкция» sheet) ships at
-`docs/purchase_history_import_example.xlsx`. Notes:
-
-- `клиент или телефон` matching is identical to `import_opening_balances`
-  (phone first, then exact first name; unmatched/ambiguous rows are reported,
-  never guessed).
-- `описание` is **free text** ("3 вечерних платья L, 2 карнавальных
-  костюма") — it is NOT matched against today's catalog. Old purchases often
-  no longer exist as tracked SKUs at all, and this import can never touch
-  stock, revenue, or profit; it's purely a historical note shown on the
-  client's page («История покупок», marked «до системы»).
-- Idempotent by the FULL row content (client, date, description, amount,
-  currency) rather than by upsert — a purchase is an event, not a snapshot
-  value, so the same client can have several genuinely different purchases
-  on the same day. An exact re-run of the same file is a no-op; correcting a
-  typo'd row afterward is done in `/panel/`, not by re-importing different
-  text for the same purchase.
-- Same preview-then-confirm discipline as `import_opening_balances`:
-  `--dry-run` only validates, `--yes` skips the prompt, `--user <username>`
-  records who ran the import.
-
-```bash
-docker compose -f docker-compose.prod.yml exec web python manage.py import_purchase_history /app/purchases.xlsx --dry-run
-docker compose -f docker-compose.prod.yml exec web python manage.py import_purchase_history /app/purchases.xlsx --user owner_username
-```
+Pre-system client debt has no bulk import — deliberately: a one-time xlsx
+import was more risk than it saved for a handful of clients. She enters it by
+hand, once per client, via «Добавить старый долг» on the client page in
+`/pos/` (or `/panel/`) — see CLAUDE.md's Data model section for how
+`ClientOpeningBalance` behaves.
 
 ## Scheduled jobs
 

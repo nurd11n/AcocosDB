@@ -11,7 +11,7 @@ from simple_history.admin import SimpleHistoryAdmin
 
 from apps.core.currency import format_money
 
-from .models import Client, ClientOpeningBalance, HistoricalPurchase, Interaction
+from .models import Client, ClientOpeningBalance, Interaction
 from .services import client_debts_by_currency
 
 
@@ -223,35 +223,17 @@ class ClientOpeningBalanceAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
 
-
-@admin.register(HistoricalPurchase)
-class HistoricalPurchaseAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
-    """Pre-system purchase history — same Owner-only tier as
-    ClientOpeningBalanceAdmin (see HistoricalPurchase's own docstring for
-    why, even though this particular record doesn't move money itself)."""
-
-    list_display = ["client", "purchase_date", "description", "amount", "currency", "created_by"]
-    list_filter = ["currency"]
-    search_fields = ["client__first_name", "client__descriptor", "client__phone", "description"]
-    date_hierarchy = "purchase_date"
-    autocomplete_fields = ["client"]
-
-    def has_module_permission(self, request):
-        return request.user.is_active and request.user.is_superuser
-
-    def has_view_permission(self, request, obj=None):
-        return request.user.is_active and request.user.is_superuser
-
-    def has_add_permission(self, request):
-        return request.user.is_active and request.user.is_superuser
-
-    def has_change_permission(self, request, obj=None):
-        return request.user.is_active and request.user.is_superuser
-
-    def has_delete_permission(self, request, obj=None):
-        return request.user.is_active and request.user.is_superuser
-
-    def save_model(self, request, obj, form, change):
-        if not change:
-            obj.created_by = request.user
-        super().save_model(request, obj, form, change)
+    def changelist_view(self, request, extra_context=None):
+        # «Старый долг внесён для N из M клиентов» — a migration-progress
+        # readout so she can tell how much of the by-hand entry is done
+        # without cross-checking the client list herself. N = distinct
+        # clients with at least one opening balance row (any currency), not
+        # row count — a client with both a KGS and a USD opening balance is
+        # still ONE client "done".
+        extra_context = extra_context or {}
+        total_clients = Client.objects.filter(is_active=True).count()
+        covered_clients = ClientOpeningBalance.objects.values("client_id").distinct().count()
+        extra_context["opening_balance_progress"] = _(
+            "Старый долг внесён для %(n)s из %(m)s клиентов"
+        ) % {"n": covered_clients, "m": total_clients}
+        return super().changelist_view(request, extra_context=extra_context)

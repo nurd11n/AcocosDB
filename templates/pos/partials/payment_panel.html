@@ -41,14 +41,22 @@ context-building helper (_sale_body_context / _debt_pay_context).
     </select>
    </div>
   </div>
-  <div class="row" style="margin-top:var(--space-3)">
-   <button type="button" class="btn btn-ghost" data-pay-amount="{{ full_pay_amount|stringformat:'s' }}">
-     {% trans "Оплачено полностью" %}</button>
-   {% if allow_debt_shortcut|default:True %}
-   <button type="button" class="btn btn-ghost" data-pay-amount="0">
-     {% trans "В долг" %}</button>
-   {% endif %}
-  </div>
+  {% comment %}
+  Stacked, not side-by-side: at the payment card's own width (deliberately
+  narrow — a form, not a dashboard), two buttons sharing one flex row left
+  «Оплачено полностью» only ~149px, just short of fitting on one line —
+  it wrapped to two and grew to 56px tall while every other .btn-ghost on
+  the same tier stays 44px (measured, not eyeballed). Full-width stacked
+  buttons fit the text at any reasonable width and match how every other
+  page-level action button in /pos/ is already laid out.
+  {% endcomment %}
+  <button type="button" class="btn btn-ghost" data-pay-amount="{{ full_pay_amount|stringformat:'s' }}"
+    style="margin-top:var(--space-3)">
+    {% trans "Оплачено полностью" %}</button>
+  {% if allow_debt_shortcut|default:True %}
+  <button type="button" class="btn btn-ghost" data-pay-amount="0" style="margin-top:var(--space-2)">
+    {% trans "В долг" %}</button>
+  {% endif %}
 
   {% if can_override_rate and not conv.same_currency %}
   <details class="rate-override">

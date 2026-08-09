@@ -96,6 +96,22 @@ class SaleOrder(models.Model):
     pending_token = models.CharField(
         _("pending creation token"), max_length=32, null=True, blank=True, unique=True
     )
+    # A real sale, backdated on manual entry (Owner-only — see
+    # apps.sales.services.confirm_sale's is_historical/historical_date
+    # params and apps.pos.views.sale_confirm) so «История покупок» can show
+    # what a client bought before this database existed, itemized, without
+    # the free-text side-model this replaced. TWO hard consequences, both
+    # enforced in confirm_sale, never left to a caller to remember:
+    # stock is NEVER decremented (the goods left long before today, so
+    # writing a SALE_OUT movement would falsely shrink CURRENT stock for an
+    # item that's already accounted for) and it is EXCLUDED from every
+    # revenue/profit/units dashboard and daily-report aggregate (see
+    # apps.reports.dashboard._metrics/_calendar_days/_channels/
+    # _top_products and apps.sales.services' today/period revenue
+    # functions — all filter is_historical=False). Debt and payments are
+    # DELIBERATELY NOT excluded: if entered still unpaid, it's a real debt
+    # like any other and must show in «Баланс»/the statement.
+    is_historical = models.BooleanField(_("historical sale"), default=False)
     history = HistoricalRecords()
 
     class Meta:
