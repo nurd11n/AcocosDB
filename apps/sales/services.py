@@ -6,6 +6,7 @@ Rules enforced here:
 - the order total is computed once at confirmation and stored.
 """
 
+import uuid
 from collections import defaultdict
 from datetime import timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_UP, ROUND_UP, Decimal
@@ -474,6 +475,7 @@ def record_payment(
     change_currency: str | None = None,
     change_amount_override: Decimal | None = None,
     change_adjust_reason: str = "",
+    batch_id=None,
 ):
     """Create a payment against an order. Defaults to the order's own currency,
     but a client can pay in a different one (e.g. a KGS sale paid in USD) — it
@@ -503,7 +505,13 @@ def record_payment(
     no rate on record and no override raises instead of silently freezing a
     fallback rate of 1.0 — the view layer should already have caught this via
     apps.pos.views._payment_conversion, but a payment must never save a wrong
-    conversion even if some other caller skips that check."""
+    conversion even if some other caller skips that check.
+
+    `batch_id`: set ONLY by pay_oldest_first, one shared uuid4() across every
+    Payment a single multi-sale repayment creates — see Payment.batch_id's
+    own docstring for why (batch voiding, one grouped statement row). Every
+    other caller leaves it None; there is no reason for an ordinary single-
+    sale payment to belong to a batch."""
     if order.client_id is None or amount is None or amount <= 0:
         return None
     # Lock the order for the rest of this call: every balance/overpayment/
@@ -628,6 +636,7 @@ def record_payment(
         change_amount_kgs=change_amount_kgs,
         change_rounding_kgs=change_rounding_kgs,
         created_by=user,
+        batch_id=batch_id,
     )
     if change_amount_override is not None:
         kwargs["note"] = _("Сдача изменена вручную: %(reason)s") % {
@@ -696,16 +705,20 @@ def pay_oldest_first(
     second payment path (same rule as every other money flow in this app).
     Raises rather than guessing what to do with money beyond the total open
     balance — repay a specific amount, or use a single sale's own payment
-    panel with an explicit change/credit disposition for that case."""
+    panel with an explicit change/credit disposition for that case.
+
+    Every resulting Payment shares ONE fresh batch_id — the ONE real-world
+    event she'd describe as «получила 150 000», even though it lands as
+    several Payment rows under the hood (see Payment.batch_id and
+    void_payment_batch: this is what lets that single event be voided as
+    one atomic unit later, and shown as one grouped row on her statement)."""
     allocation = allocate_oldest_first(client, currency, amount)
     if allocation["remaining_amount"] > 0:
         raise ValidationError(
-            _(
-                "Сумма (%(amount)s) больше общего долга в этой валюте "
-                "(%(total)s). Уменьшите сумму."
-            )
+            _("Сумма (%(amount)s) больше общего долга в этой валюте (%(total)s). Уменьшите сумму.")
             % {"amount": amount, "total": amount - allocation["remaining_amount"]}
         )
+    batch = uuid.uuid4()
     payments = []
     for row in allocation["rows"]:
         # Re-lock and re-check each order's balance right before applying —
@@ -717,37 +730,30 @@ def pay_oldest_first(
         applied = min(row["applied"], locked_order.balance)
         if applied <= 0:
             continue
-        payment = record_payment(locked_order, applied, user=user, method=method, currency=currency)
+        payment = record_payment(
+            locked_order, applied, user=user, method=method, currency=currency, batch_id=batch
+        )
         if payment is not None:
             payments.append(payment)
     return payments
 
 
-@transaction.atomic
-def void_payment(payment: Payment, user=None) -> Payment:
-    """Reverse a payment with a negative-amount entry — never delete it, so the
-    audit trail (and simple_history log) stays intact. Voiding an already
-    reviewed payment requires a superuser.
+def _create_reversal(payment: Payment, user=None) -> Payment:
+    """The actual reversing-entry creation — shared by void_payment (one
+    payment) and void_payment_batch (every payment in a batch, atomically).
+    Callers are responsible for locking + validating `payment` FIRST (this
+    function trusts them, same pattern as record_payment's rate_override).
 
     Mirrors EVERY money field's sign, not just amount: change_amount and
     change_amount_kgs flip too, so the reversal's net_applied_kgs is exactly
     -1 × the original's — a payment that gave change reverses to EXACTLY its
     pre-payment balance, at the SAME frozen rate, never today's. Even
     change_rounding_kgs flips, so a void doesn't double-count that day's
-    till-drift report with the now-undone transaction's residue."""
-    # Lock the row being voided first: two concurrent voids (a double-tapped
-    # admin action) would otherwise both read "not yet voided" and each write a
-    # reversal, subtracting the amount TWICE and leaving the client with a
-    # phantom credit. The DB's payment_one_reversal_per_payment unique
-    # constraint backs this up even for a caller that bypasses this function.
-    locked = Payment.objects.select_for_update().get(pk=payment.pk)
-    if locked.reversed_payment_id:
-        raise ValidationError(_("This payment is already a reversal — nothing to void."))
-    if Payment.objects.filter(reversed_payment_id=locked.pk).exists():
-        raise ValidationError(_("This payment has already been voided."))
-    if locked.reviewed and not (user and user.is_superuser):
-        raise ValidationError(_("Voiding a reviewed payment requires a superuser."))
-    payment = locked
+    till-drift report with the now-undone transaction's residue. The
+    reversal inherits batch_id unchanged (None stays None for an ordinary
+    payment) so a batch's reversal rows are themselves grouped the same way
+    the originals were — client_statement shows a reversed batch as one
+    grouped increase, not N separate ones."""
     return Payment.objects.create(
         client_id=payment.client_id,
         order_id=payment.order_id,
@@ -765,4 +771,78 @@ def void_payment(payment: Payment, user=None) -> Payment:
         note=_("Void of payment #%(id)s") % {"id": payment.pk},
         created_by=user,
         reversed_payment=payment,
+        batch_id=payment.batch_id,
     )
+
+
+@transaction.atomic
+def void_payment(payment: Payment, user=None) -> Payment:
+    """Reverse a payment with a negative-amount entry — never delete it, so the
+    audit trail (and simple_history log) stays intact. Voiding an already
+    reviewed payment requires a superuser.
+
+    Refuses a payment that belongs to a pay_oldest_first BATCH (batch_id
+    set): voiding just one sale's share of a multi-sale repayment while
+    leaving the rest standing is exactly the incoherent partial allocation
+    batch voiding exists to prevent — see void_payment_batch, the ONLY path
+    a batched payment can be reversed through. This is a hard guarantee, not
+    a UI nicety: even a crafted admin bulk-action call lands here and gets
+    refused the same way."""
+    # Lock the row being voided first: two concurrent voids (a double-tapped
+    # admin action) would otherwise both read "not yet voided" and each write a
+    # reversal, subtracting the amount TWICE and leaving the client with a
+    # phantom credit. The DB's payment_one_reversal_per_payment unique
+    # constraint backs this up even for a caller that bypasses this function.
+    locked = Payment.objects.select_for_update().get(pk=payment.pk)
+    if locked.batch_id:
+        raise ValidationError(_("This payment is part of a batch — void the whole batch instead."))
+    if locked.reversed_payment_id:
+        raise ValidationError(_("This payment is already a reversal — nothing to void."))
+    if Payment.objects.filter(reversed_payment_id=locked.pk).exists():
+        raise ValidationError(_("This payment has already been voided."))
+    if locked.reviewed and not (user and user.is_superuser):
+        raise ValidationError(_("Voiding a reviewed payment requires a superuser."))
+    return _create_reversal(locked, user=user)
+
+
+@transaction.atomic
+def void_payment_batch(batch_id, user=None) -> list[Payment]:
+    """Void an entire pay_oldest_first batch as ONE atomic unit — all or
+    nothing, each payment reversed at its OWN frozen rate via the existing
+    _create_reversal (never a second reversal implementation). The whole
+    thing is one transaction: if voiding ANY payment in the batch somehow
+    failed partway through, the entire batch rolls back rather than leaving
+    a partial reversal — a client's balance must never reflect "some of
+    that payment came back but not all of it".
+
+    void_payment itself refuses to void a single payment that carries a
+    batch_id (see its own docstring) — this function is the ONLY path a
+    batched payment can be reversed through, so a partial void of a batch
+    isn't just discouraged by convention, there is no code path that
+    produces one."""
+    if not batch_id:
+        raise ValidationError(_("No batch to void."))
+    # reversed_payment_id__isnull=True excludes reversal rows themselves —
+    # this is "every ORIGINAL payment in the batch", never a reversal that
+    # happens to share the same batch_id.
+    originals = list(
+        Payment.objects.select_for_update()
+        .filter(batch_id=batch_id, reversed_payment_id__isnull=True)
+        .order_by("pk")
+    )
+    if not originals:
+        raise ValidationError(_("No payments found for this batch."))
+    already_voided_ids = set(
+        Payment.objects.filter(reversed_payment_id__in=[p.pk for p in originals]).values_list(
+            "reversed_payment_id", flat=True
+        )
+    )
+    to_void = [p for p in originals if p.pk not in already_voided_ids]
+    if not to_void:
+        raise ValidationError(_("This batch has already been voided."))
+    for p in to_void:
+        if p.reviewed and not (user and user.is_superuser):
+            raise ValidationError(
+                _("Batch includes an already-reviewed payment — voiding requires a superuser.")
+            )
+    return [_create_reversal(p, user=user) for p in to_void]

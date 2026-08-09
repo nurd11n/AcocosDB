@@ -282,6 +282,10 @@ msgstr "язык бота"
 msgid "human handoff until"
 msgstr "человеку до"
 
+#: apps/clients/models.py:57
+msgid "do not remind"
+msgstr "не напоминать"
+
 #: apps/clients/models.py:49 apps/core/models.py:98 apps/inbox/models.py:14
 #: apps/inventory/models.py:35 apps/inventory/models.py:143
 msgid "active"
@@ -314,6 +318,30 @@ msgstr "взаимодействие"
 #: apps/clients/models.py:96
 msgid "interactions"
 msgstr "взаимодействия"
+
+#: apps/clients/models.py:158
+msgid "as of date"
+msgstr "на дату"
+
+#: apps/clients/models.py:171
+msgid "opening balance"
+msgstr "начальный долг"
+
+#: apps/clients/models.py:172
+msgid "opening balances"
+msgstr "начальные долги"
+
+#: apps/clients/models.py:235
+msgid "purchase date"
+msgstr "дата покупки"
+
+#: apps/clients/models.py:255
+msgid "historical purchase"
+msgstr "покупка до системы"
+
+#: apps/clients/models.py:256
+msgid "historical purchases"
+msgstr "покупки до системы"
 
 #: apps/core/admin.py:20 apps/core/models.py:24 apps/core/models.py:66
 #: apps/inventory/models.py:134 apps/orders/models.py:48
@@ -1014,6 +1042,11 @@ msgstr ""
 "Здравствуйте, %(name)s! Напоминаем о задолженности %(amounts)s. Спасибо! — "
 "ACOCOS"
 
+#: apps/pos/messaging.py:67
+#, python-format
+msgid "%(name)s, ваша выписка на %(date)s. Остаток: %(amount)s."
+msgstr "%(name)s, ваша выписка на %(date)s. Остаток: %(amount)s."
+
 #: apps/pos/templatetags/pos_extras.py:14 apps/reports/client_export.py:45
 #: templates/pos/client_detail.html:54
 msgid "долг"
@@ -1120,6 +1153,10 @@ msgstr "Чек отправлен"
 #: apps/pos/views.py:1464
 msgid "Напоминание о долге"
 msgstr "Напоминание о долге"
+
+#: apps/pos/views.py:1982
+msgid "Выписка отправлена"
+msgstr "Выписка отправлена"
 
 #: apps/reports/apps.py:8
 msgid "Reports"
@@ -1299,6 +1336,21 @@ msgstr "конвертация"
 msgid "Void selected payments (creates a reversing entry)"
 msgstr "Аннулировать выбранные платежи (создаёт обратную запись)"
 
+#: apps/sales/admin.py:554
+msgid "Void payments"
+msgstr "Аннулирование платежей"
+
+#: apps/sales/admin.py:555
+msgid ""
+"Each payment below gets a reversing entry — the client's debt changes "
+"immediately. This cannot be undone from here. A payment that's part of a "
+"multi-sale repayment voids the WHOLE batch, not just the selected row."
+msgstr ""
+"Каждый выбранный платёж получает аннулирующую запись — долг клиента "
+"меняется немедленно. Отменить это отсюда нельзя. Платёж, входящий в "
+"оплату нескольких продаж, аннулирует ВСЮ партию целиком, а не только "
+"выбранную строку."
+
 #: apps/sales/admin.py:500
 #, python-format
 msgid "Voided %(n)s payment(s)."
@@ -1455,6 +1507,10 @@ msgstr "дата проверки"
 msgid "reverses payment"
 msgstr "аннулирует платёж"
 
+#: apps/sales/models.py:448
+msgid "batch"
+msgstr "партия"
+
 #: apps/sales/models.py:451
 msgid "Set automatically when this row voids an earlier payment."
 msgstr ""
@@ -1526,6 +1582,10 @@ msgstr ""
 msgid "Only approved sales can be settled."
 msgstr "Погасить можно только одобрённую продажу."
 
+#: apps/sales/services.py:798
+msgid "This payment is part of a batch — void the whole batch instead."
+msgstr "Этот платёж входит в партию — аннулируйте всю партию целиком."
+
 #: apps/sales/services.py:612
 msgid "This payment is already a reversal — nothing to void."
 msgstr "Этот платёж уже является аннулированием — аннулировать нечего."
@@ -1537,6 +1597,18 @@ msgstr "Этот платёж уже аннулирован."
 #: apps/sales/services.py:616
 msgid "Voiding a reviewed payment requires a superuser."
 msgstr "Аннулирование проверенного платежа требует прав суперпользователя."
+
+#: apps/sales/services.py:824
+msgid "No batch to void."
+msgstr "Нет партии для аннулирования."
+
+#: apps/sales/services.py:834
+msgid "No payments found for this batch."
+msgstr "Платежи для этой партии не найдены."
+
+#: apps/sales/services.py:842
+msgid "This batch has already been voided."
+msgstr "Эта партия уже аннулирована."
 
 #: apps/sales/services.py:632
 #, python-format

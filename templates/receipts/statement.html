@@ -1,0 +1,126 @@
+{% load i18n pos_extras %}
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>{% trans "Выписка" %} — ACOCOS</title>
+<link rel="stylesheet" href="{{ receipt_css_path }}">
+</head>
+<body>
+<div class="receipt">
+ <table class="receipt__header">
+  <tr>
+   <td class="receipt__wordmark" width="55%">ACOCOS</td>
+   <td class="receipt__badge-cell" width="45%">
+    {% comment %}
+    Same word-only pill as the receipt (see receipt.css's top comment on
+    why padding here is &nbsp;&nbsp; rather than CSS padding). The badge
+    shows the WORST state across every currency section below — any real
+    debt anywhere outranks a credit, which outranks fully settled — since
+    it's a glance-level cue; the actual per-currency figures are never
+    ambiguous.
+    {% endcomment %}
+    <table class="receipt__badge-table" align="right"><tr>
+    {% if status == "debt" %}
+    <td class="receipt__badge receipt__badge--debt">&nbsp;&nbsp;{% trans "ДОЛГ" %}&nbsp;&nbsp;</td>
+    {% elif status == "credit" %}
+    <td class="receipt__badge receipt__badge--paid">&nbsp;&nbsp;{% trans "АВАНС" %}&nbsp;&nbsp;</td>
+    {% else %}
+    <td class="receipt__badge receipt__badge--paid">&nbsp;&nbsp;{% trans "ОПЛАЧЕНО" %}&nbsp;&nbsp;</td>
+    {% endif %}
+    </tr></table>
+   </td>
+  </tr>
+ </table>
+
+ <table class="receipt__signature"><tr>
+  <td width="24%" class="receipt__signature-bar">&nbsp;</td>
+  <td width="76%">&nbsp;</td>
+ </tr></table>
+
+ <p class="receipt__meta">
+  {% trans "Выписка" %}{% if client_name %} · {{ client_name }}{% endif %}
+  {% if date_from %} · {% trans "с" %} {{ date_from|date:"d.m.Y" }}{% endif %}
+  {% if date_to %} · {% trans "по" %} {{ date_to|date:"d.m.Y" }}{% endif %}
+ </p>
+
+ {% for currency, section in sections.items %}
+ <p class="receipt__section-title">{{ currency }}</p>
+
+ {# Same width= attribute rule as the receipt's item table — see receipt.css's top comment. #}
+ {# Every <td> below must stay non-empty (&nbsp; if blank) — a truly empty cell collapses the whole column's width. #}
+ <table class="receipt__table">
+  <thead>
+   <tr>
+    {% comment %}
+    Widths MEASURED (reportlab.pdfmetrics.stringWidth at 10.5pt DejaVu
+    Sans), not guessed: "09.08.2026" alone is 60.1pt — a 12% column
+    (57.8pt) is narrower than the text itself, so the date ran straight
+    into ОПИСАНИЕ with no gap at all. 16% (77.1pt, ~65pt after the cell's
+    own right padding) clears it with real margin. The three money columns
+    are sized for signed 6-digit amounts ("−999 999 сом" = 75.7pt) at 20%
+    (96.4pt, ~84pt after padding) — comfortable for any realistic client
+    balance; ОПИСАНИЕ (spaces in it) wraps to a second line for a long
+    description instead of overflowing, same as the receipt's product-name
+    column, so it doesn't need the same hard guarantee.
+    {% endcomment %}
+    <th width="16%">{% trans "ДАТА" %}</th>
+    <th width="24%">{% trans "ОПИСАНИЕ" %}</th>
+    <th width="20%" class="num">{% trans "СУММА" %}</th>
+    <th width="20%" class="num">{% trans "ОПЛАТА" %}</th>
+    <th width="20%" class="num">{% trans "ОСТАТОК" %}</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% if section.opening %}
+   <tr class="receipt__ledger-opening">
+    <td>{% if date_from %}{{ date_from|date:"d.m.Y" }}{% else %}&nbsp;{% endif %}</td>
+    <td>{% trans "Остаток на начало периода" %}</td>
+    <td class="num">&nbsp;</td>
+    <td class="num">&nbsp;</td>
+    <td class="num">{{ section.opening|money:currency }}</td>
+   </tr>
+   {% endif %}
+   {% for row in section.rows %}
+   <tr>
+    <td>{{ row.date|date:"d.m.Y" }}</td>
+    <td>{{ row.description }}{% if row.batch_detail %}{% for d in row.batch_detail %}<br/><span class="receipt__batch-detail">— Чек №{{ d.order.pk }}: {{ d.amount|money:currency }}</span>{% endfor %}{% endif %}</td>
+    <td class="num">{% if row.sale_amount is not None %}{{ row.sale_amount|money:currency }}{% else %}&nbsp;{% endif %}</td>
+    <td class="num">{% if row.payment_amount is not None %}−{{ row.payment_amount|money:currency }}{% else %}&nbsp;{% endif %}</td>
+    <td class="num">{{ row.balance|money:currency }}</td>
+   </tr>
+   {% empty %}
+   {% if not section.opening %}
+   <tr><td colspan="5" class="receipt__empty">{% trans "Нет операций за период" %}</td></tr>
+   {% endif %}
+   {% endfor %}
+  </tbody>
+ </table>
+
+ {% comment %}
+ One-cell outer wrap so this closing line moves to the next page AS ONE
+ UNIT if it doesn't fit — same reportlab-splits-a-multi-row-table-by-default
+ issue the receipt's own totals block hit, see receipt.css's
+ .receipt__totals-wrap comment. A single row has nothing to split it wraps,
+ but the wrap costs nothing and keeps this consistent with every other
+ totals-style block in this document.
+ {% endcomment %}
+ <table class="receipt__totals-wrap"><tr><td>
+ <table class="receipt__summary">
+  <tr class="receipt__total">
+   <td width="80.5%">{% trans "ИТОГО ОСТАТОК" %} ({{ currency }})</td>
+   <td width="17%" class="num">{{ section.closing|money:currency }}</td>
+   <td width="2.5%">&nbsp;</td>
+  </tr>
+ </table>
+ </td></tr></table>
+ {% endfor %}
+
+ <div id="receipt_footer_content">
+  <table class="receipt__footer-rule"><tr><td>&nbsp;</td></tr></table>
+  <p class="receipt__footer-brand">ACOCOS</p>
+  <p class="receipt__footer-contact">{% trans "Спасибо за покупку!" %}{% if contact_line %} · {{ contact_line }}{% endif %}</p>
+ </div>
+</div>
+</body>
+</html>

@@ -12,7 +12,15 @@ urlpatterns = [
     path("rates/save/", views.rate_save, name="rate_save"),
     path("today/", views.today, name="today"),
     path("clients/", views.clients, name="clients"),
+    path("clients/debtors/", views.debtors, name="debtors"),
     path("clients/<int:pk>/", views.client_detail, name="client_detail"),
+    path("clients/<int:pk>/statement/pdf/", views.statement_download, name="statement_download"),
+    path("clients/<int:pk>/statement/send/", views.send_statement, name="send_statement"),
+    path(
+        "clients/<int:pk>/remind/toggle/",
+        views.toggle_do_not_remind,
+        name="toggle_do_not_remind",
+    ),
     path("clients/<int:pk>/debt/pay/", views.client_debt_pay, name="client_debt_pay"),
     path(
         "clients/<int:pk>/debt/pay/confirm/",

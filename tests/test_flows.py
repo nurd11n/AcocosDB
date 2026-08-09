@@ -2,7 +2,8 @@ import hashlib
 import hmac
 import json
 import re
-from datetime import date
+import uuid
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -15,7 +16,7 @@ from django.core.management import call_command
 from django.test import RequestFactory
 from django.utils import timezone
 
-from apps.clients.models import Client, Interaction
+from apps.clients.models import Client, ClientOpeningBalance, HistoricalPurchase, Interaction
 from apps.clients.services import (
     client_credits,
     client_debt,
@@ -46,8 +47,10 @@ from apps.sales.services import (
     compute_change_preview,
     confirm_sale,
     mark_fully_paid,
+    pay_oldest_first,
     record_payment,
     void_payment,
+    void_payment_batch,
 )
 
 pytestmark = pytest.mark.django_db
@@ -354,7 +357,9 @@ def test_client_debt_query_is_scoped_to_one_client_not_the_whole_book(variant):
     assert credits == {}
 
     relevant = [
-        q["sql"] for q in ctx.captured_queries if "sales_saleorder" in q["sql"] or "sales_payment" in q["sql"]
+        q["sql"]
+        for q in ctx.captured_queries
+        if "sales_saleorder" in q["sql"] or "sales_payment" in q["sql"]
     ]
     assert relevant, "expected the debt aggregate queries to run"
     for sql in relevant:
@@ -730,7 +735,9 @@ def test_stats_and_download_require_superuser(client, django_user_model):
     assert resp.content[:3] == b"\xef\xbb\xbf"
 
 
-def test_stats_page_formats_money_with_the_shared_filter(client, django_user_model, variant, settings):
+def test_stats_page_formats_money_with_the_shared_filter(
+    client, django_user_model, variant, settings
+):
     """stats.html used |unlocalize + a bare currency-symbol span instead of
     the app's own `money` filter — CLAUDE.md explicitly forbids "money
     formatted as a bare number + currency code": no NBSP thousands grouping,
@@ -1771,9 +1778,7 @@ def test_payment_inline_rejects_zero_amount_with_russian_message(variant, django
         formset = _payment_inline_formset(order, data, django_user_model)
         assert not formset.is_valid()
         assert any(
-            "больше нуля" in str(e)
-            for form in formset.forms
-            for e in form.errors.get("amount", [])
+            "больше нуля" in str(e) for form in formset.forms for e in form.errors.get("amount", [])
         )
     assert not order.payments.exists()
 
@@ -2308,7 +2313,9 @@ def test_receipt_download_filename_is_sortable_ascii_and_dated(client, django_us
     the one thing guaranteed to work identically on every client device."""
     call_command("setup_roles")
     add_movement(variant, StockMovement.PRODUCTION_IN, 5)
-    viewer = django_user_model.objects.create_user("rcpt_fn_viewer", password="x" * 12, is_staff=True)
+    viewer = django_user_model.objects.create_user(
+        "rcpt_fn_viewer", password="x" * 12, is_staff=True
+    )
     viewer.groups.add(Group.objects.get(name=VIEWER))
     client.force_login(viewer)
 
@@ -2329,9 +2336,7 @@ def test_receipt_download_requires_a_real_permission(client, django_user_model, 
     design token access) — a logged-in user with no sales.view_saleorder
     permission at all must be refused."""
     add_movement(variant, StockMovement.PRODUCTION_IN, 5)
-    nobody = django_user_model.objects.create_user(
-        "rcpt_nobody", password="x" * 12, is_staff=True
-    )
+    nobody = django_user_model.objects.create_user("rcpt_nobody", password="x" * 12, is_staff=True)
     client.force_login(nobody)
     order = SaleOrder.objects.create(currency="KGS")
     SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1000"))
@@ -2366,9 +2371,7 @@ def test_receipt_status_badge_paid_partial_and_debt(variant):
     assert "Остаток" not in html
 
     partial = SaleOrder.objects.create(client=cust, currency="KGS")
-    SaleItem.objects.create(
-        order=partial, variant=variant, quantity=1, unit_price=Decimal("1000")
-    )
+    SaleItem.objects.create(order=partial, variant=variant, quantity=1, unit_price=Decimal("1000"))
     confirm_sale(partial)
     record_payment(partial, Decimal("400"))  # 600 left
     html = render_to_string("receipts/receipt.html", receipt_context(partial))
@@ -2441,6 +2444,310 @@ def _render_receipt_pdf(order) -> bytes:
     buffer = BytesIO()
     pisa.CreatePDF(html, dest=buffer, encoding="utf-8")
     return buffer.getvalue()
+
+
+def _render_statement_pdf(client_obj, date_from=None, date_to=None) -> bytes:
+    """Same path apps.pos.views.statement_download uses, without the HTTP/
+    permission plumbing — mirrors _render_receipt_pdf above."""
+    from io import BytesIO
+    from pathlib import Path
+
+    from django.conf import settings
+    from django.template.loader import render_to_string
+    from xhtml2pdf import pisa
+
+    from apps.pos.statements import statement_context
+
+    css_path = Path(settings.BASE_DIR) / "static" / "pos" / "receipt.css"
+    ctx = statement_context(client_obj, date_from=date_from, date_to=date_to)
+    ctx["receipt_css_path"] = str(css_path)
+    html = render_to_string("receipts/statement.html", ctx)
+    buffer = BytesIO()
+    pisa.CreatePDF(html, dest=buffer, encoding="utf-8")
+    return buffer.getvalue()
+
+
+def test_client_statement_reconciles_opening_purchases_payments_to_closing(variant):
+    """Reproduces the client's real handwritten statement exactly: old debt
+    99 000, purchase 188 000, paid 150 000 -> 137 000 remaining. Also
+    verifies opening + sum(sale_amount) − sum(payment_amount) == closing as
+    a general arithmetic identity — and that the running balance is correct
+    at EVERY row, not just at the end."""
+    from apps.clients.services import client_statement
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 500000)
+    cust = Client.objects.create(first_name="Real", phone="+996700008001")
+
+    old = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=old, variant=variant, quantity=99000, unit_price=Decimal("1"))
+    confirm_sale(old)
+
+    new = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=new, variant=variant, quantity=188000, unit_price=Decimal("1"))
+    confirm_sale(new)
+
+    record_payment(new, Decimal("150000"))
+
+    stmt = client_statement(cust)["KGS"]
+    assert stmt["closing"] == Decimal("137000.00")  # her real example, exactly
+
+    purchases = sum((r["sale_amount"] for r in stmt["rows"] if r["sale_amount"]), Decimal("0"))
+    payments = sum((r["payment_amount"] for r in stmt["rows"] if r["payment_amount"]), Decimal("0"))
+    assert stmt["opening"] + purchases - payments == stmt["closing"]
+
+    running = stmt["opening"]
+    for row in stmt["rows"]:
+        running += (row["sale_amount"] or Decimal("0")) - (row["payment_amount"] or Decimal("0"))
+        assert row["balance"] == running
+
+
+def test_client_statement_closing_matches_client_debts_by_currency_exactly(variant):
+    """The unfiltered closing figure isn't merely equal to
+    client_debts_by_currency's number by coincidence of matching math — it's
+    structurally SOURCED from it (see client_statement's own docstring), so
+    the two can never disagree even if either function's rounding changes
+    independently later."""
+    from apps.clients.services import client_debts_by_currency, client_statement
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 50)
+    cust = Client.objects.create(first_name="Match", phone="+996700008002")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=7, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    record_payment(order, Decimal("9000"))
+
+    stmt = client_statement(cust)
+    debts = client_debts_by_currency(client=cust).get(cust.pk, {})
+    assert stmt["KGS"]["closing"] == debts["KGS"]
+    assert debts["KGS"] > 0  # sanity: this client genuinely owes something
+
+
+def test_client_statement_multi_currency_sections_stay_separate(variant):
+    """A KGS purchase and a USD purchase for the same client must never mix
+    into one balance — each currency is its own independent running total,
+    never live-rate-converted into the other."""
+    from apps.clients.services import client_statement
+
+    usd_variant = ProductVariant.objects.create(
+        product=variant.product,
+        sku="STMT-USD",
+        size="L",
+        color="blue",
+        sale_price=Decimal("10"),
+        cost_price=Decimal("5"),
+        currency="USD",
+    )
+    add_movement(variant, StockMovement.PRODUCTION_IN, 50)
+    add_movement(usd_variant, StockMovement.PRODUCTION_IN, 50)
+    cust = Client.objects.create(first_name="Multi", phone="+996700008003")
+
+    kgs_order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(
+        order=kgs_order, variant=variant, quantity=5, unit_price=Decimal("1000")
+    )
+    confirm_sale(kgs_order)
+
+    usd_order = SaleOrder.objects.create(client=cust, currency="USD")
+    SaleItem.objects.create(
+        order=usd_order, variant=usd_variant, quantity=5, unit_price=Decimal("10")
+    )
+    confirm_sale(usd_order)
+
+    stmt = client_statement(cust)
+    assert set(stmt.keys()) == {"KGS", "USD"}
+    assert stmt["KGS"]["closing"] == Decimal("5000.00")
+    assert stmt["USD"]["closing"] == Decimal("50.00")
+    assert all(r["order"].currency == "KGS" for r in stmt["KGS"]["rows"])
+    assert all(r["order"].currency == "USD" for r in stmt["USD"]["rows"])
+
+
+def test_statement_pdf_figures_match_the_screen(client, django_user_model, variant):
+    """The on-screen client_detail statement and the downloaded PDF must
+    show the IDENTICAL closing balance — both are built from the same
+    client_statement() call (see apps.pos.statements.statement_context),
+    never two independently-shaped views that could drift apart."""
+    from apps.core.currency import format_money
+
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("stmt_pdf_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 50)
+    cust = Client.objects.create(first_name="Screen", phone="+996700008004")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=10, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    record_payment(order, Decimal("12000"))
+
+    from apps.clients.services import client_statement
+
+    expected_closing = client_statement(cust)["KGS"]["closing"]
+    expected_str = format_money(expected_closing, "KGS")
+
+    html_resp = client.get(f"/pos/clients/{cust.pk}/")
+    assert expected_str in html_resp.content.decode()
+
+    import fitz
+
+    pdf_bytes = _render_statement_pdf(cust)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    words = doc[0].get_text("words")
+    # NBSP-grouped thousands split into separate word tokens once extracted
+    # from the PDF (measured — the same quirk the receipt alignment test
+    # documents). Scope the check to the ИТОГО ОСТАТОК row specifically (by
+    # y-coordinate), not the whole page, so this can't accidentally match
+    # digits belonging to a different figure (a date, a Чек number, the
+    # purchase amount on an earlier row).
+    totals_y = next(w[1] for w in words if w[4] == "ИТОГО")
+    row_text = "".join(w[4] for w in words if abs(w[1] - totals_y) < 3)
+    assert str(int(expected_closing)) in row_text
+
+
+def test_statement_download_writes_zero_db_rows(client, django_user_model, variant):
+    """Generating the statement PDF must never write — same row-count
+    guarantee as the receipt (test_receipt_download_pdf_writes_no_db_rows):
+    a saved/cached statement would go stale the moment a new sale or
+    payment changes the numbers, so it's a pure read on every request."""
+    call_command("setup_roles")
+    viewer = django_user_model.objects.create_user("stmt_viewer", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 50)
+    cust = Client.objects.create(first_name="Zero", phone="+996700008005")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=5, unit_price=Decimal("1000"))
+    confirm_sale(order)
+    record_payment(order, Decimal("2000"))
+
+    payment_before = Payment.objects.count()
+    order_before = SaleOrder.objects.count()
+    interaction_before = Interaction.objects.count()
+    client_before = Client.objects.count()
+
+    resp = client.get(f"/pos/clients/{cust.pk}/statement/pdf/")
+    assert resp.status_code == 200
+    assert resp["Content-Type"] == "application/pdf"
+    assert resp.content[:4] == b"%PDF"
+
+    assert Payment.objects.count() == payment_before
+    assert SaleOrder.objects.count() == order_before
+    assert Interaction.objects.count() == interaction_before
+    assert Client.objects.count() == client_before
+
+
+# ---- Phase 2: ClientOpeningBalance (pre-system debt) ----------------------
+
+
+def test_opening_balance_appears_in_client_debt_and_statement(variant):
+    """Reproduces her real handwritten statement using a REAL
+    ClientOpeningBalance row (not a fake sale — a fake sale would corrupt
+    revenue/profit/stock, see confirm_sale): old debt 99 000, purchase
+    188 000, paid 150 000 -> 137 000 remaining, and the statement's first
+    row is «Старый долг», exactly matching her paper ledger's own first
+    line."""
+    from apps.clients.services import client_debts_by_currency, client_statement
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 500000)
+    cust = Client.objects.create(first_name="OpenBal", phone="+996700007001")
+    ClientOpeningBalance.objects.create(
+        client=cust,
+        amount=Decimal("99000"),
+        currency="KGS",
+        as_of_date=date(2026, 1, 1),
+        note="pre-system debt",
+    )
+
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=188000, unit_price=Decimal("1"))
+    confirm_sale(order)
+    record_payment(order, Decimal("150000"))
+
+    debts = client_debts_by_currency(client=cust).get(cust.pk, {})
+    assert debts["KGS"] == Decimal("137000.00")
+
+    stmt = client_statement(cust)["KGS"]
+    assert stmt["closing"] == Decimal("137000.00")
+    assert stmt["rows"][0]["kind"] == "opening_balance"
+    assert stmt["rows"][0]["description"] == "Старый долг"
+    assert stmt["rows"][0]["sale_amount"] == Decimal("99000.00")
+
+
+def test_opening_balance_excluded_from_revenue_profit_units_and_received(variant):
+    """A client with ONLY a pre-system debt (no sales, no payments at all)
+    must move EVERY dashboard money metric by exactly zero — asserted
+    against apps.reports.dashboard.dashboard_data() directly, not just the
+    model, since revenue/profit/units come from SaleOrder/SaleItem and
+    «Получено» from Payment, and a ClientOpeningBalance writes to none of
+    those tables (see the model's own docstring on why it's neither)."""
+    from apps.reports.dashboard import dashboard_data
+
+    before = dashboard_data("today")["metrics"]
+
+    cust = Client.objects.create(first_name="Ghost", phone="+996700007002")
+    ClientOpeningBalance.objects.create(
+        client=cust, amount=Decimal("500000"), currency="KGS", as_of_date=timezone.localdate()
+    )
+
+    after = dashboard_data("today")["metrics"]
+    assert after["revenue"]["value"] == before["revenue"]["value"]
+    assert after["profit"]["value"] == before["profit"]["value"]
+    assert after["units"]["value"] == before["units"]["value"]
+    assert after["received"]["value"] == before["received"]["value"]
+
+    # And it DOES show up as real debt on the client's own page.
+    from apps.clients.services import client_debt
+
+    assert client_debt(cust)["KGS"] == Decimal("500000.00")
+
+
+def test_opening_balance_per_currency_stays_separate(variant):
+    """A KGS opening balance must never leak into a USD debt figure, or
+    vice versa — same "never live-rate-convert, never mix currencies" rule
+    as everywhere else in this app."""
+    from apps.clients.services import client_debts_by_currency
+
+    cust = Client.objects.create(first_name="Split", phone="+996700007003")
+    ClientOpeningBalance.objects.create(
+        client=cust, amount=Decimal("10000"), currency="KGS", as_of_date=date(2026, 1, 1)
+    )
+    ClientOpeningBalance.objects.create(
+        client=cust, amount=Decimal("50"), currency="USD", as_of_date=date(2026, 1, 1)
+    )
+
+    debts = client_debts_by_currency(client=cust)[cust.pk]
+    assert debts["KGS"] == Decimal("10000.00")
+    assert debts["USD"] == Decimal("50.00")
+
+
+def test_editor_crafted_post_to_add_opening_balance_is_403(client, django_user_model):
+    """A money-affecting control, same tier as ExchangeRate's manual
+    override — a crafted POST to the raw admin add-form must be refused
+    regardless of the Editor's Django permissions (the exact S1-class
+    exploit pattern test_editor_crafted_post_to_add_stockmovement_is_403
+    guards against for stock)."""
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("editor_ob", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    cust = Client.objects.create(first_name="Blocked", phone="+996700007004")
+
+    resp = client.get("/panel/clients/clientopeningbalance/add/")
+    assert resp.status_code == 403
+
+    resp = client.post(
+        "/panel/clients/clientopeningbalance/add/",
+        {
+            "client": str(cust.pk),
+            "amount": "999999",
+            "currency": "KGS",
+            "as_of_date": "2026-01-01",
+        },
+    )
+    assert resp.status_code == 403
+    assert not ClientOpeningBalance.objects.filter(client=cust).exists()
 
 
 def test_receipt_totals_reconcile_exactly(variant):
@@ -2606,7 +2913,9 @@ def test_receipt_status_badge_grayscale_legible(variant):
     assert badge_words, "status word must be real text, not an image"
     x0, y0, x1, y1 = badge_words[0][:4]
 
-    gray = page.get_pixmap(dpi=150, colorspace=fitz.csGRAY, clip=fitz.Rect(x0 - 6, y0 - 4, x1 + 6, y1 + 4))
+    gray = page.get_pixmap(
+        dpi=150, colorspace=fitz.csGRAY, clip=fitz.Rect(x0 - 6, y0 - 4, x1 + 6, y1 + 4)
+    )
     pixels = gray.samples
     assert any(p < 250 for p in pixels), "badge region is blank in grayscale"
 
@@ -2891,7 +3200,9 @@ def test_dashboard_booked_vs_received_vs_expected(variant, settings):
     assert m2["revenue"]["value"] == m2["received"]["value"] + m2["expected"]["value"]
 
 
-def test_dashboard_expected_surplus_state_is_clearly_labelled(client, django_user_model, variant, settings):
+def test_dashboard_expected_surplus_state_is_clearly_labelled(
+    client, django_user_model, variant, settings
+):
     """When more OLD debt is collected today than NEW revenue is booked
     today, `expected` (revenue - received) goes negative — real signal, not
     a bug (see apps.reports.dashboard._metrics's docstring) — but a bare
@@ -4112,9 +4423,9 @@ def test_blocked_requests_do_not_write_one_security_event_each(client, settings)
 
     assert written <= 1, f"{written} rows written for 50 blocked requests — write amplification"
     # ...but the block IS still recorded, so the digest can still see it.
-    assert (
-        SecurityEvent.objects.filter(event_type=SecurityEvent.RATE_LIMITED).count() >= 1
-    ), "the block must still be recorded once — silence would hide a real attack"
+    assert SecurityEvent.objects.filter(event_type=SecurityEvent.RATE_LIMITED).count() >= 1, (
+        "the block must still be recorded once — silence would hide a real attack"
+    )
 
 
 def test_rate_limit_decorator_preserves_view_attributes():
@@ -4183,7 +4494,9 @@ def test_receipt_download_rate_limited_per_ip(client, django_user_model, variant
     office IP (see receipt_download's docstring)."""
     call_command("setup_roles")
     add_movement(variant, StockMovement.PRODUCTION_IN, 5)
-    viewer = django_user_model.objects.create_user("rcpt_rl_viewer", password="x" * 12, is_staff=True)
+    viewer = django_user_model.objects.create_user(
+        "rcpt_rl_viewer", password="x" * 12, is_staff=True
+    )
     viewer.groups.add(Group.objects.get(name=VIEWER))
     client.force_login(viewer)
 
@@ -4985,6 +5298,164 @@ def test_void_foreign_payment_restores_debt_to_exact_pre_payment_value(variant, 
 
     void_payment(payment)
     assert client_debt(cust) == debt_before  # exactly restored, unaffected by the new rate
+
+
+def test_voiding_batch_restores_exact_prior_balance_across_all_affected_sales(variant):
+    """A pay_oldest_first batch spanning two sales voids as one event and
+    restores BOTH sales' own balances exactly, not just the client's
+    aggregate debt."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="Bat", phone="+996700000901")
+    order1 = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order1, variant=variant, quantity=1, unit_price=Decimal("3000"))
+    confirm_sale(order1)
+    order2 = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order2, variant=variant, quantity=1, unit_price=Decimal("5000"))
+    confirm_sale(order2)
+
+    debt_before = client_debt(cust)
+    assert debt_before == {"KGS": Decimal("8000.00")}
+
+    payments = pay_oldest_first(cust, "KGS", Decimal("8000"))
+    assert len(payments) == 2
+    batch_id = payments[0].batch_id
+    assert batch_id is not None and payments[1].batch_id == batch_id
+    assert client_debt(cust) == {}
+    order1.refresh_from_db()
+    order2.refresh_from_db()
+    assert order1.balance == Decimal("0")
+    assert order2.balance == Decimal("0")
+
+    void_payment_batch(batch_id)
+
+    order1.refresh_from_db()
+    order2.refresh_from_db()
+    assert order1.balance == Decimal("3000.00")
+    assert order2.balance == Decimal("5000.00")
+    assert client_debt(cust) == debt_before
+
+
+def test_partial_void_of_a_batch_is_impossible(variant):
+    """Neither void_payment on a single batch member nor a second call to
+    void_payment_batch can leave a batch half-reversed — there is no code
+    path that produces a partial void."""
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="Bat2", phone="+996700000902")
+    order1 = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order1, variant=variant, quantity=1, unit_price=Decimal("2000"))
+    confirm_sale(order1)
+    order2 = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order2, variant=variant, quantity=1, unit_price=Decimal("4000"))
+    confirm_sale(order2)
+
+    payments = pay_oldest_first(cust, "KGS", Decimal("6000"))
+    batch_id = payments[0].batch_id
+
+    with pytest.raises(ValidationError):
+        void_payment(payments[0])
+    with pytest.raises(ValidationError):
+        void_payment(payments[1])
+    order1.refresh_from_db()
+    order2.refresh_from_db()
+    assert order1.balance == Decimal("0")
+    assert order2.balance == Decimal("0")
+
+    reversals = void_payment_batch(batch_id)
+    assert len(reversals) == 2
+    assert Payment.objects.filter(batch_id=batch_id, reversed_payment_id__isnull=False).count() == 2
+
+    with pytest.raises(ValidationError):
+        void_payment_batch(batch_id)
+
+
+def test_batch_void_restores_debt_exactly_after_a_rate_change(variant, settings):
+    """A foreign-currency batch voids correctly even after the live rate has
+    since moved: void_payment_batch never re-looks-up today's rate, it just
+    replays each frozen payment rate in reverse."""
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("80.00"))
+    cust = Client.objects.create(first_name="Bat3", phone="+996700000903")
+    order1 = SaleOrder.objects.create(client=cust, currency="USD")
+    SaleItem.objects.create(order=order1, variant=variant, quantity=1, unit_price=Decimal("50"))
+    confirm_sale(order1)
+    order2 = SaleOrder.objects.create(client=cust, currency="USD")
+    SaleItem.objects.create(order=order2, variant=variant, quantity=1, unit_price=Decimal("30"))
+    confirm_sale(order2)
+
+    debt_before = client_debt(cust)
+    assert debt_before == {"USD": Decimal("80.00")}
+
+    payments = pay_oldest_first(cust, "USD", Decimal("80"))
+    batch_id = payments[0].batch_id
+    assert client_debt(cust) == {}
+
+    # The rate moves significantly AFTER the batch was paid.
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("200.00"))
+
+    void_payment_batch(batch_id)
+    assert client_debt(cust) == debt_before
+    order1.refresh_from_db()
+    order2.refresh_from_db()
+    assert order1.balance == Decimal("50.00")
+    assert order2.balance == Decimal("30.00")
+
+
+def test_batch_reversal_uses_each_payments_own_frozen_rate(variant, settings):
+    """Two payments in the SAME batch, snapshotted at two DIFFERENT rates,
+    each reverse using their OWN frozen rate_to_kgs — never a shared or
+    live one. Constructed directly via record_payment(batch_id=...) (the
+    same parameter pay_oldest_first uses) to force the rates apart, since a
+    real pay_oldest_first call always lands both payments in one atomic
+    transaction at whatever the single current rate is."""
+    from django.core.cache import cache
+
+    cache.clear()
+    settings.CURRENCY = "KGS"
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("80.00"))
+    cust = Client.objects.create(first_name="Bat4", phone="+996700000904")
+    order1 = SaleOrder.objects.create(client=cust, currency="USD")
+    SaleItem.objects.create(order=order1, variant=variant, quantity=1, unit_price=Decimal("100"))
+    confirm_sale(order1)
+    order2 = SaleOrder.objects.create(client=cust, currency="USD")
+    SaleItem.objects.create(order=order2, variant=variant, quantity=1, unit_price=Decimal("100"))
+    confirm_sale(order2)
+
+    debt_before = client_debt(cust)
+    assert debt_before == {"USD": Decimal("200.00")}
+
+    batch_id = uuid.uuid4()
+    p1 = record_payment(order1, Decimal("100"), currency="USD", batch_id=batch_id)
+    assert p1.rate_to_kgs == Decimal("80.00")
+
+    # A lower rate (not higher) — a same-nominal-amount payment at a HIGHER
+    # rate than the order's own frozen rate reads as an overpayment in KGS
+    # terms and record_payment rightly refuses it without an explicit
+    # excess disposition; a lower rate leaves a real (smaller) balance
+    # instead, which is enough to prove the per-payment rate independently.
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("60.00"))
+    cache.clear()  # a real rate refresh clears this via signal; bulk update bypassed it
+    p2 = record_payment(order2, Decimal("100"), currency="USD", batch_id=batch_id)
+    assert p2.rate_to_kgs == Decimal("60.00")
+    order2.refresh_from_db()
+    assert order2.balance == Decimal("25.00")  # (100 × 60) / 80 = 75 contributed, not 100
+
+    # A third, unrelated rate move before voiding — proves neither reversal
+    # picks up a fresh live rate.
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("200.00"))
+    cache.clear()
+
+    reversals = void_payment_batch(batch_id)
+    by_original = {r.reversed_payment_id: r for r in reversals}
+    assert by_original[p1.pk].rate_to_kgs == Decimal("80.00")
+    assert by_original[p2.pk].rate_to_kgs == Decimal("60.00")
+
+    order1.refresh_from_db()
+    order2.refresh_from_db()
+    assert order1.balance == Decimal("100.00")
+    assert order2.balance == Decimal("100.00")
+    assert client_debt(cust) == debt_before
 
 
 def test_rates_card_shows_date_and_stale_badge_past_four_days(client, django_user_model, settings):
@@ -7330,9 +7801,7 @@ def test_debt_pay_detail_shows_item_list(client, django_user_model, variant):
     assert "6\xa0400" in body  # 2 × 3200 line total
 
 
-def test_debt_pay_detail_shows_resend_receipt_only_with_a_phone(
-    client, django_user_model, variant
-):
+def test_debt_pay_detail_shows_resend_receipt_only_with_a_phone(client, django_user_model, variant):
     """«Отправить чек ещё раз» reuses the existing share_receipt path — it
     must only appear when there's actually a phone to send it to."""
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
@@ -7393,9 +7862,9 @@ def test_record_payment_concurrent_double_tap_settles_exactly_once(variant):
     from django.db.utils import OperationalError
 
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
-    order = SaleOrder.objects.create(client=Client.objects.create(
-        first_name="Race", phone="+996700005099"
-    ))
+    order = SaleOrder.objects.create(
+        client=Client.objects.create(first_name="Race", phone="+996700005099")
+    )
     SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
     confirm_sale(order)
 
@@ -7451,7 +7920,9 @@ def test_debt_pay_confirm_partial_updates_sale_and_client_debt(client, django_us
     assert client_debt(cust) == {"KGS": Decimal("2000.00")}
 
 
-def test_debt_pay_confirm_foreign_currency_uses_frozen_rate(client, django_user_model, variant, settings):
+def test_debt_pay_confirm_foreign_currency_uses_frozen_rate(
+    client, django_user_model, variant, settings
+):
     settings.CURRENCY = "KGS"
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     ExchangeRate.objects.create(currency="USD", date=timezone.localdate(), rate=Decimal("87.00"))
@@ -7494,9 +7965,7 @@ def test_debt_pay_viewer_forbidden(client, django_user_model, variant):
 
     resp = client.get(f"/pos/sale/{order.pk}/debt/")
     assert resp.status_code == 403
-    resp = client.post(
-        f"/pos/sale/{order.pk}/debt/confirm/", {"amount": "1000", "currency": "KGS"}
-    )
+    resp = client.post(f"/pos/sale/{order.pk}/debt/confirm/", {"amount": "1000", "currency": "KGS"})
     assert resp.status_code == 403
     assert not order.payments.exists()
 
@@ -8668,9 +9137,7 @@ def test_admin_cancel_sale_action_asks_before_cancelling(client, django_user_mod
     assert variant.stock == 8
 
     changelist = "/panel/sales/saleorder/"
-    resp = client.post(
-        changelist, {"action": "cancel_selected", "_selected_action": [order.pk]}
-    )
+    resp = client.post(changelist, {"action": "cancel_selected", "_selected_action": [order.pk]})
     assert resp.status_code == 200
     assert "cannot be undone" in resp.content.decode() or "Cancel sales" in resp.content.decode()
     order.refresh_from_db()
@@ -8958,9 +9425,9 @@ def test_bulk_upload_ten_images_succeeds(client, django_user_model):
     assert ProductImage.objects.filter(product=product).count() == 10
     # Upload order is preserved as sequential positions (see _next_image_position).
     positions = list(
-        ProductImage.objects.filter(product=product).order_by("position").values_list(
-            "position", flat=True
-        )
+        ProductImage.objects.filter(product=product)
+        .order_by("position")
+        .values_list("position", flat=True)
     )
     assert positions == list(range(10))
 
@@ -9100,3 +9567,373 @@ def test_product_image_inline_formset_also_rejects_oversized_file(client, django
     assert resp.status_code == 200  # redisplayed with a form error, not saved
     assert "МБ" in resp.content.decode()
     assert ProductImage.objects.filter(product=product).count() == 0
+
+
+# ---- Phase 5: send the statement like she does today, Должники worklist ---
+
+
+def test_send_statement_message_contains_no_url(client, django_user_model, variant):
+    """«Отправить выписку» opens WhatsApp with the headline figure only —
+    no link, no domain, no token ever sent to a client (same rule as the
+    receipt share text)."""
+    from urllib.parse import parse_qs, unquote, urlsplit
+
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("stmt_send_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="Данара", phone="+996700009001")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("32000"))
+    confirm_sale(order)
+
+    resp = client.post(f"/pos/clients/{cust.pk}/statement/send/")
+    assert resp.status_code == 302
+    location = resp["Location"]
+    assert location.startswith("https://wa.me/")
+    text = unquote(parse_qs(urlsplit(location).query)["text"][0])
+    assert "http" not in text
+    assert "www." not in text
+    assert "Данара" in text
+    assert "Остаток" in text
+
+
+def test_send_statement_fires_even_at_zero_balance(client, django_user_model, variant):
+    """Unlike debt_reminder, the statement is informational — it must still
+    send (showing a zero/settled balance) for a fully-paid client, never
+    silently no-op the way a debt nudge correctly does."""
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("stmt_zero_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    cust = Client.objects.create(first_name="Чистый", phone="+996700009002")
+    resp = client.post(f"/pos/clients/{cust.pk}/statement/send/")
+    assert resp.status_code == 302
+    assert resp["Location"].startswith("https://wa.me/")
+
+
+def test_send_statement_logs_interaction(client, django_user_model, variant):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("stmt_log_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    cust = Client.objects.create(first_name="Логи", phone="+996700009003")
+    before = Interaction.objects.count()
+    client.post(f"/pos/clients/{cust.pk}/statement/send/")
+    assert Interaction.objects.count() == before + 1
+    assert Interaction.objects.filter(client=cust, note="Выписка отправлена").exists()
+
+
+def test_viewer_cannot_send_statement_or_toggle_reminder(client, django_user_model):
+    call_command("setup_roles")
+    viewer = django_user_model.objects.create_user("stmt_viewer2", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+    client.force_login(viewer)
+
+    cust = Client.objects.create(first_name="Вьюер", phone="+996700009004")
+    resp = client.post(f"/pos/clients/{cust.pk}/statement/send/")
+    assert resp.status_code == 403
+    resp2 = client.post(f"/pos/clients/{cust.pk}/remind/toggle/")
+    assert resp2.status_code == 403
+    # Read-only access to the worklist itself IS allowed.
+    resp3 = client.get("/pos/clients/debtors/")
+    assert resp3.status_code == 200
+
+
+def test_debtors_view_matches_client_debts_by_currency_exactly(client, django_user_model, variant):
+    from apps.clients.services import client_debts_by_currency
+
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user(
+        "debtors_view_ed", password="x" * 12, is_staff=True
+    )
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    debtor = Client.objects.create(first_name="Должник", phone="+996700009005")
+    order = SaleOrder.objects.create(client=debtor, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("4400"))
+    confirm_sale(order)
+
+    settled = Client.objects.create(first_name="Расплатился", phone="+996700009006")
+    order2 = SaleOrder.objects.create(client=settled, currency="KGS")
+    SaleItem.objects.create(order=order2, variant=variant, quantity=1, unit_price=Decimal("1000"))
+    confirm_sale(order2)
+    record_payment(order2, Decimal("1000"))
+
+    resp = client.get("/pos/clients/debtors/")
+    assert resp.status_code == 200
+    content = resp.content.decode()
+
+    expected = client_debts_by_currency(client=debtor).get(debtor.pk, {})
+    assert expected == {"KGS": Decimal("4400.00")}
+    from apps.core.currency import format_money
+
+    assert debtor.name in content
+    assert format_money(expected["KGS"], "KGS") in content
+    # A settled client (debt cleared) must NOT appear on the worklist.
+    assert settled.name not in content
+
+
+def test_debtors_view_writes_zero_db_rows(client, django_user_model, variant):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user(
+        "debtors_zerodb_ed", password="x" * 12, is_staff=True
+    )
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="НульЗапись", phone="+996700009007")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("2000"))
+    confirm_sale(order)
+
+    payment_before = Payment.objects.count()
+    order_before = SaleOrder.objects.count()
+    interaction_before = Interaction.objects.count()
+    client_before = Client.objects.count()
+
+    resp = client.get("/pos/clients/debtors/")
+    assert resp.status_code == 200
+
+    assert Payment.objects.count() == payment_before
+    assert SaleOrder.objects.count() == order_before
+    assert Interaction.objects.count() == interaction_before
+    assert Client.objects.count() == client_before
+
+
+def test_do_not_remind_toggle_hides_action_and_is_reversible(client, django_user_model, variant):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("dnr_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    cust = Client.objects.create(first_name="Скип", phone="+996700009008")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("1500"))
+    confirm_sale(order)
+
+    resp = client.get("/pos/clients/debtors/")
+    assert "Не напоминать" in resp.content.decode()
+
+    client.post(f"/pos/clients/{cust.pk}/remind/toggle/")
+    cust.refresh_from_db()
+    assert cust.do_not_remind is True
+
+    resp2 = client.get("/pos/clients/debtors/")
+    assert "Напоминать" in resp2.content.decode()
+    # The debt itself, and «Выписка», are UNAFFECTED by the flag — only the
+    # reminder action is skipped (see Client.do_not_remind's own docstring).
+    assert cust.name in resp2.content.decode()
+
+    client.post(f"/pos/clients/{cust.pk}/remind/toggle/")
+    cust.refresh_from_db()
+    assert cust.do_not_remind is False
+
+
+# ---- HistoricalPurchase: pre-system purchase history -----------------------
+
+
+def test_historical_purchase_appears_in_purchase_history_marked_pre_system(
+    client, django_user_model, variant
+):
+    """A HistoricalPurchase row shows up merged into «История покупок»,
+    marked «до системы», never confused with a real (stock-backed) sale."""
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("hp_view_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    cust = Client.objects.create(first_name="История", phone="+996700010001")
+    HistoricalPurchase.objects.create(
+        client=cust,
+        purchase_date=date(2025, 3, 15),
+        description="3 вечерних платья L, 2 карнавальных костюма",
+        amount=Decimal("45000"),
+        currency="KGS",
+    )
+
+    resp = client.get(f"/pos/clients/{cust.pk}/")
+    html = resp.content.decode()
+    assert "3 вечерних платья L, 2 карнавальных костюма" in html
+    assert "до системы" in html
+    assert "15.03.2025" in html
+
+
+def test_historical_purchase_excluded_from_debt_revenue_and_stock(variant):
+    """A HistoricalPurchase is purely informational: it must NEVER appear in
+    client_debt/client_debts_by_currency, and creating one must never touch
+    stock (it isn't a SaleOrder, isn't linked to a ProductVariant at all)."""
+    from apps.clients.services import client_debt
+
+    stock_before = variant.stock
+    cust = Client.objects.create(first_name="БезДолга", phone="+996700010002")
+    HistoricalPurchase.objects.create(
+        client=cust,
+        purchase_date=date(2025, 1, 1),
+        description="Старая покупка",
+        amount=Decimal("10000"),
+        currency="KGS",
+    )
+    assert client_debt(cust) == {}
+    assert variant.stock == stock_before  # untouched — this model has no FK to it at all
+
+
+def test_historical_purchase_and_real_sales_sort_together_by_date(
+    client, django_user_model, variant
+):
+    """Real sales and historical purchases interleave chronologically in
+    «История покупок» rather than being shown as two separate, unordered
+    blocks."""
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("hp_sort_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Сортировка", phone="+996700010003")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order)
+    record_payment(order, Decimal("3200"))  # fully paid -> appears in История покупок
+
+    HistoricalPurchase.objects.create(
+        client=cust,
+        purchase_date=date(2020, 1, 1),  # long before the real sale
+        description="Старое платье",
+        amount=Decimal("2000"),
+        currency="KGS",
+    )
+
+    resp = client.get(f"/pos/clients/{cust.pk}/")
+    html = resp.content.decode()
+    real_pos = html.index(f"/pos/sale/{order.pk}/result/")  # the real sale's own row link
+    hist_pos = html.index("Старое платье")
+    assert hist_pos > real_pos  # the older (2020) historical row renders AFTER the newer real sale
+
+
+def test_editor_crafted_post_to_add_historical_purchase_is_403(client, django_user_model):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("hp_403_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    cust = Client.objects.create(first_name="Крафт", phone="+996700010004")
+    resp = client.get("/panel/clients/historicalpurchase/add/")
+    assert resp.status_code == 403
+
+    resp2 = client.post(
+        "/panel/clients/historicalpurchase/add/",
+        {
+            "client": cust.pk,
+            "purchase_date": "2024-01-01",
+            "description": "Крафт",
+            "amount": "1000",
+            "currency": "KGS",
+        },
+    )
+    assert resp2.status_code == 403
+    assert not HistoricalPurchase.objects.filter(client=cust).exists()
+
+
+def test_owner_can_add_historical_purchase_via_admin(client, django_user_model):
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("hp_owner", password="x" * 12)
+    client.force_login(owner)
+
+    cust = Client.objects.create(first_name="Овнер", phone="+996700010005")
+    resp = client.post(
+        "/panel/clients/historicalpurchase/add/",
+        {
+            "client": cust.pk,
+            "purchase_date": "2024-01-01",
+            "description": "Платье",
+            "amount": "1500",
+            "currency": "KGS",
+            "note": "",
+            "_save": "Save",
+        },
+    )
+    assert resp.status_code == 302
+    hp = HistoricalPurchase.objects.get(client=cust)
+    assert hp.amount == Decimal("1500")
+    assert hp.created_by == owner
+
+
+def test_client_detail_query_count_stays_flat_as_purchase_history_grows(
+    client, django_user_model, variant
+):
+    """client_detail merges real sales + HistoricalPurchase rows into one
+    «История покупок» list (see apps.pos.views.client_detail) — assert the
+    query count is a FIXED handful regardless of how many of either kind of
+    row exist, never one extra query per row (the historical_purchases
+    queryset is a single bounded slice, never iterated with a per-row
+    lookup)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("perf_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 100)
+    cust = Client.objects.create(first_name="Perf", phone="+996700777001")
+    for i in range(25):
+        order = SaleOrder.objects.create(client=cust, currency="KGS")
+        SaleItem.objects.create(
+            order=order, variant=variant, quantity=1, unit_price=Decimal("1000")
+        )
+        confirm_sale(order)
+        record_payment(order, Decimal("1000"))
+    for i in range(25):
+        HistoricalPurchase.objects.create(
+            client=cust,
+            purchase_date=date(2020, 1, 1) + timedelta(days=i),
+            description=f"Старая покупка {i}",
+            amount=Decimal("500"),
+            currency="KGS",
+        )
+
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/pos/clients/{cust.pk}/")
+    assert resp.status_code == 200
+    # Measured at 22 with 25+25 rows, identical at 3+3 — a generous ceiling
+    # here is a regression trip-wire, not a tight budget.
+    assert len(ctx.captured_queries) < 30
+
+
+def test_debtors_page_query_count_stays_flat_as_debtor_count_grows(
+    client, django_user_model, variant
+):
+    """The Должники worklist (apps.pos.views.debtors, reusing
+    debtors_report_rows) must stay a fixed handful of queries regardless of
+    how many debtors exist — never one extra query per debtor row."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("perf_deb_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 100)
+    for i in range(20):
+        cust = Client.objects.create(first_name=f"Debtor{i}", phone=f"+99670099{i:04d}")
+        order = SaleOrder.objects.create(client=cust, currency="KGS")
+        SaleItem.objects.create(
+            order=order, variant=variant, quantity=1, unit_price=Decimal("1000")
+        )
+        confirm_sale(order)
+
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get("/pos/clients/debtors/")
+    assert resp.status_code == 200
+    assert len(ctx.captured_queries) < 15

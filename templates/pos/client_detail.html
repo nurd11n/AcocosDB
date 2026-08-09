@@ -9,30 +9,158 @@
 </div>
 
 {% comment %}
-ONE debt block: the total, then every unpaid sale it's made of (date, what
-was bought, remaining, «Погасить» per row) — debt used to be scattered
-across this card, a separate «Платежи» card duplicating the same payments,
-and the history list below, with no single place answering "how much, and
-from what". «Погасить долг по нескольким продажам» and the WhatsApp
-reminder live here too now, next to the number they act on.
+БАЛАНС — leads the page: the CURRENT (never date-filtered — that's the
+statement's own concern below) running balance per currency, large and
+status-coloured, with «Принять оплату» as the primary action. This is
+debts/credits (already computed for the page, unfiltered), never the
+possibly-filtered `statement` dict below — a manager narrowing the ledger
+to last month must not see THIS number change, or it reads as though her
+current debt just did.
+
+«Принять оплату» reuses the EXISTING client_debt_pay/pay_oldest_first flow
+(oldest-first across her open sales in that currency) — never a new payment
+path. Per-sale «Погасить» and the per-sale debt list move below, secondary:
+CLAUDE.md's per-sale debt tracking is still what the code enforces, this
+page just leads with the number she actually thinks in.
 {% endcomment %}
 <div class="card">
- <h2>{% trans "Долг" %}</h2>
- <p>
-  {% if debts %}
-    {% for cur, amt in debts.items %}
-      <span class="badge badge--debt">{{ amt|money:cur }}</span>
-    {% endfor %}
-  {% elif not credits %}
-    <span class="badge badge--paid">0</span>
-  {% endif %}
-  {% if credits %}
-    {% for cur, amt in credits.items %}
-      <span class="badge badge--paid">{% trans "Аванс" %} {{ amt|money:cur }}</span>
-    {% endfor %}
-  {% endif %}
- </p>
+ <h2>{% trans "Баланс" %}</h2>
+ {% for cur, amt in debts.items %}
+ <p class="balance-label">{{ cur }}</p>
+ <p class="balance-figure balance-figure--debt">{{ amt|money:cur }}</p>
+ {% endfor %}
+ {% for cur, amt in credits.items %}
+ <p class="balance-label">{{ cur }} · {% trans "Аванс" %}</p>
+ <p class="balance-figure balance-figure--credit">{{ amt|money:cur }}</p>
+ {% endfor %}
+ {% if not debts and not credits %}
+ <p class="balance-figure balance-figure--paid">0</p>
+ {% endif %}
 
+ {% if debts and perms.sales.add_saleorder %}
+ <a class="btn btn-primary" href="{% url 'pos:client_debt_pay' client.pk %}" style="margin-top:var(--space-3)">
+   {% trans "Принять оплату" %}</a>
+ {% endif %}
+ {% comment %}
+ POST for the same reason as the receipt button: it writes an Interaction, so a
+ Viewer must not reach it and a cross-site GET must not be able to fire it.
+ {% endcomment %}
+ {% if debts and client.phone and perms.clients.add_interaction %}
+ <form method="post" action="{% url 'pos:debt_reminder' client.pk %}" target="_blank" rel="noopener"
+    style="margin-top:var(--space-2)">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-ghost">{% trans "Напомнить о долге в WhatsApp" %}</button>
+ </form>
+ {% endif %}
+</div>
+
+{% comment %}
+ВЫПИСКА — the chronological running-balance ledger her real paper statement
+already is (see apps.clients.services.client_statement's own docstring for
+why the numbers here can never disagree with «Баланс» above or the per-sale
+debt below — same underlying data, one function, read three ways). A plain
+GET date-range filter (?from=/?to=) — no HTMX needed for two date fields —
+narrows it; unset shows full history. «Скачать выписку» carries whatever
+range is currently selected through to the PDF.
+{% endcomment %}
+<div class="card">
+ <h2>{% trans "Выписка" %}</h2>
+ <form method="get" class="statement-filter">
+  <label class="muted">{% trans "С" %}
+    <input type="date" name="from" class="input" value="{{ statement_from|date:'Y-m-d' }}"></label>
+  <label class="muted">{% trans "По" %}
+    <input type="date" name="to" class="input" value="{{ statement_to|date:'Y-m-d' }}"></label>
+  <button type="submit" class="btn btn-ghost btn-sm">{% trans "Показать" %}</button>
+  {% if statement_from or statement_to %}
+  <a class="btn btn-ghost btn-sm" href="{% url 'pos:client_detail' client.pk %}">{% trans "Сбросить" %}</a>
+  {% endif %}
+ </form>
+
+ {% for currency, section in statement.items %}
+ <h3 style="margin-top:var(--space-4)">{{ currency }}</h3>
+ <p class="muted">
+   {% trans "Остаток на" %} {% if statement_to %}{{ statement_to|date:"d.m.Y" }}{% else %}{% trans "сегодня" %}{% endif %}:
+   <span class="num" style="font-weight:600">{{ section.closing|money:currency }}</span>
+ </p>
+ <table class="table" style="margin-top:var(--space-2)">
+  <thead>
+   <tr>
+    <th>{% trans "Дата" %}</th>
+    <th>{% trans "Описание" %}</th>
+    <th class="num">{% trans "Сумма" %}</th>
+    <th class="num">{% trans "Оплата" %}</th>
+    <th class="num">{% trans "Остаток" %}</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% if section.opening %}
+   <tr class="muted">
+    <td>{% if statement_from %}{{ statement_from|date:"d.m.Y" }}{% endif %}</td>
+    <td>{% trans "Остаток на начало периода" %}</td>
+    <td class="num">—</td>
+    <td class="num">—</td>
+    <td class="num">{{ section.opening|money:currency }}</td>
+   </tr>
+   {% endif %}
+   {% for row in section.rows %}
+   <tr>
+    <td>{{ row.date|date:"d.m.Y" }}</td>
+    <td>
+     {% if row.order %}<a href="{% url 'pos:sale_result' row.order.pk %}">{{ row.description }}</a>
+     {% elif row.batch_detail %}
+     <details>
+      <summary>{{ row.description }} ({{ row.batch_detail|length }} {% trans "продаж" %})</summary>
+      {% for d in row.batch_detail %}
+      <div class="muted">
+       <a href="{% url 'pos:sale_result' d.order.pk %}">{% trans "Чек" %} №{{ d.order.pk }}</a>:
+       {{ d.amount|money:currency }}
+      </div>
+      {% endfor %}
+     </details>
+     {% else %}{{ row.description }}{% endif %}
+    </td>
+    <td class="num">{% if row.sale_amount is not None %}{{ row.sale_amount|money:currency }}{% else %}—{% endif %}</td>
+    <td class="num">{% if row.payment_amount is not None %}−{{ row.payment_amount|money:currency }}{% else %}—{% endif %}</td>
+    <td class="num">{{ row.balance|money:currency }}</td>
+   </tr>
+   {% empty %}
+   {% if not section.opening %}
+   <tr><td colspan="5" class="muted">{% trans "Нет операций за период" %}</td></tr>
+   {% endif %}
+   {% endfor %}
+  </tbody>
+ </table>
+ {% empty %}
+ <p class="muted">{% trans "Операций пока нет" %}</p>
+ {% endfor %}
+
+ {% if statement and perms.sales.view_saleorder %}
+ <a class="btn btn-ghost" href="{% url 'pos:statement_download' client.pk %}?from={{ statement_from|date:'Y-m-d' }}&to={{ statement_to|date:'Y-m-d' }}" style="margin-top:var(--space-3)">
+   {% trans "Скачать выписку" %}</a>
+ {% endif %}
+ {% comment %}
+ POST for the same reason as the receipt/debt-reminder buttons: it writes
+ an Interaction, so a Viewer must not reach it and a cross-site GET must
+ not be able to fire it. Fires even at a zero balance — a statement is
+ informational, not a debt nudge (see apps.pos.messaging.statement_share_text).
+ {% endcomment %}
+ {% if client.phone and perms.clients.add_interaction %}
+ <form method="post" action="{% url 'pos:send_statement' client.pk %}" target="_blank" rel="noopener"
+    style="margin-top:var(--space-2)">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-ghost">{% trans "Отправить выписку в WhatsApp" %}</button>
+ </form>
+ {% endif %}
+</div>
+
+{% comment %}
+Per-sale detail — SECONDARY now (the balance/statement above answer "how
+much, and what's the history" at a glance). Still the only place «Погасить»
+against ONE specific sale lives, and still what the receipt/debt-pay screens
+themselves show — never removed, just no longer what the page leads with.
+{% endcomment %}
+<div class="card">
+ <h2>{% trans "Долг по продажам" %}</h2>
  {% for row in unpaid_rows %}
  <div class="oline">
    <div class="oline__main">
@@ -45,38 +173,35 @@ reminder live here too now, next to the number they act on.
    <a class="btn btn-ghost oline__action" href="{% url 'pos:debt_pay_detail' row.order.pk %}">{% trans "Погасить" %}</a>
    {% endif %}
  </div>
+ {% empty %}
+ <p class="muted">{% trans "Нет долгов по отдельным продажам" %}</p>
  {% endfor %}
 
  {% if debts and perms.sales.add_saleorder %}
  <a class="btn btn-ghost" href="{% url 'pos:client_debt_pay' client.pk %}" style="margin-top:var(--space-3)">
    {% trans "Погасить долг по нескольким продажам" %}</a>
  {% endif %}
-
- {% comment %}
- POST for the same reason as the receipt button: it writes an Interaction, so a
- Viewer must not reach it and a cross-site GET must not be able to fire it. A
- reminder isn't a destructive action, so it stays neutral like every other
- secondary button here — not styled red like «Отменить продажу».
- {% endcomment %}
- {% if debts and client.phone and perms.clients.add_interaction %}
- <form method="post" action="{% url 'pos:debt_reminder' client.pk %}" target="_blank" rel="noopener"
-    style="margin-top:var(--space-2)">
-  {% csrf_token %}
-  <button type="submit" class="btn btn-ghost">{% trans "Напомнить о долге в WhatsApp" %}</button>
- </form>
- {% endif %}
 </div>
 
 <div class="card">
  <h2>{% trans "История покупок" %}</h2>
- {% for row in paid_rows %}
+ {% comment %}
+ Real (stock-backed) sales merged with free-text pre-system purchases
+ (apps.clients.models.HistoricalPurchase, see apps.pos.views.client_detail)
+ — row.order is None for a historical one, marked «до системы» so it can
+ never be mistaken for a real sale.
+ {% endcomment %}
+ {% for row in purchase_history_rows %}
  <div class="oline">
    <div class="oline__main">
-     <a class="oline__name" href="{% url 'pos:sale_result' row.order.pk %}">
-       {{ row.order.confirmed_at|date:"d.m.Y" }}</a>
+     {% if row.order %}
+     <a class="oline__name" href="{% url 'pos:sale_result' row.order.pk %}">{{ row.date|date:"d.m.Y" }}</a>
+     {% else %}
+     <span class="oline__name">{{ row.date|date:"d.m.Y" }} <span class="muted">· {% trans "до системы" %}</span></span>
+     {% endif %}
      <span class="oline__meta muted">{{ row.item_summary }}</span>
    </div>
-   <span class="oline__total num">{{ row.order.total|money:row.order.currency }}</span>
+   <span class="oline__total num">{{ row.amount|money:row.currency }}</span>
  </div>
  {% empty %}
  <p class="muted">{% trans "Покупок пока нет" %}</p>

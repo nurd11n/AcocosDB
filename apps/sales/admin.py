@@ -16,7 +16,14 @@ from apps.core.currency import format_money
 from apps.core.permissions import can_see_costs
 
 from .models import Payment, SaleItem, SaleOrder
-from .services import cancel_sale, confirm_sale, mark_fully_paid, record_payment, void_payment
+from .services import (
+    cancel_sale,
+    confirm_sale,
+    mark_fully_paid,
+    record_payment,
+    void_payment,
+    void_payment_batch,
+)
 
 _BADGE_COLORS = {
     SaleOrder.PAID: "#1a7f37",
@@ -472,6 +479,7 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         "change_column",
         "method",
         "order",
+        "batch_id",
         "created_by",
     ]
     list_filter = ["method", "currency", "rate_source", "excess_disposition"]
@@ -530,6 +538,15 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
 
     @admin.action(description=_("Void selected payments (creates a reversing entry)"))
     def void_selected(self, request, queryset):
+        """A payment that belongs to a pay_oldest_first batch (batch_id set)
+        can't be voided alone — void_payment refuses it (see that function's
+        own docstring). Selecting ANY member of a batch here voids the WHOLE
+        batch atomically via void_payment_batch instead; selecting several
+        rows from the same batch still only processes it once, tracked via
+        `seen_batches` — this is what makes «select a payment, click Void»
+        keep working exactly as before for an ordinary payment while doing
+        the right, atomic thing for a batched one, without a second action
+        the Owner has to know to reach for."""
         resp = confirm_bulk_action(
             request,
             queryset,
@@ -537,7 +554,9 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
             title=_("Void payments"),
             warning=_(
                 "Each payment below gets a reversing entry — the client's debt "
-                "changes immediately. This cannot be undone from here."
+                "changes immediately. This cannot be undone from here. A payment "
+                "that's part of a multi-sale repayment voids the WHOLE batch, not "
+                "just the selected row."
             ),
             admin_site=self.admin_site,
             model_opts=self.model._meta,
@@ -545,10 +564,17 @@ class PaymentAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
         if resp is not None:
             return resp
         voided = 0
+        seen_batches = set()
         for payment in queryset:
             try:
-                void_payment(payment, user=request.user)
-                voided += 1
+                if payment.batch_id:
+                    if payment.batch_id in seen_batches:
+                        continue
+                    seen_batches.add(payment.batch_id)
+                    voided += len(void_payment_batch(payment.batch_id, user=request.user))
+                else:
+                    void_payment(payment, user=request.user)
+                    voided += 1
             except ValidationError as exc:
                 self.message_user(
                     request, f"#{payment.pk}: " + "; ".join(exc.messages), level=messages.ERROR

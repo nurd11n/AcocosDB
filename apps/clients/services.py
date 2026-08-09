@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import DecimalField, ExpressionWrapper, F, Max, Sum, Value
 from django.db.models.functions import Replace
 from django.utils import timezone
+from django.utils.translation import gettext as _
 
 from .models import Client, Interaction
 
@@ -41,6 +42,34 @@ def log_telegram_interaction(client: Client, text: str) -> None:
     Interaction.objects.create(client=client, kind=Interaction.MESSAGE, note=text)
 
 
+def find_client_by_phone(phone: str) -> Client | None:
+    """Format-tolerant phone lookup — the ONE phone-matching implementation
+    shared by subscribe_telegram (Telegram contact share) and
+    apps.clients.management.commands.import_opening_balances (bulk import),
+    never duplicated between them.
+
+    Matches on the trailing 9 digits (a KG mobile subscriber number, with any
+    country code or trunk prefix stripped) rather than a full exact match —
+    «+996700123456», «996700123456», and the local «0700123456» all resolve
+    to the same client, which is exactly the without-a-country-code case a
+    hand-typed import spreadsheet produces. Separators are stripped in SQL
+    (REPLACE chain) so the prefilter returns a handful of candidates instead
+    of scanning every client row in Python on each call. Client.phone is
+    unique, so at most one match is ever possible."""
+    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+    if not digits:
+        return None
+    normalized = F("phone")
+    for sep in (" ", "-", "(", ")", "+", "."):
+        normalized = Replace(normalized, Value(sep))
+    candidates = Client.objects.annotate(_digits=normalized).filter(_digits__endswith=digits[-7:])
+    suffix = digits[-9:]
+    return next(
+        (c for c in candidates if "".join(ch for ch in c.phone if ch.isdigit())[-9:] == suffix),
+        None,
+    )
+
+
 def subscribe_telegram(phone: str, chat_id: int) -> Client | None:
     """A client shared their contact with the bot: link their Telegram chat so
     the bot CAN reach them. Matches by phone; returns None if no client has
@@ -49,24 +78,8 @@ def subscribe_telegram(phone: str, chat_id: int) -> Client | None:
     Deliberately does NOT set marketing_consent — CLIENT_BOTS.md §3.1: "Never
     assume consent from /start alone." A verified phone only makes a client
     reachable; consent is a separate explicit «Присылать новинки?» Да/Нет
-    step (see set_marketing_consent), asked right after this.
-
-    Matching is digit-exact but format-tolerant («+996 700...» == «996700...»).
-    Separators are stripped in SQL (REPLACE chain) so the prefilter returns a
-    handful of candidates instead of scanning every client row in Python on
-    each contact share; the Python check keeps the old exact semantics for any
-    exotic character the chain doesn't cover."""
-    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
-    if not digits:
-        return None
-    normalized = F("phone")
-    for sep in (" ", "-", "(", ")", "+", "."):
-        normalized = Replace(normalized, Value(sep))
-    candidates = Client.objects.annotate(_digits=normalized).filter(_digits__endswith=digits[-7:])
-    client = next(
-        (c for c in candidates if "".join(ch for ch in c.phone if ch.isdigit()) == digits),
-        None,
-    )
+    step (see set_marketing_consent), asked right after this."""
+    client = find_client_by_phone(phone)
     if client is None:
         return None
     client.telegram_chat_id = chat_id
@@ -133,16 +146,18 @@ def lapsed_clients(days: int = 60) -> list[Client]:
 
 
 def client_debts_by_currency(client: "Client | None" = None) -> dict[int, dict[str, Decimal]]:
-    """{client_id: {currency: debt}} — confirmed sale totals minus payments,
-    keyed by the ORDER's currency. A payment counts against the order it was
-    made for by its NET applied amount (gross minus any change handed back,
-    see Payment.net_applied_kgs — never the raw gross amount), converted into
-    that order's currency at the rate frozen on the payment
+    """{client_id: {currency: debt}} — a starting ClientOpeningBalance (if
+    any — pre-system debt, see that model's own docstring for why it's
+    neither a SaleOrder nor a Payment) plus confirmed sale totals minus
+    payments, keyed by the ORDER's currency. A payment counts against the
+    order it was made for by its NET applied amount (gross minus any change
+    handed back, see Payment.net_applied_kgs — never the raw gross amount),
+    converted into that order's currency at the rate frozen on the payment
     (net_applied_kgs ÷ order_rate) — so a USD payment on a сом order reduces
-    the сом debt by what actually stayed with the shop. Two grouped queries
-    total, no N+1.
+    the сом debt by what actually stayed with the shop. Three grouped
+    queries total, no N+1.
 
-    Pass `client` to scope both queries to one client (an indexed lookup)
+    Pass `client` to scope every query to one client (an indexed lookup)
     instead of aggregating the whole business's sales/payments history —
     every single-client caller (client_debt/client_credits below, and their
     call sites) MUST pass it; leaving it unset is only for a genuine
@@ -154,13 +169,23 @@ def client_debts_by_currency(client: "Client | None" = None) -> dict[int, dict[s
     from apps.core.currency import CENTS
     from apps.sales.models import Payment, SaleOrder
 
+    from .models import ClientOpeningBalance
+
     totals: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
 
+    opening_qs = ClientOpeningBalance.objects.all()
     sales_qs = SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, client__isnull=False)
     payment_qs = Payment.objects.filter(client__isnull=False, order__isnull=False)
     if client is not None:
+        opening_qs = opening_qs.filter(client=client)
         sales_qs = sales_qs.filter(client=client)
         payment_qs = payment_qs.filter(client=client)
+
+    # No conversion needed — an opening balance is already stored in the
+    # SAME currency it's added into, same as a SaleOrder's own `total`.
+    opening_rows = opening_qs.values("client_id", "currency").annotate(t=Sum("amount"))
+    for row in opening_rows:
+        totals[row["client_id"]][row["currency"]] += row["t"] or Decimal("0")
 
     sales_rows = sales_qs.values("client_id", "currency").annotate(t=Sum("total"))
     for row in sales_rows:
@@ -186,6 +211,211 @@ def client_debts_by_currency(client: "Client | None" = None) -> dict[int, dict[s
         kept = {cur: amt for cur, amt in quantized.items() if amt > tolerance or amt < 0}
         if kept:
             result[cid] = kept
+    return result
+
+
+def client_statement(client: Client, date_from=None, date_to=None) -> dict[str, dict]:
+    """Per-currency running-balance ledger for one client — a chronological
+    merge of confirmed sales (+total) and payments (−net_applied_kgs,
+    converted into the SALE's own currency at that payment's frozen rate —
+    the exact same conversion client_debts_by_currency uses) with a running
+    balance after each row. This is the "she pays down part of her debt,
+    takes new goods on credit, one number rolls forward" statement her real
+    paper ledger already is — CLAUDE.md's per-sale debt model is what the
+    CODE still enforces (SaleOrder.balance, «Погасить» per sale); this is a
+    read-only VIEW over that exact same data, never a second source of truth.
+
+    Positive balance = client owes; negative = client is in credit (Аванс) —
+    same sign convention as client_debts_by_currency throughout.
+
+    Built as ONE full, unfiltered timeline per currency, then sliced by
+    [date_from, date_to]: `opening` is the running balance immediately
+    BEFORE the first in-range row (0 if nothing precedes it), never a
+    separately tracked figure. A ClientOpeningBalance (pre-system debt)
+    slots into this SAME timeline as one more entry type, at its own
+    as_of_date — this is exactly why date-slicing needed no changes when it
+    landed: for the unfiltered view it shows as its OWN row, described
+    «Старый долг», the literal first line of her real paper statement; for
+    a date-filtered view starting after as_of_date it's simply folded into
+    `opening` like any other before-the-window entry, no special case.
+
+    `closing` is the running total quantized ONCE at the very end — never
+    per-row — over the exact same per-row terms client_debts_by_currency
+    sums (order.total for a sale; the SAME ExpressionWrapper-computed
+    `contribution` field for a payment, not a second, independently-written
+    division that could round differently at the 6th decimal place). For
+    the unfiltered view (date_to=None), `closing` is additionally read
+    directly FROM client_debts_by_currency wherever it has an entry for
+    that currency — not merely equal by construction, structurally sourced
+    from it, so the two can never drift even if one function's math changes
+    later without the other being updated. Below PAYMENT_ROUNDING_TOLERANCE
+    (client_debts_by_currency excludes it entirely, treating it as settled)
+    the walked value is kept as-is — a ledger shouldn't hide a real, if tiny,
+    residue, only the debt SUMMARY badge should.
+
+    Only currencies with in-range activity, or a non-zero balance carried
+    into the range, are included in the result. Cancelled sales contribute
+    no row (matching client_debts_by_currency's own CONFIRMED-only filter);
+    a payment against a since-cancelled sale still appears — cancel_sale
+    never touches Payment rows, so client_debts_by_currency already counts
+    it too, and this must reconcile with that, not "fix" it independently."""
+    from datetime import datetime, time
+    from decimal import ROUND_HALF_UP
+
+    from apps.core.currency import CENTS
+    from apps.sales.models import Payment, SaleOrder
+
+    from .models import ClientOpeningBalance
+
+    openings = list(ClientOpeningBalance.objects.filter(client=client))
+    orders = list(
+        SaleOrder.objects.filter(client=client, status=SaleOrder.CONFIRMED).only(
+            "id", "total", "currency", "confirmed_at"
+        )
+    )
+    # Per-row, not a second Python-side division — see the docstring above.
+    contribution = ExpressionWrapper(
+        (F("amount") * F("rate_to_kgs") - F("change_amount_kgs")) / F("order__rate_to_kgs"),
+        output_field=DecimalField(max_digits=20, decimal_places=6),
+    )
+    payments = list(
+        Payment.objects.filter(client=client, order__isnull=False)
+        .select_related("order")
+        .annotate(contribution=contribution)
+    )
+
+    entries_by_currency: dict[str, list[dict]] = defaultdict(list)
+    for ob in openings:
+        # Midnight LOCAL time on as_of_date — comparable to confirmed_at/
+        # created_at's own timezone-aware sort_dt, and its .date() (via
+        # timezone.localtime below) reproduces as_of_date exactly, the same
+        # way every other entry's "date" is derived from a real timestamp.
+        ob_dt = timezone.make_aware(datetime.combine(ob.as_of_date, time.min))
+        entries_by_currency[ob.currency].append(
+            {
+                "sort_dt": ob_dt,
+                "date": ob.as_of_date,
+                "kind": "opening_balance",
+                "description": _("Старый долг")
+                if ob.amount > 0
+                else _("Остаток на начало (аванс)"),
+                "sale_amount": ob.amount if ob.amount > 0 else None,
+                "payment_amount": -ob.amount if ob.amount < 0 else None,
+                "delta": ob.amount,
+                "order": None,
+            }
+        )
+    for o in orders:
+        if o.confirmed_at is None:  # defensive — a CONFIRMED order always has one
+            continue
+        entries_by_currency[o.currency].append(
+            {
+                "sort_dt": o.confirmed_at,
+                "date": timezone.localtime(o.confirmed_at).date(),
+                "kind": "sale",
+                "description": _("Покупка (Чек №%(n)s)") % {"n": o.pk},
+                "sale_amount": o.total,
+                "payment_amount": None,
+                "delta": o.total,
+                "order": o,
+            }
+        )
+    # Group by (batch_id, is_reversal): every Payment ONE pay_oldest_first
+    # call created shares a batch_id (see Payment.batch_id) and becomes ONE
+    # ledger row — she experiences "получила 150 000" as a single event,
+    # even though it's several Payment rows under the hood, one per sale it
+    # covered. is_reversal is part of the key (not folded into the same
+    # group as the originals it reverses) because those are two SEPARATE
+    # events at two different times — voiding a batch shows as its own
+    # later «Отмена оплаты» row, exactly like voiding an ordinary single
+    # payment already does, never merged back into the original row. A
+    # payment with no batch_id (batch_id=None) is a group of exactly one —
+    # keyed on its own pk so it never accidentally merges with another
+    # ungrouped payment.
+    batches: dict[tuple, list] = defaultdict(list)
+    for p in payments:
+        key = (p.batch_id, p.reversed_payment_id is not None) if p.batch_id else ("single", p.pk)
+        batches[key].append(p)
+
+    for group in batches.values():
+        first = group[0]
+        order = first.order
+        is_reversal = first.reversed_payment_id is not None
+        total_contribution = sum((p.contribution for p in group), Decimal("0"))
+        earliest = min(p.created_at for p in group)
+        # "expandable to see which sales it covered" — populated only for a
+        # REAL batch (2+ payments); a lone payment has nothing to expand,
+        # so callers can just check truthiness rather than length.
+        batch_detail = (
+            [
+                {
+                    "order": p.order,
+                    "amount": (-p.contribution if is_reversal else p.contribution).quantize(
+                        Decimal("0.01")
+                    ),
+                }
+                for p in sorted(group, key=lambda p: p.order.confirmed_at or p.created_at)
+            ]
+            if len(group) > 1
+            else []
+        )
+        entries_by_currency[order.currency].append(
+            {
+                "sort_dt": earliest,
+                "date": timezone.localtime(earliest).date(),
+                "kind": "reversal" if is_reversal else "payment",
+                "description": _("Отмена оплаты") if is_reversal else _("Оплата"),
+                # A reversal's contribution is <= 0 (it undoes a payment), so
+                # -contribution is the positive amount it ADDS back to the
+                # balance — shown in the increase column, like a sale.
+                "sale_amount": -total_contribution if is_reversal else None,
+                "payment_amount": None if is_reversal else total_contribution,
+                "delta": -total_contribution,
+                "order": order if len(group) == 1 else None,
+                "batch_detail": batch_detail,
+            }
+        )
+
+    authoritative_closing = client_debts_by_currency(client=client).get(client.pk, {})
+
+    result: dict[str, dict] = {}
+    for currency, entries in entries_by_currency.items():
+        entries.sort(key=lambda e: e["sort_dt"])
+        running = Decimal("0")
+        opening = Decimal("0")
+        rows = []
+        for e in entries:
+            if date_from is not None and e["date"] < date_from:
+                running += e["delta"]
+                opening = running
+                continue
+            if date_to is not None and e["date"] > date_to:
+                continue
+            running += e["delta"]
+            rows.append(
+                {
+                    "date": e["date"],
+                    "kind": e["kind"],
+                    "description": e["description"],
+                    "sale_amount": e["sale_amount"].quantize(CENTS, rounding=ROUND_HALF_UP)
+                    if e["sale_amount"] is not None
+                    else None,
+                    "payment_amount": e["payment_amount"].quantize(CENTS, rounding=ROUND_HALF_UP)
+                    if e["payment_amount"] is not None
+                    else None,
+                    "balance": running.quantize(CENTS, rounding=ROUND_HALF_UP),
+                    "order": e["order"],
+                    "batch_detail": e.get("batch_detail") or [],
+                }
+            )
+        closing = running.quantize(CENTS, rounding=ROUND_HALF_UP)
+        if date_to is None:
+            closing = authoritative_closing.get(currency, closing)
+
+        opening = opening.quantize(CENTS, rounding=ROUND_HALF_UP)
+        if not rows and opening == 0 and closing == 0:
+            continue
+        result[currency] = {"opening": opening, "rows": rows, "closing": closing}
     return result
 
 

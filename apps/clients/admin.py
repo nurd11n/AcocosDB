@@ -11,7 +11,7 @@ from simple_history.admin import SimpleHistoryAdmin
 
 from apps.core.currency import format_money
 
-from .models import Client, Interaction
+from .models import Client, ClientOpeningBalance, HistoricalPurchase, Interaction
 from .services import client_debts_by_currency
 
 
@@ -182,6 +182,74 @@ class InteractionAdmin(admin.ModelAdmin):
     search_help_text = "Имя клиента, телефон или текст записи"
     list_select_related = ["client", "created_by"]
     autocomplete_fields = ["client"]
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(ClientOpeningBalance)
+class ClientOpeningBalanceAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
+    """Pre-system debt — a money-affecting control, same tier as
+    ExchangeRate's manual override: Owner-only to view, add, change, or
+    delete, enforced with explicit is_superuser checks below (never just
+    hidden from Editor/Viewer's Django permissions, the same defence-in-
+    depth ExchangeRateAdmin already uses for the identical reason)."""
+
+    list_display = ["client", "amount", "currency", "as_of_date", "note", "created_by"]
+    list_filter = ["currency"]
+    search_fields = ["client__first_name", "client__descriptor", "client__phone"]
+    date_hierarchy = "as_of_date"
+    autocomplete_fields = ["client"]
+
+    def has_module_permission(self, request):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_superuser
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(HistoricalPurchase)
+class HistoricalPurchaseAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
+    """Pre-system purchase history — same Owner-only tier as
+    ClientOpeningBalanceAdmin (see HistoricalPurchase's own docstring for
+    why, even though this particular record doesn't move money itself)."""
+
+    list_display = ["client", "purchase_date", "description", "amount", "currency", "created_by"]
+    list_filter = ["currency"]
+    search_fields = ["client__first_name", "client__descriptor", "client__phone", "description"]
+    date_hierarchy = "purchase_date"
+    autocomplete_fields = ["client"]
+
+    def has_module_permission(self, request):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_superuser
 
     def save_model(self, request, obj, form, change):
         if not change:
