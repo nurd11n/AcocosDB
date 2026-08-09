@@ -1,9 +1,12 @@
-/* Safety net for accidental mistakes — three independent pieces, all opt-in
+/* Safety net for accidental mistakes — four independent pieces, all opt-in
  * from markup so nothing changes on a page that doesn't ask for it:
  *
  *   [data-confirm="…"]        a styled confirmation before a destructive action
  *   <form data-autosave="k">  field values survive an accidental navigation
  *   <form data-undo>          Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z across the form
+ *   [data-toggle-target="id"] checkbox shows/hides #id — e.g. the Owner-only
+ *                              «Историческая продажа» date field on the sale
+ *                              confirm screen, hidden until the box is ticked
  *
  * Kept in one external file so the Content-Security-Policy stays strict
  * (script-src 'self', no inline scripts, no on* handlers). Everything is wired
@@ -96,6 +99,16 @@
   }
 
   window.posConfirm = ask;
+
+  // --- Checkbox-driven show/hide ------------------------------------------
+  // Delegated on document, so it needs no init/re-scan pass and already
+  // covers markup swapped in later (htmx or otherwise) for free.
+  document.addEventListener("change", function (event) {
+    var box = event.target;
+    if (!box.matches || !box.matches("[data-toggle-target]")) return;
+    var target = document.getElementById(box.dataset.toggleTarget);
+    if (target) target.hidden = !box.checked;
+  });
 
   // htmx path: htmx fires htmx:confirm before EVERY request, so this is the
   // one hook that covers every hx-post/hx-get on the page. We read

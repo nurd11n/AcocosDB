@@ -32,6 +32,9 @@
 </div>
 
 <p class="list-count">{{ total }} {% trans "клиент(ов)" %}</p>
+{% if opening_balance_progress %}
+<p class="muted">{% blocktrans with n=opening_balance_progress.n m=opening_balance_progress.m %}Старый долг внесён для {{ n }} из {{ m }} клиентов{% endblocktrans %}</p>
+{% endif %}
 
 <div class="card client-list">
  {% for c in clients %}

@@ -8,7 +8,7 @@ Rules enforced here:
 
 import uuid
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_UP, ROUND_UP, Decimal
 
 from django.conf import settings
@@ -27,7 +27,26 @@ from .models import Payment, SaleItem, SaleOrder
 
 
 @transaction.atomic
-def confirm_sale(order: SaleOrder, user=None) -> SaleOrder:
+def confirm_sale(
+    order: SaleOrder, user=None, is_historical: bool = False, historical_date=None
+) -> SaleOrder:
+    """`is_historical`/`historical_date`: Owner-only backdated entry (see
+    apps.pos.views.sale_confirm — the permission check lives there, this
+    function trusts the caller, same pattern as record_payment's
+    rate_override) for a sale that already happened before this database
+    existed. She wants it itemized in «История покупок» without a fake
+    stock movement and without it inflating this period's revenue. When
+    True: the available-stock check is skipped entirely (an already-
+    happened sale has nothing to do with TODAY's stock), NO SALE_OUT
+    movement is written at all (see SaleOrder.is_historical's own
+    docstring for the full list of aggregates this then excludes from),
+    and confirmed_at is set from historical_date (noon Bishkek, so the
+    stored UTC instant never lands on the wrong local calendar day) instead
+    of now(). Everything else — total, frozen FX rate, debt/payment
+    behaviour — works exactly like a normal sale, deliberately."""
+    if is_historical and historical_date is None:
+        raise ValidationError(_("Укажите дату исторической продажи."))
+
     # Lock the ORDER row itself first, not just the variants: without this, two
     # concurrent confirm attempts (e.g. a double-tap on a bad connection) can
     # both read status=draft before either commits and both write off stock.
@@ -44,55 +63,59 @@ def confirm_sale(order: SaleOrder, user=None) -> SaleOrder:
         raise ValidationError(_("Cannot approve a sale with no items."))
 
     variant_ids = [i.variant_id for i in items]
-    # Evaluate the locking query NOW — used lazily as a subquery it would never
-    # actually acquire the row locks, reopening the two-sellers race.
-    list(ProductVariant.objects.select_for_update().filter(id__in=variant_ids))
-    stock = {
-        row["variant_id"]: row["s"] or 0
-        for row in StockMovement.objects.filter(variant_id__in=variant_ids)
-        .values("variant_id")
-        .annotate(s=Sum("quantity"))
-    }
-    # Stock promised to an open production order (apps.orders) is off-limits
-    # to any OTHER sale, walk-in included — never just a client-side cap
-    # (CLAUDE.md Part 1b/1c). A handover's own SaleOrder is unaffected: the
-    # orders.Order is moved to выдан (releasing its reservation) before this
-    # runs, in the same transaction — see apps.orders.services.hand_over.
-    reserved = reserved_by_variant(variant_ids=variant_ids)
+    if not is_historical:
+        # Evaluate the locking query NOW — used lazily as a subquery it would
+        # never actually acquire the row locks, reopening the two-sellers race.
+        # Skipped entirely for a historical sale: it's not taking anything
+        # from TODAY's warehouse, so there's nothing here to lock or check.
+        list(ProductVariant.objects.select_for_update().filter(id__in=variant_ids))
+        stock = {
+            row["variant_id"]: row["s"] or 0
+            for row in StockMovement.objects.filter(variant_id__in=variant_ids)
+            .values("variant_id")
+            .annotate(s=Sum("quantity"))
+        }
+        # Stock promised to an open production order (apps.orders) is off-limits
+        # to any OTHER sale, walk-in included — never just a client-side cap
+        # (CLAUDE.md Part 1b/1c). A handover's own SaleOrder is unaffected: the
+        # orders.Order is moved to выдан (releasing its reservation) before this
+        # runs, in the same transaction — see apps.orders.services.hand_over.
+        reserved = reserved_by_variant(variant_ids=variant_ids)
 
-    # Check availability per VARIANT, summed across every line — never per
-    # line. The same variant can legitimately appear on two lines (a production
-    # order handed over via apps.orders.services.hand_over copies OrderItems
-    # straight across, and nothing merges them), and a per-line check would
-    # pass 6+6 against 10 available and drive stock to −2. This mirrors the
-    # cart-time cap's own "across ALL lines of that same variant combined"
-    # rule (CLAUDE.md Part 1a) — the guard of last resort must be at least as
-    # strict as the UX cap in front of it, never weaker.
-    needed: dict[int, int] = defaultdict(int)
-    for item in items:
-        needed[item.variant_id] += item.quantity
+        # Check availability per VARIANT, summed across every line — never per
+        # line. The same variant can legitimately appear on two lines (a production
+        # order handed over via apps.orders.services.hand_over copies OrderItems
+        # straight across, and nothing merges them), and a per-line check would
+        # pass 6+6 against 10 available and drive stock to −2. This mirrors the
+        # cart-time cap's own "across ALL lines of that same variant combined"
+        # rule (CLAUDE.md Part 1a) — the guard of last resort must be at least as
+        # strict as the UX cap in front of it, never weaker.
+        needed: dict[int, int] = defaultdict(int)
+        for item in items:
+            needed[item.variant_id] += item.quantity
 
-    skus = {i.variant_id: i.variant.sku for i in items}
-    for variant_id, need in needed.items():
-        on_hand = stock.get(variant_id, 0)
-        available = on_hand - reserved.get(variant_id, 0)
-        if available < need:
-            raise ValidationError(
-                _("Insufficient stock for %(sku)s: available %(have)s, requested %(need)s.")
-                % {"sku": skus[variant_id], "have": max(available, 0), "need": need}
-            )
+        skus = {i.variant_id: i.variant.sku for i in items}
+        for variant_id, need in needed.items():
+            on_hand = stock.get(variant_id, 0)
+            available = on_hand - reserved.get(variant_id, 0)
+            if available < need:
+                raise ValidationError(
+                    _("Insufficient stock for %(sku)s: available %(have)s, requested %(need)s.")
+                    % {"sku": skus[variant_id], "have": max(available, 0), "need": need}
+                )
 
     total = sum((item.line_total for item in items), Decimal("0"))
 
     for item in items:
-        add_movement(
-            variant=item.variant,
-            movement_type=StockMovement.SALE_OUT,
-            quantity=item.quantity,
-            user=user,
-            reason=f"Sale #{order.pk}",
-            sale_order=order,
-        )
+        if not is_historical:
+            add_movement(
+                variant=item.variant,
+                movement_type=StockMovement.SALE_OUT,
+                quantity=item.quantity,
+                user=user,
+                reason=f"Sale #{order.pk}",
+                sale_order=order,
+            )
         # Freeze the cost basis NOW, same rule as the FX rate below: a cost
         # price edit next month must never rewrite this month's profit.
         item.cost_price = item.variant.cost_price
@@ -105,21 +128,33 @@ def confirm_sale(order: SaleOrder, user=None) -> SaleOrder:
     # considered to OWE in KGS terms (it gates balance_kgs_before_payment /
     # change eligibility for cross-currency payments below) — rounding it down
     # would let a payment register the order "fully paid" for slightly less
-    # real value than it's actually worth.
-    now = timezone.now()
+    # real value than it's actually worth. A historical sale still freezes
+    # TODAY's rate — there is no historical NBKR rate on record to use instead
+    # (ExchangeRate keeps one current row per currency, never a dated history).
     rate = snapshot_rate_to_base(order.currency, timezone.localdate())
     order.total = total
     order.rate_to_kgs = rate
     order.total_kgs = (total * rate).quantize(CENTS, rounding=ROUND_UP)
     order.status = SaleOrder.CONFIRMED
-    order.confirmed_at = now
-    order.save(update_fields=["total", "rate_to_kgs", "total_kgs", "status", "confirmed_at"])
+    update_fields = ["total", "rate_to_kgs", "total_kgs", "status", "confirmed_at"]
+    if is_historical:
+        order.is_historical = True
+        order.confirmed_at = timezone.make_aware(datetime.combine(historical_date, time(12, 0)))
+        update_fields.append("is_historical")
+    else:
+        order.confirmed_at = timezone.now()
+    order.save(update_fields=update_fields)
     return order
 
 
 @transaction.atomic
 def cancel_sale(order: SaleOrder, user=None) -> SaleOrder:
-    """Cancel an approved sale: return the items to stock with RETURN_IN movements."""
+    """Cancel an approved sale: return the items to stock with RETURN_IN movements.
+
+    A historical sale (see SaleOrder.is_historical) never wrote a SALE_OUT
+    movement in the first place — restocking it via RETURN_IN would
+    phantom-add stock that was never actually removed, so that step is
+    skipped for one; only its status changes."""
     # Lock first, same reason as confirm_sale: without this, two concurrent
     # cancel attempts (a double-tapped «Отменить продажу» on a bad
     # connection) could both read status=CONFIRMED before either commits,
@@ -128,15 +163,16 @@ def cancel_sale(order: SaleOrder, user=None) -> SaleOrder:
     locked = SaleOrder.objects.select_for_update().get(pk=order.pk)
     if locked.status != SaleOrder.CONFIRMED:
         raise ValidationError(_("Only approved sales can be cancelled."))
-    for item in locked.items.select_related("variant"):
-        add_movement(
-            variant=item.variant,
-            movement_type=StockMovement.RETURN_IN,
-            quantity=item.quantity,
-            user=user,
-            reason=f"Cancel sale #{locked.pk}",
-            sale_order=locked,
-        )
+    if not locked.is_historical:
+        for item in locked.items.select_related("variant"):
+            add_movement(
+                variant=item.variant,
+                movement_type=StockMovement.RETURN_IN,
+                quantity=item.quantity,
+                user=user,
+                reason=f"Cancel sale #{locked.pk}",
+                sale_order=locked,
+            )
     locked.status = SaleOrder.CANCELLED
     locked.save(update_fields=["status"])
     return locked
@@ -174,14 +210,17 @@ def return_items(order: SaleOrder, returns: dict[int, int], user=None) -> SaleOr
 
     for item_id, qty in cleaned.items():
         item = items[item_id]
-        add_movement(
-            variant=item.variant,
-            movement_type=StockMovement.RETURN_IN,
-            quantity=qty,
-            user=user,
-            reason=f"Return sale #{order.pk}",
-            sale_order=order,
-        )
+        # A historical sale (see SaleOrder.is_historical) never removed
+        # stock, so a return from it must not add phantom stock either.
+        if not locked.is_historical:
+            add_movement(
+                variant=item.variant,
+                movement_type=StockMovement.RETURN_IN,
+                quantity=qty,
+                user=user,
+                reason=f"Return sale #{order.pk}",
+                sale_order=order,
+            )
         old_qty = item.quantity
         item.quantity -= qty
         if item.quantity == 0:
@@ -220,9 +259,13 @@ def return_items(order: SaleOrder, returns: dict[int, int], user=None) -> SaleOr
 
 def today_summary() -> dict:
     """Revenue broken down by currency — orders can be in different currencies,
-    so there is no single "revenue" number without a display-time conversion."""
+    so there is no single "revenue" number without a display-time conversion.
+    Excludes is_historical sales (see SaleOrder.is_historical) — a backdated
+    entry must never inflate this or any other revenue figure."""
     today = timezone.localdate()
-    qs = SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date=today)
+    qs = SaleOrder.objects.filter(
+        status=SaleOrder.CONFIRMED, confirmed_at__date=today, is_historical=False
+    )
     revenue_by_currency: dict[str, Decimal] = defaultdict(Decimal)
     for row in qs.values("currency").annotate(t=Sum("total")):
         revenue_by_currency[row["currency"]] += row["t"] or Decimal("0")
@@ -231,10 +274,16 @@ def today_summary() -> dict:
 
 
 def todays_confirmed_orders():
-    """Today's approved sales with items + payments preloaded — used by the daily report."""
+    """Today's approved sales with items + payments preloaded — used by the
+    daily report. Excludes is_historical (see SaleOrder.is_historical) —
+    the date filter alone would already exclude a genuinely backdated entry
+    in almost every case, but this stays explicit rather than relying on
+    that coincidence (she COULD backdate to today by mistake)."""
     today = timezone.localdate()
     return (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date=today)
+        SaleOrder.objects.filter(
+            status=SaleOrder.CONFIRMED, confirmed_at__date=today, is_historical=False
+        )
         .select_related("client")
         .prefetch_related("items__variant", "payments")
         .order_by("confirmed_at")
@@ -246,11 +295,11 @@ def today_revenue_kgs() -> Decimal:
     total_kgs — never re-converted at a live rate (CLAUDE.md: 'every
     dashboard aggregate sums total_kgs and never re-converts'). This is the
     one figure /stats/ and /pos/today/ must agree with apps.reports.dashboard
-    on; a same-day rate refresh must not move it."""
+    on; a same-day rate refresh must not move it. Excludes is_historical."""
     today = timezone.localdate()
-    return SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date=today).aggregate(
-        s=Sum("total_kgs")
-    )["s"] or Decimal("0")
+    return SaleOrder.objects.filter(
+        status=SaleOrder.CONFIRMED, confirmed_at__date=today, is_historical=False
+    ).aggregate(s=Sum("total_kgs"))["s"] or Decimal("0")
 
 
 def revenue_last_n_days_kgs(n: int = 7) -> list[dict]:
@@ -258,11 +307,14 @@ def revenue_last_n_days_kgs(n: int = 7) -> list[dict]:
     figure is SUM(total_kgs) of orders confirmed that day, same frozen-value
     rule as today_revenue_kgs. Unlike revenue_last_n_days (per-currency,
     unconverted — kept for callers that want the currency breakdown), this
-    is a single already-KGS number, ready to chart without a live conversion."""
+    is a single already-KGS number, ready to chart without a live
+    conversion. Excludes is_historical."""
     today = timezone.localdate()
     start = today - timedelta(days=n - 1)
     rows = (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__gte=start)
+        SaleOrder.objects.filter(
+            status=SaleOrder.CONFIRMED, confirmed_at__date__gte=start, is_historical=False
+        )
         .annotate(day=TruncDate("confirmed_at"))
         .values("day")
         .annotate(revenue_kgs=Sum("total_kgs"))
@@ -280,10 +332,13 @@ def revenue_last_n_days_kgs(n: int = 7) -> list[dict]:
 def sales_by_channel_kgs(days: int = 30) -> list[dict]:
     """[{channel, label, revenue_kgs}] over the last `days` days — SUM(total_kgs)
     per channel, same frozen-value rule as today_revenue_kgs. See
-    sales_by_channel for the per-currency (unconverted) variant."""
+    sales_by_channel for the per-currency (unconverted) variant. Excludes
+    is_historical."""
     since = timezone.localdate() - timedelta(days=days - 1)
     rows = (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__gte=since)
+        SaleOrder.objects.filter(
+            status=SaleOrder.CONFIRMED, confirmed_at__date__gte=since, is_historical=False
+        )
         .values("channel")
         .annotate(revenue_kgs=Sum("total_kgs"))
     )
@@ -299,11 +354,14 @@ def sales_by_channel_kgs(days: int = 30) -> list[dict]:
 
 
 def revenue_last_n_days(n: int = 7) -> list[dict]:
-    """[{day, by_currency: {currency: amount}}] for the last n days, oldest first."""
+    """[{day, by_currency: {currency: amount}}] for the last n days, oldest
+    first. Excludes is_historical."""
     today = timezone.localdate()
     start = today - timedelta(days=n - 1)
     rows = (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__gte=start)
+        SaleOrder.objects.filter(
+            status=SaleOrder.CONFIRMED, confirmed_at__date__gte=start, is_historical=False
+        )
         .annotate(day=TruncDate("confirmed_at"))
         .values("day", "currency")
         .annotate(revenue=Sum("total"))
@@ -321,10 +379,13 @@ def revenue_last_n_days(n: int = 7) -> list[dict]:
 
 
 def sales_by_channel(days: int = 30) -> list[dict]:
-    """[{channel, label, by_currency: {currency: amount}}] over the last `days` days."""
+    """[{channel, label, by_currency: {currency: amount}}] over the last
+    `days` days. Excludes is_historical."""
     since = timezone.localdate() - timedelta(days=days - 1)
     rows = (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date__gte=since)
+        SaleOrder.objects.filter(
+            status=SaleOrder.CONFIRMED, confirmed_at__date__gte=since, is_historical=False
+        )
         .values("channel", "currency")
         .annotate(revenue=Sum("total"))
     )
@@ -345,11 +406,14 @@ def pending_orders_count() -> int:
 def units_sold_by_variant(days: int = 30) -> dict[int, int]:
     """{variant_id: units sold} over the last `days` days from confirmed sales.
     Powers the bestseller / slow-mover view — units, not money, so no currency
-    conversion is involved."""
+    conversion is involved. Excludes is_historical: a backdated entry must
+    not make a discontinued item look like it's newly selling again."""
     since = timezone.localdate() - timedelta(days=days - 1)
     rows = (
         SaleItem.objects.filter(
-            order__status=SaleOrder.CONFIRMED, order__confirmed_at__date__gte=since
+            order__status=SaleOrder.CONFIRMED,
+            order__confirmed_at__date__gte=since,
+            order__is_historical=False,
         )
         .values("variant_id")
         .annotate(units=Sum("quantity"))

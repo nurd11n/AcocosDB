@@ -20,7 +20,8 @@
  receipt (товар/размер/цвет/кол-во/сумма).
  {% endcomment %}
  {% if order_items %}
- <table class="table" style="margin-top:var(--space-3)">
+ <div class="table-scroll" style="margin-top:var(--space-3)">
+ <table class="table">
   <thead>
    <tr>
     <th>{% trans "Категория" %}</th>
@@ -44,6 +45,7 @@
    {% endfor %}
   </tbody>
  </table>
+ </div>
  {% endif %}
 
  {% comment %}

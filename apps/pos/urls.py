@@ -21,6 +21,11 @@ urlpatterns = [
         views.toggle_do_not_remind,
         name="toggle_do_not_remind",
     ),
+    path(
+        "clients/<int:pk>/opening-balance/add/",
+        views.opening_balance_add,
+        name="opening_balance_add",
+    ),
     path("clients/<int:pk>/debt/pay/", views.client_debt_pay, name="client_debt_pay"),
     path(
         "clients/<int:pk>/debt/pay/confirm/",

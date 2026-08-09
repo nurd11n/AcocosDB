@@ -43,19 +43,16 @@ def log_telegram_interaction(client: Client, text: str) -> None:
 
 
 def find_client_by_phone(phone: str) -> Client | None:
-    """Format-tolerant phone lookup — the ONE phone-matching implementation
-    shared by subscribe_telegram (Telegram contact share) and
-    apps.clients.management.commands.import_opening_balances (bulk import),
-    never duplicated between them.
+    """Format-tolerant phone lookup, used by subscribe_telegram (Telegram
+    contact share).
 
     Matches on the trailing 9 digits (a KG mobile subscriber number, with any
     country code or trunk prefix stripped) rather than a full exact match —
     «+996700123456», «996700123456», and the local «0700123456» all resolve
-    to the same client, which is exactly the without-a-country-code case a
-    hand-typed import spreadsheet produces. Separators are stripped in SQL
-    (REPLACE chain) so the prefilter returns a handful of candidates instead
-    of scanning every client row in Python on each call. Client.phone is
-    unique, so at most one match is ever possible."""
+    to the same client. Separators are stripped in SQL (REPLACE chain) so the
+    prefilter returns a handful of candidates instead of scanning every
+    client row in Python on each call. Client.phone is unique, so at most one
+    match is ever possible."""
     digits = "".join(ch for ch in (phone or "") if ch.isdigit())
     if not digits:
         return None

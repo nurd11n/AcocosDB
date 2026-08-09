@@ -52,6 +52,15 @@ page just leads with the number she actually thinks in.
   <button type="submit" class="btn btn-ghost">{% trans "Напомнить о долге в WhatsApp" %}</button>
  </form>
  {% endif %}
+ {% comment %}
+ Manual, one-at-a-time pre-system debt entry — Owner-only (see
+ apps.pos.views.opening_balance_add's own docstring for why there's no
+ bulk import instead).
+ {% endcomment %}
+ {% if request.user.is_superuser %}
+ <a class="btn btn-ghost" href="{% url 'pos:opening_balance_add' client.pk %}" style="margin-top:var(--space-2)">
+   {% trans "Добавить старый долг" %}</a>
+ {% endif %}
 </div>
 
 {% comment %}
@@ -82,7 +91,14 @@ range is currently selected through to the PDF.
    {% trans "Остаток на" %} {% if statement_to %}{{ statement_to|date:"d.m.Y" }}{% else %}{% trans "сегодня" %}{% endif %}:
    <span class="num" style="font-weight:600">{{ section.closing|money:currency }}</span>
  </p>
- <table class="table" style="margin-top:var(--space-2)">
+ {% comment %}
+ overflow-x:auto on its OWN wrapper, never the page body — five columns of
+ real content (a description, three money columns) don't fit a 390px phone,
+ so the TABLE scrolls sideways in its own bounded strip while the rest of
+ the card (the balance line above, «Скачать выписку» below) stays put.
+ {% endcomment %}
+ <div class="table-scroll" style="margin-top:var(--space-2)">
+ <table class="table">
   <thead>
    <tr>
     <th>{% trans "Дата" %}</th>
@@ -130,6 +146,7 @@ range is currently selected through to the PDF.
    {% endfor %}
   </tbody>
  </table>
+ </div>
  {% empty %}
  <p class="muted">{% trans "Операций пока нет" %}</p>
  {% endfor %}
@@ -185,23 +202,17 @@ themselves show — never removed, just no longer what the page leads with.
 
 <div class="card">
  <h2>{% trans "История покупок" %}</h2>
- {% comment %}
- Real (stock-backed) sales merged with free-text pre-system purchases
- (apps.clients.models.HistoricalPurchase, see apps.pos.views.client_detail)
- — row.order is None for a historical one, marked «до системы» so it can
- never be mistaken for a real sale.
- {% endcomment %}
- {% for row in purchase_history_rows %}
+ {% for row in paid_rows %}
  <div class="oline">
    <div class="oline__main">
-     {% if row.order %}
-     <a class="oline__name" href="{% url 'pos:sale_result' row.order.pk %}">{{ row.date|date:"d.m.Y" }}</a>
-     {% else %}
-     <span class="oline__name">{{ row.date|date:"d.m.Y" }} <span class="muted">· {% trans "до системы" %}</span></span>
+     <a class="oline__name" href="{% url 'pos:sale_result' row.order.pk %}">
+       {{ row.order.confirmed_at|date:"d.m.Y" }}</a>
+     {% if row.order.is_historical %}
+     <span class="oline__meta muted">· {% trans "историческая" %}</span>
      {% endif %}
      <span class="oline__meta muted">{{ row.item_summary }}</span>
    </div>
-   <span class="oline__total num">{{ row.amount|money:row.currency }}</span>
+   <span class="oline__total num">{{ row.order.total|money:row.order.currency }}</span>
  </div>
  {% empty %}
  <p class="muted">{% trans "Покупок пока нет" %}</p>

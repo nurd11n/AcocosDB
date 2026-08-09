@@ -16,7 +16,7 @@ from django.core.management import call_command
 from django.test import RequestFactory
 from django.utils import timezone
 
-from apps.clients.models import Client, ClientOpeningBalance, HistoricalPurchase, Interaction
+from apps.clients.models import Client, ClientOpeningBalance, Interaction
 from apps.clients.services import (
     client_credits,
     client_debt,
@@ -3209,7 +3209,6 @@ def test_dashboard_expected_surplus_state_is_clearly_labelled(
     "-1 959 300 сом" under a "Ожидается" (pending) label reads as an error
     to a human, not information. This state must render as its own clearly
     labelled, positive fact instead."""
-    from datetime import timedelta
 
     from apps.reports.dashboard import dashboard_data
 
@@ -4452,7 +4451,6 @@ def test_security_events_are_purged_after_retention(settings):
     """SecurityEvent was the only growing table with no retention at all —
     unbounded abuse-log growth in the SAME database as sales/clients/debts.
     Rows past the window go; anything inside it stays."""
-    from datetime import timedelta
 
     from apps.core.models import SecurityEvent
     from apps.core.management.commands.purge_security_events import RETAIN
@@ -6698,7 +6696,6 @@ def test_queue_groups_by_product_and_by_client(variant, settings):
 def test_queue_sorts_by_nearest_due_date_and_flags_overdue(variant, settings):
     """Nearest deadline first, undated last, overdue flagged against the
     Asia/Bishkek LOCAL date (never UTC) — same rule as Order.is_overdue."""
-    from datetime import timedelta
 
     from apps.orders.services import create_order, production_queue
 
@@ -7995,7 +7992,6 @@ def test_debt_pay_reuses_record_payment_no_second_payment_path(client, django_us
 def test_client_debt_pay_multi_sale_oldest_first_closes_correct_sales(
     client, django_user_model, variant
 ):
-    from datetime import timedelta
 
     add_movement(variant, StockMovement.PRODUCTION_IN, 10)
     owner = django_user_model.objects.create_superuser("mdp_owner", "o6@e.com", "x" * 12)
@@ -9738,142 +9734,12 @@ def test_do_not_remind_toggle_hides_action_and_is_reversible(client, django_user
     assert cust.do_not_remind is False
 
 
-# ---- HistoricalPurchase: pre-system purchase history -----------------------
-
-
-def test_historical_purchase_appears_in_purchase_history_marked_pre_system(
-    client, django_user_model, variant
-):
-    """A HistoricalPurchase row shows up merged into «История покупок»,
-    marked «до системы», never confused with a real (stock-backed) sale."""
-    call_command("setup_roles")
-    editor = django_user_model.objects.create_user("hp_view_ed", password="x" * 12, is_staff=True)
-    editor.groups.add(Group.objects.get(name=EDITOR))
-    client.force_login(editor)
-
-    cust = Client.objects.create(first_name="История", phone="+996700010001")
-    HistoricalPurchase.objects.create(
-        client=cust,
-        purchase_date=date(2025, 3, 15),
-        description="3 вечерних платья L, 2 карнавальных костюма",
-        amount=Decimal("45000"),
-        currency="KGS",
-    )
-
-    resp = client.get(f"/pos/clients/{cust.pk}/")
-    html = resp.content.decode()
-    assert "3 вечерних платья L, 2 карнавальных костюма" in html
-    assert "до системы" in html
-    assert "15.03.2025" in html
-
-
-def test_historical_purchase_excluded_from_debt_revenue_and_stock(variant):
-    """A HistoricalPurchase is purely informational: it must NEVER appear in
-    client_debt/client_debts_by_currency, and creating one must never touch
-    stock (it isn't a SaleOrder, isn't linked to a ProductVariant at all)."""
-    from apps.clients.services import client_debt
-
-    stock_before = variant.stock
-    cust = Client.objects.create(first_name="БезДолга", phone="+996700010002")
-    HistoricalPurchase.objects.create(
-        client=cust,
-        purchase_date=date(2025, 1, 1),
-        description="Старая покупка",
-        amount=Decimal("10000"),
-        currency="KGS",
-    )
-    assert client_debt(cust) == {}
-    assert variant.stock == stock_before  # untouched — this model has no FK to it at all
-
-
-def test_historical_purchase_and_real_sales_sort_together_by_date(
-    client, django_user_model, variant
-):
-    """Real sales and historical purchases interleave chronologically in
-    «История покупок» rather than being shown as two separate, unordered
-    blocks."""
-    call_command("setup_roles")
-    editor = django_user_model.objects.create_user("hp_sort_ed", password="x" * 12, is_staff=True)
-    editor.groups.add(Group.objects.get(name=EDITOR))
-    client.force_login(editor)
-
-    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
-    cust = Client.objects.create(first_name="Сортировка", phone="+996700010003")
-    order = SaleOrder.objects.create(client=cust, currency="KGS")
-    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
-    confirm_sale(order)
-    record_payment(order, Decimal("3200"))  # fully paid -> appears in История покупок
-
-    HistoricalPurchase.objects.create(
-        client=cust,
-        purchase_date=date(2020, 1, 1),  # long before the real sale
-        description="Старое платье",
-        amount=Decimal("2000"),
-        currency="KGS",
-    )
-
-    resp = client.get(f"/pos/clients/{cust.pk}/")
-    html = resp.content.decode()
-    real_pos = html.index(f"/pos/sale/{order.pk}/result/")  # the real sale's own row link
-    hist_pos = html.index("Старое платье")
-    assert hist_pos > real_pos  # the older (2020) historical row renders AFTER the newer real sale
-
-
-def test_editor_crafted_post_to_add_historical_purchase_is_403(client, django_user_model):
-    call_command("setup_roles")
-    editor = django_user_model.objects.create_user("hp_403_ed", password="x" * 12, is_staff=True)
-    editor.groups.add(Group.objects.get(name=EDITOR))
-    client.force_login(editor)
-
-    cust = Client.objects.create(first_name="Крафт", phone="+996700010004")
-    resp = client.get("/panel/clients/historicalpurchase/add/")
-    assert resp.status_code == 403
-
-    resp2 = client.post(
-        "/panel/clients/historicalpurchase/add/",
-        {
-            "client": cust.pk,
-            "purchase_date": "2024-01-01",
-            "description": "Крафт",
-            "amount": "1000",
-            "currency": "KGS",
-        },
-    )
-    assert resp2.status_code == 403
-    assert not HistoricalPurchase.objects.filter(client=cust).exists()
-
-
-def test_owner_can_add_historical_purchase_via_admin(client, django_user_model):
-    call_command("setup_roles")
-    owner = django_user_model.objects.create_superuser("hp_owner", password="x" * 12)
-    client.force_login(owner)
-
-    cust = Client.objects.create(first_name="Овнер", phone="+996700010005")
-    resp = client.post(
-        "/panel/clients/historicalpurchase/add/",
-        {
-            "client": cust.pk,
-            "purchase_date": "2024-01-01",
-            "description": "Платье",
-            "amount": "1500",
-            "currency": "KGS",
-            "note": "",
-            "_save": "Save",
-        },
-    )
-    assert resp.status_code == 302
-    hp = HistoricalPurchase.objects.get(client=cust)
-    assert hp.amount == Decimal("1500")
-    assert hp.created_by == owner
-
-
 def test_client_detail_query_count_stays_flat_as_purchase_history_grows(
     client, django_user_model, variant
 ):
-    """client_detail merges real sales + HistoricalPurchase rows into one
-    «История покупок» list (see apps.pos.views.client_detail) — assert the
-    query count is a FIXED handful regardless of how many of either kind of
-    row exist, never one extra query per row (the historical_purchases
+    """client_detail's «История покупок» list (see apps.pos.views.
+    client_detail) — assert the query count is a FIXED handful regardless of
+    how many confirmed sales exist, never one extra query per row (the
     queryset is a single bounded slice, never iterated with a per-row
     lookup)."""
     from django.db import connection
@@ -9893,20 +9759,11 @@ def test_client_detail_query_count_stays_flat_as_purchase_history_grows(
         )
         confirm_sale(order)
         record_payment(order, Decimal("1000"))
-    for i in range(25):
-        HistoricalPurchase.objects.create(
-            client=cust,
-            purchase_date=date(2020, 1, 1) + timedelta(days=i),
-            description=f"Старая покупка {i}",
-            amount=Decimal("500"),
-            currency="KGS",
-        )
 
     with CaptureQueriesContext(connection) as ctx:
         resp = client.get(f"/pos/clients/{cust.pk}/")
     assert resp.status_code == 200
-    # Measured at 22 with 25+25 rows, identical at 3+3 — a generous ceiling
-    # here is a regression trip-wire, not a tight budget.
+    # A generous ceiling here is a regression trip-wire, not a tight budget.
     assert len(ctx.captured_queries) < 30
 
 
@@ -9937,3 +9794,420 @@ def test_debtors_page_query_count_stays_flat_as_debtor_count_grows(
         resp = client.get("/pos/clients/debtors/")
     assert resp.status_code == 200
     assert len(ctx.captured_queries) < 15
+
+
+# ---- Manual opening-balance entry (no bulk import — see git history) ------
+
+
+def test_opening_balance_add_editor_gets_403(client, django_user_model):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("obadd_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    cust = Client.objects.create(first_name="Крафт", phone="+996700020001")
+    resp = client.get(f"/pos/clients/{cust.pk}/opening-balance/add/")
+    assert resp.status_code == 403
+
+    resp2 = client.post(
+        f"/pos/clients/{cust.pk}/opening-balance/add/",
+        {"amount": "5000", "currency": "KGS", "as_of_date": "2026-01-01", "note": ""},
+    )
+    assert resp2.status_code == 403
+    assert not ClientOpeningBalance.objects.filter(client=cust).exists()
+
+
+def test_opening_balance_add_creates_and_is_immediately_visible(client, django_user_model):
+    """Once added, it shows in «Баланс» AND as the first «старый долг»
+    statement row — no separate refresh/recompute step."""
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("obadd_owner", password="x" * 12)
+    client.force_login(owner)
+
+    cust = Client.objects.create(first_name="Роза", phone="+996700020002")
+    resp = client.post(
+        f"/pos/clients/{cust.pk}/opening-balance/add/",
+        {"amount": "99000", "currency": "KGS", "as_of_date": "2026-01-01", "note": "старый долг"},
+    )
+    assert resp.status_code == 302
+
+    ob = ClientOpeningBalance.objects.get(client=cust)
+    assert ob.amount == Decimal("99000")
+    assert ob.currency == "KGS"
+    assert ob.created_by == owner
+
+    from apps.clients.services import client_debt, client_statement
+
+    assert client_debt(cust) == {"KGS": Decimal("99000.00")}
+
+    detail_html = client.get(f"/pos/clients/{cust.pk}/").content.decode()
+    assert "99" in detail_html  # the balance figure renders on the page
+
+    statement = client_statement(cust)
+    first_row = statement["KGS"]["rows"][0]
+    assert first_row["kind"] == "opening_balance"
+    assert first_row["balance"] == Decimal("99000.00")
+
+
+def test_opening_balance_add_resubmit_same_date_updates_in_place(client, django_user_model):
+    """She will make typos — re-entering the SAME (client, currency, date)
+    corrects the figure in place rather than erroring or duplicating, and
+    created_by stays the original entrant, not whoever fixed the typo."""
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("obadd_fix_owner", password="x" * 12)
+    client.force_login(owner)
+
+    cust = Client.objects.create(first_name="Гуля", phone="+996700020003")
+    client.post(
+        f"/pos/clients/{cust.pk}/opening-balance/add/",
+        {"amount": "10000", "currency": "KGS", "as_of_date": "2026-01-01", "note": ""},
+    )
+    client.post(
+        f"/pos/clients/{cust.pk}/opening-balance/add/",
+        {"amount": "12500", "currency": "KGS", "as_of_date": "2026-01-01", "note": "исправлено"},
+    )
+
+    assert ClientOpeningBalance.objects.filter(client=cust).count() == 1
+    ob = ClientOpeningBalance.objects.get(client=cust)
+    assert ob.amount == Decimal("12500")
+    assert ob.note == "исправлено"
+    assert ob.created_by == owner
+    # history retained across the correction — two snapshots, not one
+    assert ob.history.count() == 2
+
+
+def test_opening_balance_add_allows_negative_amount_as_advance(client, django_user_model):
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("obadd_neg_owner", password="x" * 12)
+    client.force_login(owner)
+
+    cust = Client.objects.create(first_name="Аванс", phone="+996700020004")
+    resp = client.post(
+        f"/pos/clients/{cust.pk}/opening-balance/add/",
+        {"amount": "-5000", "currency": "USD", "as_of_date": "2026-01-01", "note": ""},
+    )
+    assert resp.status_code == 302
+    ob = ClientOpeningBalance.objects.get(client=cust)
+    assert ob.amount == Decimal("-5000")
+
+    from apps.clients.services import client_credits
+
+    assert client_credits(cust) == {"USD": Decimal("5000.00")}
+
+
+def test_opening_balance_add_rejects_zero_amount_writes_nothing(client, django_user_model):
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("obadd_zero_owner", password="x" * 12)
+    client.force_login(owner)
+
+    cust = Client.objects.create(first_name="Ноль", phone="+996700020005")
+    resp = client.post(
+        f"/pos/clients/{cust.pk}/opening-balance/add/",
+        {"amount": "0", "currency": "KGS", "as_of_date": "2026-01-01", "note": ""},
+    )
+    assert resp.status_code == 200  # redisplayed with an error, not redirected
+    assert not ClientOpeningBalance.objects.filter(client=cust).exists()
+
+
+def test_opening_balance_progress_count_on_clients_page(client, django_user_model):
+    """«Старый долг внесён для N из M клиентов» — N is DISTINCT clients with
+    at least one opening balance (any currency), never row count; M is
+    active clients."""
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("obadd_prog_owner", password="x" * 12)
+    client.force_login(owner)
+
+    c1 = Client.objects.create(first_name="Один", phone="+996700020006")
+    c2 = Client.objects.create(first_name="Два", phone="+996700020007")
+    Client.objects.create(first_name="Три", phone="+996700020008")  # no opening balance
+
+    ClientOpeningBalance.objects.create(
+        client=c1, amount=Decimal("1000"), currency="KGS", as_of_date=date(2026, 1, 1)
+    )
+    # c2 has opening balances in TWO currencies — still counts as ONE client done.
+    ClientOpeningBalance.objects.create(
+        client=c2, amount=Decimal("1000"), currency="KGS", as_of_date=date(2026, 1, 1)
+    )
+    ClientOpeningBalance.objects.create(
+        client=c2, amount=Decimal("50"), currency="USD", as_of_date=date(2026, 1, 1)
+    )
+
+    html = client.get("/pos/clients/").content.decode()
+    assert "Старый долг внесён для 2 из 3 клиентов" in html
+
+
+def test_opening_balance_progress_hidden_from_non_owner(client, django_user_model):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user(
+        "obadd_prog_ed", password="x" * 12, is_staff=True
+    )
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    html = client.get("/pos/clients/").content.decode()
+    assert "Старый долг внесён" not in html
+
+
+def test_opening_balance_admin_changelist_shows_progress(client, django_user_model):
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("obadd_admin_owner", password="x" * 12)
+    client.force_login(owner)
+
+    cust = Client.objects.create(first_name="Панель", phone="+996700020009")
+    ClientOpeningBalance.objects.create(
+        client=cust, amount=Decimal("1000"), currency="KGS", as_of_date=date(2026, 1, 1)
+    )
+
+    html = client.get("/panel/clients/clientopeningbalance/").content.decode()
+    assert "Старый долг внесён для" in html
+
+
+def test_owner_can_edit_and_delete_opening_balance_via_admin(client, django_user_model):
+    """Admin change/delete both stay Owner-only and history survives an
+    edit — this already worked via ClientOpeningBalanceAdmin's explicit
+    is_superuser checks, confirmed here end-to-end through the actual admin
+    URLs rather than just the permission methods."""
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("obadd_edit_owner", password="x" * 12)
+    client.force_login(owner)
+
+    cust = Client.objects.create(first_name="Редакт", phone="+996700020010")
+    ob = ClientOpeningBalance.objects.create(
+        client=cust, amount=Decimal("1000"), currency="KGS", as_of_date=date(2026, 1, 1)
+    )
+
+    resp = client.post(
+        f"/panel/clients/clientopeningbalance/{ob.pk}/change/",
+        {
+            "client": cust.pk,
+            "amount": "1500",
+            "currency": "KGS",
+            "as_of_date": "2026-01-01",
+            "note": "поправка",
+            "_save": "Save",
+        },
+    )
+    assert resp.status_code == 302
+    ob.refresh_from_db()
+    assert ob.amount == Decimal("1500")
+    assert ob.history.count() == 2
+
+    resp2 = client.post(f"/panel/clients/clientopeningbalance/{ob.pk}/delete/", {"post": "yes"})
+    assert resp2.status_code == 302
+    assert not ClientOpeningBalance.objects.filter(pk=ob.pk).exists()
+
+
+# ---- Historical (backdated) sales: itemized history without touching ------
+# ---- current stock or current-period revenue -------------------------------
+
+
+def test_confirm_sale_historical_writes_no_stock_movement(variant):
+    stock_before = variant.stock
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=date(2024, 3, 15))
+
+    variant.refresh_from_db()
+    assert variant.stock == stock_before
+    assert not StockMovement.objects.filter(variant=variant).exists()
+
+
+def test_confirm_sale_historical_sets_confirmed_at_from_historical_date(variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=date(2023, 6, 1))
+
+    order.refresh_from_db()
+    assert order.is_historical is True
+    assert timezone.localtime(order.confirmed_at).date() == date(2023, 6, 1)
+
+
+def test_confirm_sale_historical_skips_the_oversell_check(variant):
+    """A backdated sale isn't taking anything from TODAY's warehouse — it
+    must succeed even against ZERO current stock (variant starts with none:
+    no add_movement call in this test at all)."""
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=100, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=date(2023, 1, 1))  # must not raise
+
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CONFIRMED
+    assert variant.stock == 0  # still untouched
+
+
+def test_confirm_sale_historical_without_date_raises(variant):
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    with pytest.raises(ValidationError):
+        confirm_sale(order, is_historical=True, historical_date=None)
+    order.refresh_from_db()
+    assert order.status == SaleOrder.DRAFT  # nothing written
+
+
+def test_cancel_historical_sale_does_not_phantom_add_stock(variant):
+    stock_before = variant.stock
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=3, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=date(2023, 1, 1))
+    cancel_sale(order)
+
+    variant.refresh_from_db()
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CANCELLED
+    assert variant.stock == stock_before  # never went up from a fake RETURN_IN
+    assert not StockMovement.objects.filter(variant=variant).exists()
+
+
+def test_return_from_historical_sale_does_not_phantom_add_stock(variant):
+    stock_before = variant.stock
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=3, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=date(2023, 1, 1))
+    item = order.items.get()
+
+    from apps.sales.services import return_items
+
+    return_items(order, {item.pk: 1})
+
+    variant.refresh_from_db()
+    assert variant.stock == stock_before
+    assert not StockMovement.objects.filter(variant=variant).exists()
+
+
+def test_historical_sale_excluded_from_dashboard_revenue_profit_units(variant):
+    """Backdated to TODAY specifically (inside the "today" period window)
+    so this actually proves the is_historical filter works, not just that
+    the date happens to fall outside the window."""
+    from apps.reports.dashboard import dashboard_data
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    today = timezone.localdate()
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=today)
+
+    data = dashboard_data("today")
+    assert data["metrics"]["revenue"]["value"] == Decimal("0")
+    assert data["metrics"]["profit"]["value"] == Decimal("0")
+    assert data["metrics"]["units"]["value"] == 0
+
+
+def test_historical_sale_excluded_from_today_revenue_and_summary(variant):
+    from apps.sales.services import today_revenue_kgs, today_summary
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    today = timezone.localdate()
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=today)
+
+    assert today_revenue_kgs() == Decimal("0")
+    summary = today_summary()
+    assert summary["orders"] == 0
+    assert summary["items"] == 0
+    assert summary["revenue_by_currency"] == {}
+
+
+def test_historical_sale_excluded_from_daily_report_sales_sheet(variant):
+    from apps.sales.services import todays_confirmed_orders
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    today = timezone.localdate()
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=today)
+
+    assert order.pk not in [o.pk for o in todays_confirmed_orders()]
+
+
+def test_historical_sale_still_counts_as_real_debt_if_unpaid(variant):
+    """Debt/payment tracking is DELIBERATELY not excluded — see
+    SaleOrder.is_historical's own docstring. An unpaid historical sale is a
+    real debt like any other and must show in «Баланс»/the statement."""
+    from apps.clients.services import client_debt
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Историческая", phone="+996700030001")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=date(2023, 1, 1))
+
+    assert client_debt(cust) == {"KGS": Decimal("3200.00")}
+
+
+def test_historical_sale_appears_in_purchase_history_marked(client, django_user_model, variant):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("hist_hist_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    cust = Client.objects.create(first_name="Итория", phone="+996700030002")
+    order = SaleOrder.objects.create(client=cust, currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order, is_historical=True, historical_date=date(2023, 1, 1))
+    record_payment(order, Decimal("3200"))  # fully paid -> appears in История покупок
+
+    html = client.get(f"/pos/clients/{cust.pk}/").content.decode()
+    assert "историческая" in html
+
+
+def test_sale_confirm_view_editor_crafted_post_with_is_historical_gets_403(
+    client, django_user_model, variant
+):
+    call_command("setup_roles")
+    editor = django_user_model.objects.create_user("hist_403_ed", password="x" * 12, is_staff=True)
+    editor.groups.add(Group.objects.get(name=EDITOR))
+    client.force_login(editor)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS", created_by=editor)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    resp = client.post(
+        f"/pos/sale/{order.pk}/confirm/",
+        {"amount": "0", "currency": "KGS", "is_historical": "1", "historical_date": "2023-01-01"},
+    )
+    assert resp.status_code == 403
+    order.refresh_from_db()
+    assert order.status == SaleOrder.DRAFT
+    assert not order.is_historical
+
+
+def test_sale_confirm_view_owner_can_backdate(client, django_user_model, variant):
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("hist_owner_view", password="x" * 12)
+    client.force_login(owner)
+
+    order = SaleOrder.objects.create(currency="KGS", created_by=owner)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    resp = client.post(
+        f"/pos/sale/{order.pk}/confirm/",
+        {"amount": "0", "currency": "KGS", "is_historical": "1", "historical_date": "2022-05-05"},
+    )
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.is_historical is True
+    assert timezone.localtime(order.confirmed_at).date() == date(2022, 5, 5)
+    variant.refresh_from_db()
+    assert variant.stock == 0  # never touched despite zero starting stock
+
+
+def test_sale_confirm_view_owner_missing_date_shows_error_not_500(
+    client, django_user_model, variant
+):
+    call_command("setup_roles")
+    owner = django_user_model.objects.create_superuser("hist_owner_noerr", password="x" * 12)
+    client.force_login(owner)
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS", created_by=owner)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    resp = client.post(
+        f"/pos/sale/{order.pk}/confirm/",
+        {"amount": "0", "currency": "KGS", "is_historical": "1", "historical_date": ""},
+    )
+    assert resp.status_code == 302  # redisplays sale_detail, not a 500
+    order.refresh_from_db()
+    assert order.status == SaleOrder.DRAFT

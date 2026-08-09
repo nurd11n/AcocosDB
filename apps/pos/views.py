@@ -107,6 +107,16 @@ def _parse_positive_decimal(raw) -> Decimal | None:
     return value if value and value > 0 else None
 
 
+def _parse_signed_decimal(raw) -> Decimal | None:
+    """Unlike _parse_decimal, allows negative — needed for
+    ClientOpeningBalance.amount, where negative is a legitimate «Аванс»
+    (a client who'd pre-paid before go-live), never rejected as garbage."""
+    try:
+        return Decimal(str(raw).strip().replace(",", "."))
+    except (InvalidOperation, AttributeError, ValueError):
+        return None
+
+
 def _parse_date(raw):
     """?from=YYYY-MM-DD / ?to=YYYY-MM-DD for the client statement's
     date-range filter — a malformed or absent value is simply "no filter
@@ -120,6 +130,22 @@ def _parse_date(raw):
         return datetime.strptime(str(raw).strip(), "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _check_historical_sale(request) -> tuple[bool, object]:
+    """Backdating confirmed_at is Owner-only, enforced here regardless of
+    what the UI shows — a non-superuser POSTing is_historical=1 (even
+    directly, UI bypassed entirely) is rejected with a 403, never silently
+    ignored, same pattern as _check_rate_override/_check_change_override.
+    An unparseable/missing date comes back as (True, None) — the caller's
+    job to turn that into a normal messages.error + redirect, same as
+    every other pre-confirm validation failure in this view, never a raw
+    500."""
+    if request.POST.get("is_historical") != "1":
+        return False, None
+    if not request.user.is_superuser:
+        raise PermissionDenied("Backdating a sale is Owner-only.")
+    return True, _parse_date(request.POST.get("historical_date"))
 
 
 def _check_rate_override(request) -> Decimal | None:
@@ -1369,6 +1395,11 @@ def sale_confirm(request, pk):
         # existing result instead of erroring or creating a second sale.
         return redirect("pos:sale_result", pk=order.pk)
 
+    is_historical, historical_date = _check_historical_sale(request)  # 403s if not Owner
+    if is_historical and historical_date is None:
+        messages.error(request, _("Укажите дату исторической продажи."))
+        return redirect("pos:sale_detail", pk=order.pk)
+
     amount = _parse_decimal(request.POST.get("amount"))
     currency = request.POST.get("currency") or order.currency
     method = request.POST.get("method") or Payment.CASH
@@ -1437,7 +1468,12 @@ def sale_confirm(request, pk):
             return redirect("pos:sale_detail", pk=order.pk)
 
     try:
-        confirm_sale(order, user=request.user)
+        confirm_sale(
+            order,
+            user=request.user,
+            is_historical=is_historical,
+            historical_date=historical_date,
+        )
     except ValidationError as exc:
         order.refresh_from_db()
         if order.status == SaleOrder.CONFIRMED:
@@ -2007,8 +2043,13 @@ def toggle_do_not_remind(request, pk):
 def today(request):
     summary = today_summary()
     today_date = timezone.localdate()
+    # is_historical excluded — see SaleOrder.is_historical's own docstring:
+    # a backdated entry must never count as today's activity, even in the
+    # unlikely case she picks today's own date for one.
     orders = (
-        SaleOrder.objects.filter(status=SaleOrder.CONFIRMED, confirmed_at__date=today_date)
+        SaleOrder.objects.filter(
+            status=SaleOrder.CONFIRMED, confirmed_at__date=today_date, is_historical=False
+        )
         .select_related("client")
         .order_by("-confirmed_at")
     )
@@ -2075,6 +2116,19 @@ def clients(request):
         sort = "name"
         people.sort(key=lambda c: (c.first_name.lower(), c.descriptor.lower()))
 
+    opening_balance_progress = None
+    if request.user.is_superuser:
+        # «Старый долг внесён для N из M клиентов» — Owner-only migration
+        # progress readout (see apps.pos.views.opening_balance_add), so she
+        # can tell how much of the by-hand entry is left without opening
+        # every client individually. Computed only for Owner: a Django
+        # request-count query staff never see doesn't need to run for them.
+        from apps.clients.models import ClientOpeningBalance
+
+        total_clients = Client.objects.filter(is_active=True).count()
+        covered_clients = ClientOpeningBalance.objects.values("client_id").distinct().count()
+        opening_balance_progress = {"n": covered_clients, "m": total_clients}
+
     return render(
         request,
         "pos/clients.html",
@@ -2084,6 +2138,7 @@ def clients(request):
             "sort": sort,
             "filter": flt,
             "total": len(people),
+            "opening_balance_progress": opening_balance_progress,
             "active": "clients",
         },
     )
@@ -2151,35 +2206,6 @@ def client_detail(request, pk):
     ]
     unpaid_rows = [row for row in order_rows if row["balance"] > 0]
     paid_rows = [row for row in order_rows if row["balance"] <= 0]
-    # «История покупок» merges real (stock-backed) sales with free-text
-    # pre-system purchases (apps.clients.models.HistoricalPurchase), sorted
-    # together by date — each historical row marked «до системы» in the
-    # template so staff never mistake it for a real sale. confirmed_at is a
-    # datetime and purchase_date is a plain date, so both are normalised to
-    # a date for the shared sort key.
-    purchase_history_rows = [
-        {
-            "sort_date": timezone.localtime(row["order"].confirmed_at).date(),
-            "date": row["order"].confirmed_at,
-            "order": row["order"],
-            "item_summary": row["item_summary"],
-            "amount": row["order"].total,
-            "currency": row["order"].currency,
-        }
-        for row in paid_rows
-    ] + [
-        {
-            "sort_date": h.purchase_date,
-            "date": h.purchase_date,
-            "order": None,
-            "item_summary": h.description,
-            "amount": h.amount,
-            "currency": h.currency,
-        }
-        for h in client.historical_purchases.all()[:20]
-    ]
-    purchase_history_rows.sort(key=lambda r: r["sort_date"], reverse=True)
-    purchase_history_rows = purchase_history_rows[:20]
     interactions = client.interactions.order_by("-created_at")[:20]
     # «Выписка» — the chronological running-balance ledger (CLAUDE.md-style
     # per-sale debt is still what confirm_sale/record_payment enforce; this
@@ -2198,11 +2224,74 @@ def client_detail(request, pk):
             "credits": credits,
             "unpaid_rows": unpaid_rows,
             "paid_rows": paid_rows,
-            "purchase_history_rows": purchase_history_rows,
             "interactions": interactions,
             "statement": statement,
             "statement_from": date_from,
             "statement_to": date_to,
+            "active": "clients",
+        },
+    )
+
+
+@pos_view
+def opening_balance_add(request, pk):
+    """«Добавить старый долг» — manual, one-at-a-time entry for pre-system
+    debt. Replaces a bulk xlsx importer that shipped and was then removed:
+    a one-time script was judged more risk than it saved for the handful of
+    clients she actually needs to backfill. Owner-only, enforced here (never
+    just hidden in the UI) — the same tier as ClientOpeningBalanceAdmin and
+    rate_edit/rate_save.
+
+    Upserts by (client, currency, as_of_date) — ClientOpeningBalance's own
+    UniqueConstraint — so re-entering the same date for the same currency
+    corrects the earlier figure in place (she WILL make typos) rather than
+    erroring on a duplicate. created_by is only set on first creation, never
+    overwritten by a later correction."""
+    if not request.user.is_superuser:
+        raise PermissionDenied
+    from apps.clients.models import ClientOpeningBalance
+
+    client = get_object_or_404(Client, pk=pk)
+    error = None
+    if request.method == "POST":
+        amount = _parse_signed_decimal(request.POST.get("amount"))
+        currency = request.POST.get("currency") or settings.CURRENCY
+        as_of_date = _parse_date(request.POST.get("as_of_date"))
+        note = (request.POST.get("note") or "").strip()
+        if amount is None or amount == 0:
+            error = _("Укажите сумму (ненулевую).")
+        elif currency not in CURRENCY_CODES:
+            error = _("Неизвестная валюта.")
+        elif as_of_date is None:
+            error = _("Укажите дату.")
+        else:
+            existing = ClientOpeningBalance.objects.filter(
+                client=client, currency=currency, as_of_date=as_of_date
+            ).first()
+            if existing:
+                existing.amount = amount
+                existing.note = note
+                existing.save(update_fields=["amount", "note"])
+            else:
+                ClientOpeningBalance.objects.create(
+                    client=client,
+                    currency=currency,
+                    as_of_date=as_of_date,
+                    amount=amount,
+                    note=note,
+                    created_by=request.user,
+                )
+            return redirect("pos:client_detail", pk=client.pk)
+
+    return render(
+        request,
+        "pos/opening_balance_add.html",
+        {
+            "client": client,
+            "error": error,
+            "today": timezone.localdate(),
+            "currency_codes": CURRENCY_CODES,
+            "posted": request.POST if request.method == "POST" else None,
             "active": "clients",
         },
     )

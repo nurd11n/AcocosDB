@@ -142,6 +142,12 @@ html[data-theme="dark"] .metric, html[data-theme="dark"] .panel {
   border-radius: var(--radius-card);
   padding: var(--space-4);
   margin-bottom: var(--space-4);
+  /* A grid item's default min-width is `auto` (its content's natural
+     width), not 0 — without this, .panel refuses to shrink below its
+     widest table's min-content width, which silently defeats
+     .dtable-wrap's own overflow-x:auto below and pushes the whole PAGE
+     body wider than the viewport instead of scrolling just the table. */
+  min-width: 0;
 }
 .panel--full { grid-column: 1 / -1; }
 .panel__title {
@@ -306,6 +312,15 @@ button.cal__day:active { transform: scale(0.9); }
 @media (max-width: 480px) {
   .metrics { grid-template-columns: 1fr 1fr; }
   .dash { padding: var(--space-3); }
+}
+@media (max-width: 420px) {
+  /* 2 columns still overflows a real 390px phone (iPhone SE/12/13 mini,
+     etc.) — measured: a 6-7 digit sum like "3 757 400 сом" can't wrap (see
+     .metrics' own comment above — NBSP-joined, by design), so a ~150px
+     column is too narrow and the card pushes past the viewport edge,
+     forcing the whole page to scroll horizontally. One column at this
+     width gives every card the full row and stays comfortably inside it. */
+  .metrics { grid-template-columns: 1fr; }
 }
 
 /* =========================================================================

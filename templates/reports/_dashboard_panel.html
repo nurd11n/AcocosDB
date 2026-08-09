@@ -133,7 +133,7 @@ visible at once.{% endcomment %}
 <div class="panels">
  <div class="panel">
   <h2 class="panel__title"><svg class="ic"><use href="#i-orders"/></svg>{% trans "Заказы в работе" %}</h2>
-  <p class="panel__caption">{{ orders_open.count }} {% trans "заказ(ов)" %} · {{ orders_open.value|money:"сом" }}</p>
+  <p class="panel__caption">{{ orders_open.count }} {% trans "заказ(ов)" %} · <span class="num">{{ orders_open.value|money:"сом" }}</span></p>
   <a class="top__link" href="{% url 'orders:index' %}"><svg class="ic"><use href="#i-orders"/></svg>{% trans "Открыть заказы" %}</a>
  </div>
  <div class="panel">

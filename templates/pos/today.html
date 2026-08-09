@@ -10,7 +10,7 @@
    <p class="muted">{% trans "Пока нет продаж. Начните новую." %}</p>
  {% endfor %}
  {% if summary.revenue_by_currency %}
-   <p class="hint">≈ {{ revenue_base|money:base_currency }}
+   <p class="hint">≈ <span class="num">{{ revenue_base|money:base_currency }}</span>
      {% if skipped_currencies %}({% trans "нет курса для" %} {{ skipped_currencies|join:", " }}){% endif %}</p>
  {% endif %}
  <p class="muted">{{ summary.orders }} {% trans "продаж" %} · {{ summary.items }} {% trans "товаров" %}</p>

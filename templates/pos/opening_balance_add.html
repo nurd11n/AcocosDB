@@ -1,0 +1,41 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Старый долг" %} — {{ client.name }}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{% trans "Добавить старый долг" %}</h2>
+ <p class="muted">{{ client.name }}</p>
+
+ {% if error %}
+ <p class="pay-note pay-note--warn">{{ error }}</p>
+ {% endif %}
+
+ <form method="post" style="margin-top:var(--space-3)">
+  {% csrf_token %}
+  <label>{% trans "Сумма" %}</label>
+  <input type="text" name="amount" inputmode="decimal"
+    value="{% if posted %}{{ posted.amount }}{% endif %}"
+    placeholder="{% trans "например 99000 (отрицательная — аванс)" %}">
+
+  <label style="margin-top:var(--space-2)">{% trans "Валюта" %}</label>
+  <select name="currency">
+   {% for code in currency_codes %}
+   <option value="{{ code }}" {% if posted.currency == code %}selected{% endif %}>{{ code|currency_symbol }} — {{ code }}</option>
+   {% endfor %}
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "На дату" %}</label>
+  <input type="date" name="as_of_date" value="{% if posted %}{{ posted.as_of_date }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}">
+
+  <label style="margin-top:var(--space-2)">{% trans "Заметка" %}</label>
+  <input type="text" name="note" value="{% if posted %}{{ posted.note }}{% endif %}" placeholder="{% trans "необязательно" %}">
+
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Сохранить" %}</button>
+  <a class="btn btn-ghost" href="{% url 'pos:client_detail' client.pk %}" style="margin-top:var(--space-2)">{% trans "Отмена" %}</a>
+ </form>
+
+ <p class="muted" style="margin-top:var(--space-3)">
+   {% trans "Если для этой валюты и даты запись уже есть — она будет исправлена, а не задвоена." %}
+ </p>
+</div>
+{% endblock %}
