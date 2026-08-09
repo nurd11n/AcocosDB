@@ -369,3 +369,33 @@ body {
   color: #5B6670;
   font-size: 8pt;
 }
+
+/* --- statement (templates/receipts/statement.html): per-currency section
+   heading + the opening-balance row above each ledger's real entries.
+   Everything else on that document reuses the receipt classes above
+   as-is — same table/badge/totals machinery, same nested-table quirks,
+   same reasons. Bold dark text, not the burgundy accent — that colour is
+   already spent on the wordmark/signature/badge (see the top comment's
+   "restraint" note); a second use here would just dilute it. */
+.receipt__section-title {
+  margin: 22px 0 6px;
+  font-size: 12pt;
+  font-weight: bold;
+  color: #14181C;
+}
+
+/* Muted, like .receipt__line--discount — a carried-forward figure, not a
+   real event of this period. */
+.receipt__ledger-opening td {
+  color: #5B6670;
+}
+
+/* A multi-sale batch repayment's per-sale breakdown (see client_statement's
+   own batch_detail) — a PDF has no "expandable" interaction, so it's always
+   printed inline, smaller and muted, under the grouped «Оплата» row's own
+   description. `<span>+<br/>`, never nested <div>s — see the top comment on
+   why the latter breaks table row structure in this renderer. */
+.receipt__batch-detail {
+  font-size: 8pt;
+  color: #5B6670;
+}

@@ -54,8 +54,9 @@ from apps.sales.services import (
 
 from . import undo
 from .decorators import pos_view
-from .messaging import debt_reminder_text, receipt_share_text, wa_link
+from .messaging import debt_reminder_text, receipt_share_text, statement_share_text, wa_link
 from .receipts import receipt_context
+from .statements import statement_context
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,21 @@ def _parse_decimal(raw) -> Decimal | None:
 def _parse_positive_decimal(raw) -> Decimal | None:
     value = _parse_decimal(raw)
     return value if value and value > 0 else None
+
+
+def _parse_date(raw):
+    """?from=YYYY-MM-DD / ?to=YYYY-MM-DD for the client statement's
+    date-range filter — a malformed or absent value is simply "no filter
+    on this end", never a 400/500. Never trust an unvalidated query string
+    straight into a date-range DB filter."""
+    from datetime import datetime
+
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(str(raw).strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _check_rate_override(request) -> Decimal | None:
@@ -1837,8 +1853,46 @@ def receipt_download(request, pk):
     # order number is no longer hidden from the client (see receipt.html /
     # CLAUDE.md's "a receipt without a number isn't a receipt"), so putting
     # it in the filename too doesn't reopen anything that was deliberately hidden.
-    date_str = context["date"].strftime("%Y-%m-%d") if context["date"] else timezone.localdate().isoformat()
+    date_str = (
+        context["date"].strftime("%Y-%m-%d")
+        if context["date"]
+        else timezone.localdate().isoformat()
+    )
     filename = f"ACOCOS-chek-{order.pk}-{date_str}.pdf"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@rate_limit("statement", 60, 300)
+@pos_view
+def statement_download(request, pk):
+    """Streams the client statement PDF, generated fresh from the database
+    on THIS request — same rules as receipt_download: nothing stored,
+    nothing written, no signed link. ?from=/?to= narrow it to the same
+    window shown on the client page; unset means full history.
+
+    Rate limit 60 per IP per 5 minutes, not the receipt's 120 — a statement
+    is a heavier, less frequent action (reviewing one client's whole
+    history, not re-printing today's sales), so a lower ceiling still
+    covers ordinary use while ending a scripted scrape of every client's
+    statement well before it finishes. Keyed on IP like every other limit
+    here, so the ceiling is the whole shop's shared activity, not one
+    person's — see apps.core.ratelimit's own module docstring."""
+    if not request.user.has_perm("sales.view_saleorder"):
+        raise PermissionDenied
+    client = get_object_or_404(Client, pk=pk)
+    date_from = _parse_date(request.GET.get("from"))
+    date_to = _parse_date(request.GET.get("to"))
+    logger.info("Statement accessed: client=%s ip=%s user=%s", pk, client_ip(request), request.user)
+    css_path = Path(settings.BASE_DIR) / "static" / "pos" / "receipt.css"
+    context = statement_context(client, date_from=date_from, date_to=date_to)
+    context["receipt_css_path"] = str(css_path)
+    html = render_to_string("receipts/statement.html", context)
+    buffer = BytesIO()
+    pisa.CreatePDF(html, dest=buffer, encoding="utf-8")
+    response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+    date_str = timezone.localdate().isoformat()
+    filename = f"ACOCOS-vypiska-{client.pk}-{date_str}.pdf"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
@@ -1899,6 +1953,51 @@ def debt_reminder(request, pk):
         created_by=request.user,
     )
     return redirect(link)
+
+
+@pos_view
+@require_POST
+def send_statement(request, pk):
+    """«Отправить выписку» — open WhatsApp with exactly the figure she
+    already types by hand today: name + date + current balance, no item
+    list, no URL (see apps.pos.messaging.statement_share_text). POST-only
+    and permission-gated for the same reason as share_receipt/debt_reminder:
+    it writes an Interaction, so it must not be reachable by a Viewer or by
+    a cross-site GET. Unlike debt_reminder this fires even at zero balance —
+    a statement is informational, not a nudge, so it isn't conditioned on
+    `client_debt` being non-empty."""
+    from apps.clients.services import client_debts_by_currency
+
+    if not request.user.has_perm("clients.add_interaction"):
+        raise PermissionDenied
+    client = get_object_or_404(Client, pk=pk)
+    closing = client_debts_by_currency(client=client).get(client.pk, {})
+    text = statement_share_text(client, closing, timezone.localdate())
+    link = wa_link(client.phone, text)
+    if not link:  # phone had no usable digits
+        return redirect("pos:client_detail", pk=client.pk)
+    Interaction.objects.create(
+        client=client,
+        kind=Interaction.MESSAGE,
+        note=_("Выписка отправлена"),
+        created_by=request.user,
+    )
+    return redirect(link)
+
+
+@pos_view
+@require_POST
+def toggle_do_not_remind(request, pk):
+    """Flip «Не напоминать» — the Должники worklist's own per-client skip
+    (see Client.do_not_remind's docstring: it hides ONLY the «Напомнить»
+    action there, nothing else). Same write-permission gate as every other
+    action on that list."""
+    if not request.user.has_perm("clients.add_interaction"):
+        raise PermissionDenied
+    client = get_object_or_404(Client, pk=pk)
+    client.do_not_remind = not client.do_not_remind
+    client.save(update_fields=["do_not_remind"])
+    return redirect("pos:debtors")
 
 
 # ---- Today / Clients (read-only, Viewer allowed) ---------------------------
@@ -1990,8 +2089,24 @@ def clients(request):
     )
 
 
+@pos_view
+def debtors(request):
+    """«Должники» — every client with a balance, highest debt first, so she
+    can work through them in one pass instead of opening clients one by one.
+    Reuses apps.clients.services.debtors_report_rows() directly (the same
+    aggregation the daily report's Долги sheet and the /debts bot command
+    already use) rather than re-deriving debt here — this list can never
+    disagree with client_debts_by_currency. Read-only (Viewer may open it);
+    the «Выписка»/«Напомнить» actions on each row carry their own write
+    gates (send_statement/debt_reminder, both clients.add_interaction)."""
+    from apps.clients.services import debtors_report_rows
+
+    rows = debtors_report_rows()
+    return render(request, "pos/debtors.html", {"rows": rows, "active": "clients"})
+
+
 def _order_item_summary(order) -> str:
-    """"Evening Dress / M / red и ещё 2" — the first line's own variant
+    """ "Evening Dress / M / red и ещё 2" — the first line's own variant
     description (see ProductVariant.__str__) plus a count of the rest, for a
     compact one-line "what was bought" on the client page's debt/history
     rows. Requires order.items (with variant__product) to already be
@@ -2007,7 +2122,7 @@ def _order_item_summary(order) -> str:
 
 @pos_view
 def client_detail(request, pk):
-    from apps.clients.services import client_debt_and_credit
+    from apps.clients.services import client_debt_and_credit, client_statement
 
     client = get_object_or_404(Client, pk=pk)
     # ONE indexed query pair (client_debt()+client_credits() back to back
@@ -2036,7 +2151,44 @@ def client_detail(request, pk):
     ]
     unpaid_rows = [row for row in order_rows if row["balance"] > 0]
     paid_rows = [row for row in order_rows if row["balance"] <= 0]
+    # «История покупок» merges real (stock-backed) sales with free-text
+    # pre-system purchases (apps.clients.models.HistoricalPurchase), sorted
+    # together by date — each historical row marked «до системы» in the
+    # template so staff never mistake it for a real sale. confirmed_at is a
+    # datetime and purchase_date is a plain date, so both are normalised to
+    # a date for the shared sort key.
+    purchase_history_rows = [
+        {
+            "sort_date": timezone.localtime(row["order"].confirmed_at).date(),
+            "date": row["order"].confirmed_at,
+            "order": row["order"],
+            "item_summary": row["item_summary"],
+            "amount": row["order"].total,
+            "currency": row["order"].currency,
+        }
+        for row in paid_rows
+    ] + [
+        {
+            "sort_date": h.purchase_date,
+            "date": h.purchase_date,
+            "order": None,
+            "item_summary": h.description,
+            "amount": h.amount,
+            "currency": h.currency,
+        }
+        for h in client.historical_purchases.all()[:20]
+    ]
+    purchase_history_rows.sort(key=lambda r: r["sort_date"], reverse=True)
+    purchase_history_rows = purchase_history_rows[:20]
     interactions = client.interactions.order_by("-created_at")[:20]
+    # «Выписка» — the chronological running-balance ledger (CLAUDE.md-style
+    # per-sale debt is still what confirm_sale/record_payment enforce; this
+    # is a read-only VIEW over that same data — see client_statement's own
+    # docstring). ?from=/?to= narrow it to match a specific paper statement
+    # she's reconciling against; unset shows full history.
+    date_from = _parse_date(request.GET.get("from"))
+    date_to = _parse_date(request.GET.get("to"))
+    statement = client_statement(client, date_from=date_from, date_to=date_to)
     return render(
         request,
         "pos/client_detail.html",
@@ -2046,7 +2198,11 @@ def client_detail(request, pk):
             "credits": credits,
             "unpaid_rows": unpaid_rows,
             "paid_rows": paid_rows,
+            "purchase_history_rows": purchase_history_rows,
             "interactions": interactions,
+            "statement": statement,
+            "statement_from": date_from,
+            "statement_to": date_to,
             "active": "clients",
         },
     )

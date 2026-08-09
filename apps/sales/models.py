@@ -430,6 +430,22 @@ class Payment(models.Model):
         _("change rounding residue, KGS"), max_digits=12, decimal_places=2, default=Decimal("0")
     )
     note = models.CharField(_("note"), max_length=255, blank=True)
+    # Groups every Payment ONE services.pay_oldest_first call created — a
+    # single «получила X» repayment split across several open sales, oldest
+    # first (apps.pos.views.client_debt_pay). NULL for every other payment
+    # (a normal single-sale payment-panel payment, a production-order
+    # deposit): those were never split, so there's nothing to group.
+    #
+    # Exists so the multi-sale repayment she describes as ONE event
+    # ("получила 150 000") can be voided as ONE atomic unit
+    # (services.void_payment_batch) instead of N separate voids that could
+    # leave an incoherent partial reversal — see void_payment's own refusal
+    # to void a single payment that carries a batch_id — and so
+    # client_statement can show it as one grouped «Оплата» row instead of
+    # N near-identical ones. A plain UUID field, not a FK to a separate
+    # PaymentBatch model: nothing else is ever hung off "the batch" itself,
+    # so a shared identifier is the whole requirement.
+    batch_id = models.UUIDField(_("batch"), null=True, blank=True, db_index=True)
     # DEPRECATED — see the class docstring. Nothing writes these anymore.
     reviewed = models.BooleanField(_("reviewed"), default=False)
     reviewed_by = models.ForeignKey(

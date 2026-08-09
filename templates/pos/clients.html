@@ -5,6 +5,7 @@
 
 <div class="card">
  <h2><svg class="ic"><use href="#i-clients"/></svg>{% trans "Клиенты" %}</h2>
+ <a class="btn btn-ghost btn-sm" href="{% url 'pos:debtors' %}">{% trans "Должники" %}</a>
  <form method="get">
   <input type="search" name="q" inputmode="tel" placeholder="{% trans 'Телефон или имя' %}" value="{{ q }}">
   <input type="hidden" name="sort" value="{{ sort }}">

@@ -43,3 +43,29 @@ def debt_reminder_text(client, debts: dict[str, Decimal]) -> str:
     return _(
         "Здравствуйте, %(name)s! Напоминаем о задолженности %(amounts)s. Спасибо! — ACOCOS"
     ) % {"name": client.first_name or client.phone, "amounts": amounts}
+
+
+def statement_share_text(client, closing: dict[str, Decimal], as_of_date) -> str:
+    """Short, link-free WhatsApp message for «Отправить выписку» — exactly
+    the figure she already types into WhatsApp by hand today, just one tap:
+    «{Имя}, ваша выписка на {дата}. Остаток: {сумма}.». No item list, no URL
+    — the PDF itself (downloaded separately via «Скачать выписку» and
+    attached inside WhatsApp, same two-step pattern as receipt_share_text)
+    carries the detail; this text is only the headline figure.
+
+    `closing` is the CURRENT (unfiltered) per-currency balance — the same
+    dict apps.clients.services.client_debts_by_currency/client_debt returns
+    — never a date-filtered one, so the number texted always matches what
+    «Баланс» shows on her own screen right now. Only currencies with a real
+    balance (nonzero once rounded — see format_money) are mentioned; a
+    client fully settled in every currency gets «Остаток: 0».
+    first_name ONLY, same client-facing rule as debt_reminder_text."""
+    from apps.core.currency import format_money
+
+    parts = [format_money(amt, cur) for cur, amt in closing.items() if amt]
+    amounts = ", ".join(parts) if parts else format_money(Decimal("0"), "KGS")
+    return _("%(name)s, ваша выписка на %(date)s. Остаток: %(amount)s.") % {
+        "name": client.first_name or client.phone,
+        "date": as_of_date.strftime("%d.%m.%Y"),
+        "amount": amounts,
+    }

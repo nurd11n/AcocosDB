@@ -780,6 +780,26 @@ body:has(#order-modal:not(:empty)) { overflow: hidden; }
 .badge--debt { background: var(--debt); color: var(--on-accent); }
 .badge--neutral { background: var(--text-3); color: var(--on-accent); }
 
+/* --- client running balance (client_detail.html) — leads the page, large
+   and status-coloured, so "how much does she owe right now" is the first
+   thing read, before any per-sale detail. Reuses the SAME --debt/--paid
+   tokens the badge/oline classes already use, just at statement scale. */
+.balance-figure {
+  font-size: 32px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  margin: 0;
+}
+.balance-figure--debt { color: var(--debt); }
+.balance-figure--paid { color: var(--paid); }
+.balance-figure--credit { color: var(--paid); }
+.balance-label { color: var(--text-3); font-size: 13px; margin: 0 0 2px; }
+
+/* --- client statement date-range filter (client_detail.html) --- */
+.statement-filter { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+.statement-filter label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+
 /* --- client chip --- */
 .client-chip {
   display: flex;
@@ -1086,6 +1106,20 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .oline__produce input { width: 88px; margin: 0; }
 .oline__produce .btn { flex: none; }
+
+/* Должники: a row's «Выписка»/«Напомнить»/«Не напоминать» sit on their own
+   line beneath the name/debt (same reasoning as .oline__produce above) —
+   up to 3 buttons never fit next to the debt figure on a narrow phone, so
+   they wrap onto their own flow instead of overflowing the row. */
+.debtor-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 0 var(--space-3);
+  border-bottom: 0.5px solid var(--border);
+}
+.debtor-row__actions form { margin: 0; }
+.debtor-row__actions .btn { flex: none; width: auto; margin: 0; }
 
 /* Actions stack in their own card so «Выдать заказ» is never adjacent to an
    edit control that could be mis-tapped for it. */

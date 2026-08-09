@@ -1,0 +1,46 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Должники" %}{% endblock %}
+{% block content %}
+
+<div class="card">
+ <h2>{% trans "Должники" %}</h2>
+ <p class="muted">{% trans "Все клиенты с долгом, от наибольшего к наименьшему" %}</p>
+
+ {% for row in rows %}
+ <div class="oline">
+   <div class="oline__main">
+     <a class="oline__name" href="{% url 'pos:client_detail' row.0.pk %}">{{ row.0.name }}</a>
+     <span class="oline__meta muted">{{ row.0.phone }}
+       {% if row.3 %}· {% trans "последний платёж" %} {{ row.3|date:"d.m.Y" }}{% endif %}</span>
+   </div>
+   <span class="oline__total num q-due--overdue">{{ row.2|money:row.1 }}</span>
+ </div>
+ <div class="debtor-row__actions">
+  {% if perms.sales.view_saleorder %}
+  <a class="btn btn-ghost btn-sm" href="{% url 'pos:statement_download' row.0.pk %}">{% trans "Выписка" %}</a>
+  {% endif %}
+  {% if perms.clients.add_interaction %}
+   {% if row.0.do_not_remind %}
+   <form method="post" action="{% url 'pos:toggle_do_not_remind' row.0.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-ghost btn-sm">{% trans "Напоминать" %}</button>
+   </form>
+   {% else %}
+   <form method="post" action="{% url 'pos:debt_reminder' row.0.pk %}" target="_blank" rel="noopener">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-ghost btn-sm">{% trans "Напомнить" %}</button>
+   </form>
+   <form method="post" action="{% url 'pos:toggle_do_not_remind' row.0.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-ghost btn-sm">{% trans "Не напоминать" %}</button>
+   </form>
+   {% endif %}
+  {% endif %}
+ </div>
+ {% empty %}
+ <p class="muted">{% trans "Должников нет" %}</p>
+ {% endfor %}
+</div>
+
+{% endblock %}
