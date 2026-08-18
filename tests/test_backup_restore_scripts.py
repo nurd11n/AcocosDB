@@ -138,6 +138,35 @@ def telegram_mock():
         thread.join(timeout=5)
 
 
+class _CapturingPingHandler(http.server.BaseHTTPRequestHandler):
+    """Stands in for a healthchecks.io-style dead-man's-switch endpoint:
+    records every GET so a test can assert the ping fired, without a real
+    healthchecks.io account."""
+
+    received = []
+
+    def do_GET(self):
+        _CapturingPingHandler.received.append(self.path)
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def healthcheck_mock():
+    _CapturingPingHandler.received = []
+    server = http.server.HTTPServer(("127.0.0.1", 0), _CapturingPingHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/ping/dummy-uuid", _CapturingPingHandler.received
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def _run(script, env, timeout=60):
     return subprocess.run(
         ["sh", str(script)],
@@ -224,6 +253,60 @@ def test_backup_then_restore_drill_round_trip(tmp_path):
         text=True,
     )
     assert check.stdout.strip() == "", "scratch restore DB must be dropped after the drill"
+
+
+def test_backup_pings_dead_mans_switch_on_a_completed_cycle(tmp_path, healthcheck_mock):
+    """The dead-man's-switch ping fires once a cycle actually completes —
+    proves the wiring works, not just that curl is spelled correctly."""
+    _seed_real_data()
+    ping_url, received = healthcheck_mock
+    backups_dir = tmp_path / "backups"
+    age_identity = tmp_path / "age_identity.txt"
+    subprocess.run(["age-keygen", "-o", str(age_identity)], check=True, capture_output=True)
+    pubkey = next(
+        line.split(": ", 1)[1].strip()
+        for line in age_identity.read_text().splitlines()
+        if line.lower().startswith("# public key:") or line.lower().startswith("public key:")
+    )
+
+    result = _run(
+        BACKUP_SH,
+        {
+            "PATH": __import__("os").environ["PATH"],
+            **_pg_env(),
+            "BACKUP_DIR": str(backups_dir),
+            "AGE_RECIPIENT": pubkey,
+            "RCLONE_REMOTE": str(tmp_path / "offsite"),
+            "BACKUP_RUN_ONCE": "1",
+            "HEALTHCHECKS_PING_URL": ping_url,
+        },
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(received) == 1
+    assert received[0] == "/ping/dummy-uuid"
+
+
+def test_backup_does_not_ping_dead_mans_switch_on_failure(tmp_path, healthcheck_mock):
+    """A cycle that fails before completing must NOT ping — a ping is a
+    claim that a backup actually happened, never a bare 'the script ran'."""
+    ping_url, received = healthcheck_mock
+
+    result = _run(
+        BACKUP_SH,
+        {
+            "PATH": __import__("os").environ["PATH"],
+            **_pg_env(),
+            "BACKUP_DIR": str(tmp_path / "backups"),
+            # AGE_RECIPIENT deliberately omitted — fails before the loop starts.
+            "RCLONE_REMOTE": str(tmp_path / "offsite"),
+            "BACKUP_RUN_ONCE": "1",
+            "HEALTHCHECKS_PING_URL": ping_url,
+        },
+    )
+
+    assert result.returncode != 0
+    assert received == []
 
 
 @pytest.mark.parametrize(

@@ -19,6 +19,17 @@
 # BACKUP_DIR (default /backups, the Compose volume mount) let a test point
 # this script at a throwaway Postgres instance and scratch directory instead
 # of touching prod.
+#
+# Optional: HEALTHCHECKS_PING_URL (a healthchecks.io check URL, or anything
+# speaking the same GET-to-mark-alive protocol). Pinged once at the end of
+# EVERY completed cycle. This is deliberately a different failure mode than
+# the ❌/⚠️ Telegram alerts above: those fire when the script runs and finds
+# something wrong; this catches the script not running AT ALL — the host is
+# down, the container never started, `restart: unless-stopped` is looping on
+# a crash before ever reaching this line — cases where nothing here ever gets
+# a chance to alert on its own. healthchecks.io (or equivalent) alerts you
+# when an expected ping DOESN'T arrive in time, so the silence itself is the
+# signal. Never fails the cycle if the ping itself doesn't get through.
 set -eu
 
 BACKUP_DIR=${BACKUP_DIR:-/backups}
@@ -51,6 +62,16 @@ notify() {
       --data-urlencode "text=$1" || true
   fi
   echo "[backup] $1" >&2
+}
+
+ping_healthcheck() {
+  # Dead-man's-switch ping — see the HEALTHCHECKS_PING_URL note above. A GET
+  # is all healthchecks.io's protocol needs; -fsS -m 10 --retry 2 keeps this
+  # from ever hanging the backup cycle, and the || true means a monitoring
+  # ping failing never fails (or even logs loudly for) the backup itself.
+  if [ -n "${HEALTHCHECKS_PING_URL:-}" ]; then
+    curl -fsS -m 10 --retry 2 -o /dev/null "$HEALTHCHECKS_PING_URL" || true
+  fi
 }
 
 # Fail fast, before the loop even starts: a misconfigured backup job should
@@ -117,6 +138,11 @@ while true; do
   # the repo checkout (docker/backup.sh + docker/prune_backups.py) for tests.
   SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
   python3 "$SCRIPT_DIR/prune_backups.py" "$BACKUP_DIR" || notify "⚠️ ACOCOS backup: prune_backups.py завершился с ошибкой ($STAMP) — старые локальные копии не подчищены, сам бэкап тем не менее сделан и выгружен."
+
+  # 6. Dead-man's-switch ping: the cycle reached the end (dump + encrypt
+  # succeeded — an offsite-sync or prune hiccup above already alerted on its
+  # own and doesn't block this). See the HEALTHCHECKS_PING_URL note up top.
+  ping_healthcheck
 
   # BACKUP_RUN_ONCE=1 runs a single cycle and exits — used for the deploy-day
   # manual verification (see README). Unset (the service default) loops forever.
