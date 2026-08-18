@@ -13,6 +13,27 @@ Telegrams the result — this doc is for triggering ONE drill on demand and
 reading its result yourself, right now, rather than waiting for Sunday or
 digging through container logs.
 
+**This deployment's offsite remote is `gdrive_crypt:`** — Google Drive
+wrapped in an rclone crypt remote (`drive.file` scope), not the bare
+Backblaze B2 remote README.md's setup walkthrough uses as its example.
+Two independent layers of encryption are in play, and it matters which is
+which:
+1. **age** — applied by `backup.sh` itself, to the dump's *content*, before
+   rclone ever sees the file. This is what `AGE_RECIPIENT`/the private key
+   control, and it's what actually protects client data.
+2. **rclone crypt** — applied automatically by rclone on every read/write
+   through the `gdrive_crypt:` remote name (filenames and file content both
+   obfuscated on Google's side). This is a second, independent layer
+   protecting against Google Drive itself being compromised or misconfigured
+   (e.g. a wrong sharing setting) — it is NOT a substitute for the age layer
+   and does not change anything about how age decryption works.
+
+Interacting via the `gdrive_crypt:` remote name (not the underlying bare
+Drive remote) makes rclone decrypt the crypt layer transparently — `rclone
+ls`/`copy` against `gdrive_crypt:` show real filenames and give you back the
+same `.dump.age` file `backup.sh` produced, still age-encrypted, exactly as
+if you'd read it from local disk.
+
 ## Before you run it — checklist
 
 - [ ] `docker compose -f docker-compose.prod.yml ps` shows `db` and `backup`
@@ -76,6 +97,42 @@ If you get any ❌, the automated weekly drill will alert again on its own
 schedule, but don't wait for that — a failed drill means the backup chain
 is not currently proven, and the same class of problem may affect the NEXT
 scheduled backup too, so track it down now.
+
+## Restoring from the offsite copy directly (not the local drill)
+
+The drill above (`restore-drill` service / `DRILL_RUN_ONCE=1`) always reads
+from the LOCAL `./backups/` directory — it never touches `gdrive_crypt:`.
+That's fine day to day (the local copy is usually there), but the entire
+point of an offsite copy is the case where it ISN'T — a dead server, a
+fresh VPS, local disk gone. To prove (or actually perform) a restore from
+the offsite copy itself:
+
+```bash
+# 1. See what's really out there (real filenames/sizes — the crypt layer is
+#    transparent through this remote name):
+rclone ls gdrive_crypt:db
+
+# 2. Pull the newest dump back down (to your workstation, or a fresh server —
+#    anywhere with the age PRIVATE key, never left only on the old server):
+rclone copy gdrive_crypt:db/acocos_<stamp>.dump.age .
+rclone copy gdrive_crypt:db/acocos_<stamp>.dump.sha256 .
+
+# 3. Decrypt the age layer (this is the step that actually needs the
+#    private key — rclone already handled the crypt layer in step 2):
+age -d -i secrets/age_identity.txt -o restore.dump acocos_<stamp>.dump.age
+
+# 4. Verify before trusting it:
+sha256sum restore.dump   # compare against acocos_<stamp>.dump.sha256
+
+# 5. Restore as in README's "Emergency restore" section (pg_restore into
+#    either a throwaway DB to verify, or --clean --if-exists into a real one
+#    to actually recover).
+```
+
+If step 1 shows nothing, or shows only obfuscated/garbled names, check
+you're using the `gdrive_crypt:` remote name and not the bare underlying
+Drive remote — `rclone listremotes` on the host that has `rclone.conf`
+configured shows what's actually set up.
 
 ## What this drill does NOT prove
 
