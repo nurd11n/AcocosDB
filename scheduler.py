@@ -51,6 +51,12 @@ def _build_jobs() -> list[tuple[str, list[str]]]:
         "fetch_rates",
         "cleanup_draft_sales",
         "send_daily_report",
+        # Read-only, never writes — order relative to the other jobs here
+        # doesn't matter, placed next to send_daily_report for the shared
+        # "financial reporting integrity" theme. Silent unless it finds a
+        # discrepancy (own module docstring) — same pattern as the security
+        # digest below.
+        "audit_stale_totals",
         "send_security_digest",
         # Runs AFTER the digest, never before: the digest reads today's rows
         # and this only ever deletes rows 90+ days old, but keeping the order
