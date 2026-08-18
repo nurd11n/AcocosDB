@@ -1,0 +1,37 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Операция" %} — {{ contractor.name }}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{% trans "Записать операцию" %}</h2>
+ <p class="muted">{{ contractor.name }}</p>
+
+ <form method="post" style="margin-top:var(--space-3)">
+  {% csrf_token %}
+  <label>{% trans "Тип" %}</label>
+  <select name="kind">
+   <option value="accrual">{% trans "Начислено (за работу)" %}</option>
+   <option value="payment">{% trans "Выплачено" %}</option>
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Сумма" %}</label>
+  <input type="text" name="amount" inputmode="decimal" placeholder="{% trans "например 5000" %}">
+
+  <label style="margin-top:var(--space-2)">{% trans "Валюта" %}</label>
+  <select name="currency">
+   <option value="KGS">сом — KGS</option>
+   <option value="USD">$ — USD</option>
+   <option value="RUB">₽ — RUB</option>
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Дата" %}</label>
+  <input type="date" name="date" value="{{ today|date:'Y-m-d' }}">
+
+  <label style="margin-top:var(--space-2)">{% trans "Заметка" %}</label>
+  <input type="text" name="note" placeholder="{% trans "необязательно" %}">
+
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Сохранить" %}</button>
+  <a class="btn btn-ghost" href="{% url 'manufacturing:contractor_detail' contractor.pk %}" style="margin-top:var(--space-2)">{% trans "Отмена" %}</a>
+ </form>
+</div>
+{% endblock %}

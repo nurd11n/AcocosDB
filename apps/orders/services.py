@@ -26,10 +26,11 @@ from .models import Order, OrderItem
 def create_order(
     client, items: list[dict], user=None, due_date=None, note="", currency=None
 ) -> Order:
-    """items: [{"variant": ProductVariant, "quantity": int, "unit_price": Decimal,
-    "currency": str (optional, defaults to the order's)}]. Deliberately takes
-    NO stock cap — ordering unproduced goods is the entire point (CLAUDE.md
-    Part 3g); the create-order UI shows current stock as information only."""
+    """items: [{"variant": ProductVariant, "quantity": int, "unit_price": Decimal}].
+    Every line shares the ORDER's own currency (see OrderItem's own docstring
+    for why it has no currency field of its own). Deliberately takes NO stock
+    cap — ordering unproduced goods is the entire point (CLAUDE.md Part 3g);
+    the create-order UI shows current stock as information only."""
     if not items:
         raise ValidationError(_("Order must have at least one item."))
     order = Order.objects.create(
@@ -45,7 +46,6 @@ def create_order(
             variant=line["variant"],
             quantity=line["quantity"],
             unit_price=line["unit_price"],
-            currency=line.get("currency") or order.currency,
         )
     return order
 
@@ -88,9 +88,6 @@ def order_paid_amount(order: Order) -> Decimal:
 
 
 GROUP_VARIANT = "variant"
-GROUP_PRODUCT = "product"
-GROUP_CLIENT = "client"
-GROUP_CHOICES = (GROUP_VARIANT, GROUP_PRODUCT, GROUP_CLIENT)
 
 
 def _due_sort_key(due):
@@ -99,9 +96,9 @@ def _due_sort_key(due):
     return (due is None, due or date.max)
 
 
-def production_queue(group_by: str = GROUP_VARIANT) -> list[dict]:
-    """«Что производить» — DERIVED, never stored (CLAUDE.md Part 3b). The base
-    unit is always the VARIANT row, sorted by nearest due_date first:
+def production_queue() -> list[dict]:
+    """«Что производить» — DERIVED, never stored (CLAUDE.md Part 3b). One row
+    per VARIANT, sorted by nearest due_date first:
       need = SUM(ordered qty across open orders) − on_hand stock
 
     Deliberately against raw on_hand, not the reservation-adjusted `available`
@@ -111,20 +108,15 @@ def production_queue(group_by: str = GROUP_VARIANT) -> list[dict]:
     where need <= 0 are kept (not hidden — she still must not sell those to a
     walk-in) and flagged `covered` for de-emphasis.
 
-    Every row also carries a `lines` breakdown — which client ordered how many,
-    due when, how much of their line is already made — so «кому это шить»
-    is answerable without opening each order one by one. group_by rolls those
-    same rows up differently for display; the arithmetic never changes:
-      variant  — one row per SKU (the default, and what mark_produced acts on)
-      product  — one row per product, per-size split underneath
-      client   — one row per client, everything still owed to them
-    """
-    rows = _variant_rows()
-    if group_by == GROUP_PRODUCT:
-        return _rollup_by_product(rows)
-    if group_by == GROUP_CLIENT:
-        return _rollup_by_client(rows)
-    return rows
+    Every row also carries a `lines` breakdown — which client ordered how
+    many, due when, how much of their line is already made — so «кому это
+    шить» is answerable without opening each order one by one. Used to also
+    support product/client rollups (three toggles on /orders/queue/) —
+    removed 2026-08 as unnecessary complexity for a single-grouping queue.
+    If a rollup is ever genuinely needed again, re-derive it FROM these same
+    rows (never a second source of the underlying ordered/produced/stock
+    arithmetic)."""
+    return _variant_rows()
 
 
 def _variant_rows() -> list[dict]:
@@ -225,121 +217,14 @@ def _line_row(item: OrderItem, today) -> dict:
     }
 
 
-def _rollup_by_product(variant_rows: list[dict]) -> list[dict]:
-    """Same arithmetic, one row per PRODUCT — «Платье Аиша: сшить 12» with the
-    per-size split kept underneath, for thinking in products rather than SKUs."""
-    today = timezone.localdate()
-    by_product: dict[int, dict] = {}
-    for row in variant_rows:
-        product = row["product"]
-        bucket = by_product.setdefault(
-            product.pk,
-            {
-                "kind": GROUP_PRODUCT,
-                "key": f"p{product.pk}",
-                "product": product,
-                "variant": None,
-                "label": f"{product.category.name} / {product.name}",
-                "ordered": 0,
-                "produced": 0,
-                "remaining": 0,
-                "in_stock": 0,
-                "to_produce": 0,
-                "due_dates": [],
-                "order_ids": set(),
-                "client_ids": set(),
-                "variants": [],
-                "lines": [],
-            },
-        )
-        for field in ("ordered", "produced", "remaining", "in_stock", "to_produce"):
-            bucket[field] += row[field]
-        if row["due_date"]:
-            bucket["due_dates"].append(row["due_date"])
-        bucket["variants"].append(row)
-        bucket["lines"].extend(row["lines"])
-        for line in row["lines"]:
-            bucket["order_ids"].add(line["order_id"])
-            bucket["client_ids"].add(line["client"].pk)
-
-    rows = []
-    for bucket in by_product.values():
-        due = min(bucket["due_dates"]) if bucket["due_dates"] else None
-        bucket["due_date"] = due
-        bucket["overdue"] = bool(due and due < today)
-        bucket["covered"] = bucket["to_produce"] <= 0
-        bucket["orders_count"] = len(bucket.pop("order_ids"))
-        bucket["clients_count"] = len(bucket.pop("client_ids"))
-        bucket["variants"].sort(key=lambda r: _due_sort_key(r["due_date"]))
-        bucket["lines"].sort(key=lambda line: _due_sort_key(line["due_date"]))
-        bucket.pop("due_dates")
-        rows.append(bucket)
-    rows.sort(key=lambda r: _due_sort_key(r["due_date"]))
-    return rows
-
-
-def _rollup_by_client(variant_rows: list[dict]) -> list[dict]:
-    """One row per CLIENT — «для Айгуль: 3 шт к 12.08» — answers «что я шью
-    для этого человека» in one glance. Counts here are per-line `remaining`
-    (what that client is still owed), never the stock-adjusted variant need:
-    on-hand stock belongs to whoever is handed it first, so it can't be
-    attributed to one client up front."""
-    today = timezone.localdate()
-    by_client: dict[int, dict] = {}
-    for row in variant_rows:
-        for line in row["lines"]:
-            client = line["client"]
-            bucket = by_client.setdefault(
-                client.pk,
-                {
-                    "kind": GROUP_CLIENT,
-                    "key": f"c{client.pk}",
-                    "client": client,
-                    "variant": None,
-                    "product": None,
-                    "label": client.name,
-                    "ordered": 0,
-                    "produced": 0,
-                    "remaining": 0,
-                    "due_dates": [],
-                    "order_ids": set(),
-                    "lines": [],
-                },
-            )
-            bucket["ordered"] += line["quantity"]
-            bucket["produced"] += line["produced"]
-            bucket["remaining"] += line["remaining"]
-            bucket["order_ids"].add(line["order_id"])
-            if line["due_date"]:
-                bucket["due_dates"].append(line["due_date"])
-            bucket["lines"].append(line)
-
-    rows = []
-    for bucket in by_client.values():
-        due = min(bucket["due_dates"]) if bucket["due_dates"] else None
-        bucket["due_date"] = due
-        bucket["overdue"] = bool(due and due < today)
-        bucket["covered"] = bucket["remaining"] <= 0
-        bucket["orders_count"] = len(bucket.pop("order_ids"))
-        bucket["clients_count"] = 1
-        bucket["lines"].sort(key=lambda line: _due_sort_key(line["due_date"]))
-        bucket.pop("due_dates")
-        rows.append(bucket)
-    rows.sort(key=lambda r: _due_sort_key(r["due_date"]))
-    return rows
-
-
 def queue_summary(rows: list[dict]) -> dict:
     """Header numbers for /orders/queue/ — computed from the rows already in
-    hand, so the page never re-queries just to count. `units` sums the mode's
-    own headline number (stock-adjusted need for variant/product rows, what's
-    still owed for client rows — see _rollup_by_client)."""
+    hand, so the page never re-queries just to count."""
     if not rows:
         return {"units": 0, "rows": 0, "overdue": 0, "next_due": None}
-    key = "remaining" if rows[0]["kind"] == GROUP_CLIENT else "to_produce"
     due_dates = [r["due_date"] for r in rows if r["due_date"]]
     return {
-        "units": sum(r[key] for r in rows),
+        "units": sum(r["to_produce"] for r in rows),
         "rows": len(rows),
         "overdue": sum(1 for r in rows if r["overdue"]),
         "next_due": min(due_dates) if due_dates else None,
@@ -424,12 +309,37 @@ def order_progress(order: Order) -> dict:
 
 
 @transaction.atomic
-def mark_produced(order_item: OrderItem, quantity: int, user=None) -> OrderItem:
+def mark_produced(
+    order_item: OrderItem,
+    quantity: int,
+    user=None,
+    *,
+    defect_qty: int = 0,
+    contractor=None,
+    material_cost=None,
+    trim_cost=None,
+    labor_cost=None,
+    currency="KGS",
+    note="",
+) -> OrderItem:
     """«Произведено N шт»: writes a PRODUCTION_IN movement for the item's
     variant and increments produced_qty — atomic, through services.py, so it
     shows in StockMovement history like any other intake. When every line on
-    the order is fully produced, the order auto-advances to готов."""
-    if quantity <= 0:
+    the order is fully produced, the order auto-advances to готов.
+
+    Two paths, chosen by whether a `contractor` is given — the plain Editor/
+    Manager quick action («Произведено N шт», no cost data) never has one,
+    and behaves EXACTLY as before: a bare PRODUCTION_IN movement, nothing
+    else. Passing a contractor (only the Owner-only apps.manufacturing.
+    views.production_add flow does, via «Запустить производство» on an
+    order — see apps.orders CLAUDE.md Part 4) instead delegates the whole
+    stock/cost/defect/accrual write to apps.manufacturing.services.
+    record_production_run, which is the ONE place that logic lives — this
+    function never re-implements defect absorption or contractor accrual
+    itself, it only adds the order-specific bookkeeping (produced_qty,
+    status advance) on top. `defect_qty` never counts toward produced_qty —
+    a defective unit didn't fulfil the order, it still needs replacing."""
+    if quantity <= 0 and defect_qty <= 0:
         raise ValidationError(_("Quantity to produce must be positive."))
     locked = OrderItem.objects.select_for_update().get(pk=order_item.pk)
     remaining = locked.quantity - locked.produced_qty
@@ -438,13 +348,30 @@ def mark_produced(order_item: OrderItem, quantity: int, user=None) -> OrderItem:
             _("Cannot produce %(qty)s — only %(remaining)s remain on this line.")
             % {"qty": quantity, "remaining": remaining}
         )
-    add_movement(
-        variant=locked.variant,
-        movement_type=StockMovement.PRODUCTION_IN,
-        quantity=quantity,
-        user=user,
-        reason=f"Order #{locked.order_id}",
-    )
+    if contractor is not None:
+        from apps.manufacturing.services import record_production_run
+
+        record_production_run(
+            variant=locked.variant,
+            contractor=contractor,
+            accepted_qty=quantity,
+            defect_qty=defect_qty,
+            material_cost=material_cost or Decimal("0"),
+            trim_cost=trim_cost or Decimal("0"),
+            labor_cost=labor_cost or Decimal("0"),
+            currency=currency,
+            order_item=locked,
+            note=note,
+            user=user,
+        )
+    elif quantity > 0:
+        add_movement(
+            variant=locked.variant,
+            movement_type=StockMovement.PRODUCTION_IN,
+            quantity=quantity,
+            user=user,
+            reason=f"Order #{locked.order_id}",
+        )
     locked.produced_qty = F("produced_qty") + quantity
     locked.save(update_fields=["produced_qty"])
     locked.refresh_from_db()
@@ -507,13 +434,19 @@ def hand_over(order: Order, user=None) -> SaleOrder:
 
 
 @transaction.atomic
-def cancel_order(order: Order, user=None) -> Order:
+def cancel_order(order: Order, user=None, reason: str = "") -> Order:
     """Owner-only (enforced by the caller — apps.pos.views / admin), never
     Editor/Manager (CLAUDE.md Part 3h). Releases the reservation simply by
     moving out of OPEN_STATUSES; deposits are left on record, refundable by
-    hand through the normal void_payment path if needed."""
+    hand through the normal void_payment path if needed.
+
+    `reason` — a plain typed note (why), stored on cancel_reason. See
+    apps.sales.services.cancel_sale's own docstring: never a classification,
+    never conflated with apps.manufacturing's defect/брак tracking. Falls
+    back to unset when empty — only the /pos/ UI requires a real one."""
     if order.status in (Order.DELIVERED, Order.CANCELLED):
         raise ValidationError(_("This order is already closed."))
     order.status = Order.CANCELLED
-    order.save(update_fields=["status"])
+    order.cancel_reason = reason.strip() if reason else order.cancel_reason
+    order.save(update_fields=["status", "cancel_reason"])
     return order

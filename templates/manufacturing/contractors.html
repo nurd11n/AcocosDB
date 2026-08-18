@@ -1,0 +1,46 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Производство" %}{% endblock %}
+{% block content %}
+
+<div class="card">
+ <h2><svg class="ic"><use href="#i-orders"/></svg>{% trans "Подрядчики" %}</h2>
+ <div class="row" style="margin-top:var(--space-2)">
+  <a class="btn btn-ghost btn-sm" href="{% url 'manufacturing:production_add' %}">{% trans "Записать производство" %}</a>
+  <a class="btn btn-ghost btn-sm" href="{% url 'manufacturing:expenses' %}">{% trans "Расходы" %}</a>
+  <a class="btn btn-ghost btn-sm" href="{% url 'manufacturing:dashboard' %}">{% trans "Дашборд производства" %}</a>
+ </div>
+</div>
+
+<div class="card">
+ <h3>{% trans "Новый подрядчик" %}</h3>
+ <form method="post">
+  {% csrf_token %}
+  <label>{% trans "Имя" %}</label>
+  <input type="text" name="name" required>
+  <label>{% trans "Контакт" %}</label>
+  <input type="text" name="contact" placeholder="{% trans "телефон, WhatsApp..." %}">
+  <label>{% trans "Заметка" %}</label>
+  <input type="text" name="note">
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Добавить" %}</button>
+ </form>
+</div>
+
+<div class="card">
+ {% for row in rows %}
+ <a href="{% url 'manufacturing:contractor_detail' row.contractor.pk %}" class="client-row">
+  <div class="client-row__main">
+   <div class="client-row__name">{{ row.contractor.name }}</div>
+   <div class="client-row__phone">{{ row.contractor.contact }}</div>
+  </div>
+  {% if row.balances %}
+  <div class="client-row__debt num">
+   {% for cur, amt in row.balances.items %}{{ amt|money:cur }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+  </div>
+  {% endif %}
+ </a>
+ {% empty %}
+ <div class="empty"><svg class="ic"><use href="#i-orders"/></svg><p>{% trans "Пока нет подрядчиков" %}</p></div>
+ {% endfor %}
+</div>
+{% endblock %}

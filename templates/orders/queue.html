@@ -13,13 +13,11 @@
  <div class="queue-summary">
   <div class="queue-summary__cell">
    <span class="queue-summary__num num">{{ summary.units }}</span>
-   <span class="queue-summary__label">
-     {% if group == "client" %}{% trans "шт осталось" %}{% else %}{% trans "шт сшить" %}{% endif %}</span>
+   <span class="queue-summary__label">{% trans "шт сшить" %}</span>
   </div>
   <div class="queue-summary__cell">
    <span class="queue-summary__num num">{{ summary.rows }}</span>
-   <span class="queue-summary__label">
-     {% if group == "product" %}{% trans "товаров" %}{% elif group == "client" %}{% trans "клиентов" %}{% else %}{% trans "позиций" %}{% endif %}</span>
+   <span class="queue-summary__label">{% trans "позиций" %}</span>
   </div>
   <div class="queue-summary__cell">
    <span class="queue-summary__num num{% if summary.overdue %} is-overdue{% endif %}">{{ summary.overdue }}</span>
@@ -31,17 +29,6 @@
    <span class="queue-summary__label">{% trans "ближайший срок" %}</span>
   </div>
  </div>
-
- <div class="filters">
-  <div class="filters__set">
-   <span class="filters__label">{% trans "Группировать" %}</span>
-   <div class="filters__group" role="group" aria-label="{% trans 'Группировать' %}">
-    <a class="fpill{% if group == 'variant' %} is-on{% endif %}" href="?group=variant">{% trans "По размеру" %}</a>
-    <a class="fpill{% if group == 'product' %} is-on{% endif %}" href="?group=product">{% trans "По товару" %}</a>
-    <a class="fpill{% if group == 'client' %} is-on{% endif %}" href="?group=client">{% trans "По клиенту" %}</a>
-   </div>
-  </div>
- </div>
 </div>
 
 {% for row in rows %}
@@ -49,22 +36,10 @@
  <div class="q-row__head">
   <div class="q-row__title">
    <strong>{{ row.label }}</strong>
-   {% if row.kind == "client" %}
-     <span class="muted">{{ row.client.phone }}</span>
-   {% elif row.kind == "product" %}
-     <span class="muted">{{ row.variants|length }} {% trans "разм." %} · {{ row.clients_count }} {% trans "клиент(ов)" %}</span>
-   {% else %}
-     <span class="muted">{{ row.clients_count }} {% trans "клиент(ов)" %} · {{ row.orders_count }} {% trans "заказ(ов)" %}</span>
-   {% endif %}
+   <span class="muted">{{ row.clients_count }} {% trans "клиент(ов)" %} · {{ row.orders_count }} {% trans "заказ(ов)" %}</span>
   </div>
   <div class="q-row__badge">
-   {% if row.kind == "client" %}
-     {% if row.remaining %}
-       <span class="badge badge--debt">{% trans "сшить" %} {{ row.remaining }}</span>
-     {% else %}
-       <span class="badge badge--paid">{% trans "всё готово" %}</span>
-     {% endif %}
-   {% elif row.covered %}
+   {% if row.covered %}
      <span class="badge badge--paid">{% trans "есть на складе" %}</span>
    {% else %}
      <span class="badge badge--debt">{% trans "сшить" %} {{ row.to_produce }}</span>
@@ -73,11 +48,7 @@
  </div>
 
  <div class="q-row__meta">
-  {% if row.kind == "client" %}
-    {% trans "заказано" %} {{ row.ordered }} · {% trans "готово" %} {{ row.produced }}
-  {% else %}
     {% trans "заказано" %} {{ row.ordered }} · {% trans "на складе" %} {{ row.in_stock }} · {% trans "готово" %} {{ row.produced }}
-  {% endif %}
   {% if row.due_date %}
    · <span class="{% if row.overdue %}q-due--overdue{% endif %}">
      {% trans "срок" %} {{ row.due_date|date:"d.m.Y" }}{% if row.overdue %} · {% trans "просрочен" %}{% endif %}</span>
@@ -86,30 +57,12 @@
   {% endif %}
  </div>
 
- {% if row.kind == "product" %}
  <div class="q-sub">
-  <div class="q-sub__label">{% trans "По размерам" %}</div>
-  {% for v in row.variants %}
-  <div class="q-sub__row">
-   <span>{{ v.size_label }}</span>
-   <span class="muted num">{% trans "заказ." %} {{ v.ordered }} · {% trans "скл." %} {{ v.in_stock }}</span>
-   <span class="num">
-     {% if v.covered %}<span class="badge badge--paid">{% trans "есть" %}</span>
-     {% else %}<span class="badge badge--debt">{{ v.to_produce }}</span>{% endif %}</span>
-  </div>
-  {% endfor %}
- </div>
- {% endif %}
-
- <div class="q-sub">
-  <div class="q-sub__label">
-    {% if row.kind == "client" %}{% trans "Что шить" %}{% else %}{% trans "Для кого" %}{% endif %}</div>
+  <div class="q-sub__label">{% trans "Для кого" %}</div>
   {% for line in row.lines %}
   <a class="q-sub__row q-sub__row--link" href="{% url 'orders:detail' line.order_id %}">
    <span>
-     {% if row.kind == "client" %}{{ line.variant }}
-     {% elif row.kind == "product" %}{{ line.client.name }} <span class="muted">· {{ line.size_label }}</span>
-     {% else %}{{ line.client.name }}{% endif %}
+     {{ line.client.name }}
      <span class="muted">№{{ line.order_id }}</span>
    </span>
    <span class="muted num">

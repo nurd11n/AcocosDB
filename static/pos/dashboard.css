@@ -82,6 +82,19 @@ html[data-theme="dark"] .metric, html[data-theme="dark"] .panel {
   }
 }
 
+/* --- section titles: group the metric/panel blocks below into clearly
+   labelled, clearly separated zones (Доходы vs Расходы vs everything else)
+   instead of one undifferentiated wall of cards. Sits between the page h1
+   (.dash-header__title, 22px/800) and an in-card .panel__title (12px/500,
+   muted) in both size and weight — a real heading, not a caption. */
+.dash-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 var(--space-3);
+}
+.dash-section-title:not(:first-child) { margin-top: var(--space-2); }
+
 /* --- metric cards --- */
 .metrics {
   display: grid;
@@ -98,6 +111,18 @@ html[data-theme="dark"] .metric, html[data-theme="dark"] .panel {
   gap: var(--space-3);
   margin-bottom: var(--space-6); /* clear break before the chart zone */
 }
+/* A .metrics grid nested INSIDE a .panel (the Расходы section's «Итоги»
+   card, exactly 2 cards: Потрачено/Чистый приход) — 4 columns would leave
+   two stranded cards in a mostly-empty row, and the .panel around it
+   already supplies its own margin, so the grid's own bottom margin would
+   double up. Cornerless (.metric--flat below): a bordered, rounded .metric
+   tile nested inside an already-bordered, already-rounded .panel reads as
+   a box-inside-a-box for just two numbers — here they sit flush on the
+   panel's own background instead, like a plain stat line. */
+.metrics--pair {
+  grid-template-columns: repeat(2, 1fr);
+  margin-bottom: 0;
+}
 .metric {
   display: flex;
   align-items: flex-start;
@@ -108,6 +133,22 @@ html[data-theme="dark"] .metric, html[data-theme="dark"] .panel {
   padding: var(--space-3);
   min-height: 96px; /* reserved so nothing shifts as numbers count up */
 }
+/* Compound selector (.metric.metric--flat), not just .metric--flat alone:
+   both it and .metric are single-class rules of EQUAL specificity, so
+   without the extra weight here, source order alone would decide the
+   winner — fragile the moment either rule moves. This always wins. */
+.metric.metric--flat {
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+}
+/* Slightly larger than the boxed .metric default — with the card border
+   and padding gone, the icon+number need a touch more visual weight of
+   their own to still read as a real stat and not just loose text. */
+.metric--flat .metric__icon { width: 42px; height: 42px; }
+.metric--flat .metric__icon .ic { width: 22px; height: 22px; }
+.metric--flat .metric__value { font-size: 22px; }
 /* a soft accent-tinted badge on the left — instant wayfinding, and it never
    collides with a long value the way an absolute corner badge would. */
 .metric__icon {
@@ -150,6 +191,24 @@ html[data-theme="dark"] .metric, html[data-theme="dark"] .panel {
   min-width: 0;
 }
 .panel--full { grid-column: 1 / -1; }
+/* Расходы section: «Итоги» (2 stat tiles) and «По разделам» (3 labelled
+   bars) sit side by side in the same equal-height row (the grid's default
+   stretch). Both panels' trailing link is bottom-anchored to the same Y
+   position across the row (flex-column + margin-top:auto below) rather
+   than sitting right after their own content, which left the two links at
+   different heights when one panel naturally holds less content than the
+   other. The .metric--flat tiles were sized up (bigger icon, bigger
+   number) specifically so «Итоги» carries enough of its own visual weight
+   that the anchor's leftover space stays modest, not a slab of dead air. */
+.panel--anchored { display: flex; flex-direction: column; }
+.panel--anchored .top__link {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: auto;
+  padding-top: var(--space-3);
+  justify-content: center;
+}
 .panel__title {
   display: flex;
   align-items: center;

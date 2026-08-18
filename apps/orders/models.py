@@ -70,6 +70,12 @@ class Order(models.Model):
     )
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
     delivered_at = models.DateTimeField(_("delivered at"), null=True, blank=True)
+    # Written ONLY by services.cancel_order — a plain typed reason (why: the
+    # client changed their mind, a duplicate order, etc.), never a
+    # classification and never touched by apps.manufacturing's defect/брак
+    # tracking (production quality on goods being MADE is a separate concept
+    # from an order being cancelled before or during production).
+    cancel_reason = models.CharField(_("cancel reason"), max_length=255, blank=True)
     history = HistoricalRecords()
 
     class Meta:
@@ -133,9 +139,15 @@ class OrderItem(models.Model):
     )
     quantity = models.PositiveIntegerField(_("quantity"), default=1)
     unit_price = models.DecimalField(_("unit price"), max_digits=12, decimal_places=2)
-    currency = models.CharField(
-        _("currency"), max_length=3, choices=CURRENCY_CHOICES, default=settings.CURRENCY
-    )
+    # No currency field of its own — removed 2026-08. It could structurally
+    # never diverge from Order.currency: apps.orders.services.create_order
+    # always wrote order.currency onto it, and apps.orders.views.item_add
+    # actively REJECTED adding a variant priced in a different currency once
+    # the order had any items (Order.total naively sums unit_price×quantity
+    # across every line as if they shared one currency, and hand_over copies
+    # unit_price straight onto SaleItem rows with no conversion — a second,
+    # independently-set currency here was pinned flexibility, never real.
+    # Use order.currency.
     # Written ONLY by services.mark_produced — never typed by hand (CLAUDE.md:
     # "Never store a 'to produce' number" applies here too — this tracks what
     # WAS produced, the queue always computes what's STILL needed).

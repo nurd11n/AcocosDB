@@ -30,10 +30,10 @@ order is a question with no meaning.
   <div class="oline__main">
    <span class="oline__name">{{ row.item.variant }}</span>
    <span class="oline__meta muted num">
-     {{ row.item.quantity }} {% trans "шт" %} × {{ row.item.unit_price|money:row.item.currency }}
+     {{ row.item.quantity }} {% trans "шт" %} × {{ row.item.unit_price|money:order.currency }}
    </span>
   </div>
-  <span class="oline__total num">{{ row.item.line_total|money:row.item.currency }}</span>
+  <span class="oline__total num">{{ row.item.line_total|money:order.currency }}</span>
   {% if can_write and order.is_open %}
   <form hx-post="{% url 'orders:item_remove' order.pk row.item.pk %}"
     hx-target="#order-body" hx-swap="innerHTML" class="oline__remove"
@@ -86,6 +86,21 @@ order is a question with no meaning.
      aria-label="{% trans "Сколько готово" %}">
    <button type="submit" class="btn btn-ghost btn-sm">{% trans "Принять на склад" %}</button>
  </form>
+ {% comment %}
+ «Запустить производство» — Owner-only (apps.manufacturing is cost/
+ contractor data, same tier as profit): the RICH recording path (defects,
+ fabric/labor cost, which contractor) vs. «Принять на склад» above, the
+ plain quick action every Editor/Manager already has. Prefilled with this
+ LINE's own shortfall (quantity − produced_qty), not a raw available-stock
+ subtraction — apps.orders.services._variant_rows already documents why
+ "ordered − available" double-counts a reservation this exact order's own
+ line already holds; the per-line remaining figure has no such hazard.
+ {% endcomment %}
+ {% if request.user.is_superuser %}
+ <a class="btn btn-ghost btn-sm" style="margin-top:var(--space-1)"
+   href="{% url 'manufacturing:production_add' %}?order_item={{ row.item.pk }}">
+   {% trans "Запустить производство" %}</a>
+ {% endif %}
  {% endif %}
  {% empty %}
  <p class="muted">{% trans "Пока пусто — найдите товар выше и добавьте его в заказ." %}</p>
@@ -94,9 +109,11 @@ order is a question with no meaning.
 
 {% if wizard %}
 {% comment %}
-Creation mode: the срок and оплата are steps 2 and 3, taken in dialogs, so
-their inline cards stay out of the way here. Everything below (аванс list,
-totals, завершение) belongs to an order that already exists.
+Creation mode: the срок is step 2, taken in its own dialog, so its inline
+card stays out of the way here. Оплата is no longer a separate step —
+merged 2026-08 into the same standing «Аванс» card every order's own detail
+page shows (see apps.orders.views.step_due's docstring); everything below
+(аванс, totals, завершение) belongs to an order that already exists.
 {% endcomment %}
 <div class="card order-actions">
  {% if items %}
@@ -107,7 +124,7 @@ totals, завершение) belongs to an order that already exists.
  {% endif %}
  <button type="button" class="btn btn-primary" {% if not items %}disabled{% endif %}
    hx-get="{% url 'orders:step_due' order.pk %}" hx-target="#order-modal" hx-swap="innerHTML">
-   {% trans "Далее: срок и оплата" %}</button>
+   {% trans "Далее: срок" %}</button>
  {% if not items %}
  <p class="hint">{% trans "Добавьте хотя бы один товар, чтобы продолжить." %}</p>
  {% endif %}
@@ -239,6 +256,14 @@ swapped body, the moment the last item is taken into stock.
    data-confirm="{% blocktrans with id=order.pk sum=order.total|money:order.currency %}Отменить заказ №{{ id }} на {{ sum }}? Резерв товара снимется.{% endblocktrans %}"
    data-confirm-ok="{% trans "Да, отменить заказ" %}" data-confirm-tone="danger">
   {% csrf_token %}
+  {% comment %}
+  A plain typed reason — NOT a classification, unrelated to
+  apps.manufacturing's defect/брак tracking (see apps.orders.services.
+  cancel_order's own docstring).
+  {% endcomment %}
+  <label class="hint" for="order-cancel-reason">{% trans "Причина отмены" %}</label>
+  <input type="text" id="order-cancel-reason" name="reason" required maxlength="255"
+    placeholder="{% trans "например: клиент передумал" %}" style="margin-bottom:var(--space-2)">
   <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Отменить заказ" %}</button>
  </form>
  <p id="cancel-error" class="error" hidden></p>

@@ -66,7 +66,10 @@ def _convert_money(data: dict, rate: Decimal) -> dict:
     m["profit"]["value"] = conv(m["profit"]["value"])
     m["discount"]["value"] = conv(m["discount"]["value"])
     m["received"]["value"] = conv(m["received"]["value"])
+    m["received"]["prev_value"] = conv(m["received"]["prev_value"])
     m["expected"]["value"] = conv(m["expected"]["value"])
+    m["spent"]["value"] = conv(m["spent"]["value"])
+    m["net_cash"]["value"] = conv(m["net_cash"]["value"])
     m["debt"]["value"] = conv(m["debt"]["value"])
     for k in ("d0_30", "d31_60", "d60_plus"):
         m["debt"]["aging"][k] = conv(m["debt"]["aging"][k])
@@ -81,6 +84,8 @@ def _convert_money(data: dict, rate: Decimal) -> dict:
         t["profit"] = conv(t["profit"])
     for s in d["dead_stock"]:
         s["capital"] = conv(s["capital"])
+    for row in d["expenses_by_section"]:
+        row["total"] = conv(row["total"])
     return d
 
 

@@ -1,0 +1,87 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Расходы" %}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2><svg class="ic"><use href="#i-payments"/></svg>{% trans "Расходы" %}</h2>
+ {% comment %}
+ Классификация по 3 разделам — Зарплата/Материалы/Прочее
+ (apps.manufacturing.dashboard.expenses_by_section), всё время, не только
+ показанные ниже 100 строк.
+ {% endcomment %}
+ <div class="row" style="margin-top:var(--space-3)">
+  {% for row in sections %}
+  <div>
+   <p class="hint">{{ row.label }}</p>
+   <p class="num" style="font-size:18px;font-weight:600">{{ row.total|money:"сом" }}</p>
+  </div>
+  {% endfor %}
+ </div>
+</div>
+
+<div class="card">
+ <h3>{% trans "Новый расход" %}</h3>
+ <form method="post">
+  {% csrf_token %}
+  <label>{% trans "Категория" %}</label>
+  <select name="category">
+   {% for code, label in categories %}
+   <option value="{{ code }}">{{ label }}</option>
+   {% endfor %}
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Сумма" %}</label>
+  <input type="text" name="amount" inputmode="decimal" placeholder="{% trans "например 3000" %}">
+
+  <label style="margin-top:var(--space-2)">{% trans "Валюта" %}</label>
+  <select name="currency">
+   <option value="KGS">сом — KGS</option>
+   <option value="USD">$ — USD</option>
+   <option value="RUB">₽ — RUB</option>
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Дата" %}</label>
+  <input type="date" name="date" value="{{ today|date:'Y-m-d' }}">
+
+  <label style="margin-top:var(--space-2)">{% trans "Подрядчик/поставщик" %}</label>
+  <select name="contractor">
+   <option value="">—</option>
+   {% for c in contractors %}
+   <option value="{{ c.pk }}">{{ c.name }}</option>
+   {% endfor %}
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Заметка" %}</label>
+  <input type="text" name="note" placeholder="{% trans "необязательно" %}">
+
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Сохранить" %}</button>
+ </form>
+</div>
+
+<div class="card">
+ <div class="table-scroll">
+ <table class="table">
+  <thead>
+   <tr>
+    <th>{% trans "Дата" %}</th>
+    <th>{% trans "Категория" %}</th>
+    <th>{% trans "Подрядчик/поставщик" %}</th>
+    <th class="num">{% trans "Сумма" %}</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for e in rows %}
+   <tr>
+    <td>{{ e.date|date:"d.m.Y" }}</td>
+    <td>{{ e.get_category_display }}</td>
+    <td>{% if e.contractor %}{{ e.contractor.name }}{% else %}—{% endif %}</td>
+    <td class="num">{{ e.amount|money:e.currency }}</td>
+   </tr>
+   {% empty %}
+   <tr><td colspan="4" class="muted">{% trans "Расходов пока нет" %}</td></tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ </div>
+</div>
+{% endblock %}

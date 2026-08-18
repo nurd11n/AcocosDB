@@ -1,0 +1,112 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{{ contractor.name }}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{{ contractor.name }}</h2>
+ {% if contractor.contact %}<p class="muted">{{ contractor.contact }}</p>{% endif %}
+ {% if contractor.note %}<p class="muted">{{ contractor.note }}</p>{% endif %}
+</div>
+
+{% comment %}
+БАЛАНС — positive = shop owes the contractor (money still to hand over for
+labor accrued); negative = contractor owes the shop (an advance paid that
+hasn't been worked off). Same presentation as a client's Баланс card, over
+apps.manufacturing.services.contractor_balance instead of client debt.
+{% endcomment %}
+<div class="card">
+ <h2>{% trans "Баланс" %}</h2>
+ {% for cur, amt in balances.items %}
+  {% if amt > 0 %}
+  <p class="balance-label">{{ cur }} · {% trans "К выплате" %}</p>
+  <p class="balance-figure balance-figure--debt">{{ amt|money:cur }}</p>
+  {% else %}
+  <p class="balance-label">{{ cur }} · {% trans "Аванс от нас" %}</p>
+  <p class="balance-figure balance-figure--credit">{{ amt|money:cur }}</p>
+  {% endif %}
+ {% empty %}
+ <p class="balance-figure balance-figure--paid">0</p>
+ {% endfor %}
+
+ <a class="btn btn-primary" href="{% url 'manufacturing:contractor_transaction_add' contractor.pk %}" style="margin-top:var(--space-3)">
+   {% trans "Записать операцию" %}</a>
+</div>
+
+<div class="card">
+ <h2>{% trans "Выписка" %}</h2>
+ <form method="get" class="statement-filter">
+  <label class="muted">{% trans "С" %}
+    <input type="date" name="from" class="input" value="{{ statement_from|date:'Y-m-d' }}"></label>
+  <label class="muted">{% trans "По" %}
+    <input type="date" name="to" class="input" value="{{ statement_to|date:'Y-m-d' }}"></label>
+  <button type="submit" class="btn btn-ghost btn-sm">{% trans "Показать" %}</button>
+  {% if statement_from or statement_to %}
+  <a class="btn btn-ghost btn-sm" href="{% url 'manufacturing:contractor_detail' contractor.pk %}">{% trans "Сбросить" %}</a>
+  {% endif %}
+ </form>
+
+ {% for currency, section in statement.items %}
+ <h3 style="margin-top:var(--space-4)">{{ currency }}</h3>
+ <p class="muted">
+   {% trans "Остаток на" %} {% if statement_to %}{{ statement_to|date:"d.m.Y" }}{% else %}{% trans "сегодня" %}{% endif %}:
+   <span class="num" style="font-weight:600">{{ section.closing|money:currency }}</span>
+ </p>
+ <div class="table-scroll" style="margin-top:var(--space-2)">
+ <table class="table">
+  <thead>
+   <tr>
+    <th>{% trans "Дата" %}</th>
+    <th>{% trans "Описание" %}</th>
+    <th class="num">{% trans "Начислено" %}</th>
+    <th class="num">{% trans "Оплачено" %}</th>
+    <th class="num">{% trans "Остаток" %}</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% if section.opening %}
+   <tr class="muted">
+    <td>{% if statement_from %}{{ statement_from|date:"d.m.Y" }}{% endif %}</td>
+    <td>{% trans "Остаток на начало периода" %}</td>
+    <td class="num">—</td>
+    <td class="num">—</td>
+    <td class="num">{{ section.opening|money:currency }}</td>
+   </tr>
+   {% endif %}
+   {% for row in section.rows %}
+   <tr>
+    <td>{{ row.date|date:"d.m.Y" }}</td>
+    <td>{{ row.description }}</td>
+    <td class="num">{% if row.accrual_amount is not None %}{{ row.accrual_amount|money:currency }}{% else %}—{% endif %}</td>
+    <td class="num">{% if row.payment_amount is not None %}−{{ row.payment_amount|money:currency }}{% else %}—{% endif %}</td>
+    <td class="num">{{ row.balance|money:currency }}</td>
+   </tr>
+   {% empty %}
+   {% if not section.opening %}
+   <tr><td colspan="5" class="muted">{% trans "Нет операций за период" %}</td></tr>
+   {% endif %}
+   {% endfor %}
+  </tbody>
+ </table>
+ </div>
+ {% empty %}
+ <p class="muted">{% trans "Операций пока нет" %}</p>
+ {% endfor %}
+</div>
+
+<div class="card">
+ <h2>{% trans "Производство" %}</h2>
+ {% for run in runs %}
+ <div class="oline">
+   <div class="oline__main">
+     <span class="oline__name">{{ run.variant }}</span>
+     <span class="oline__meta muted">{{ run.date|date:"d.m.Y" }} · {% trans "принято" %} {{ run.accepted_qty }}{% if run.defect_qty %} · {% trans "брак" %} {{ run.defect_qty }}{% endif %}</span>
+   </div>
+   {% if run.success_rate is not None %}
+   <span class="oline__meta num">{% widthratio run.success_rate 1 100 %}%</span>
+   {% endif %}
+ </div>
+ {% empty %}
+ <p class="muted">{% trans "Производства пока не было" %}</p>
+ {% endfor %}
+</div>
+{% endblock %}

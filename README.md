@@ -386,21 +386,6 @@ host cron directly:
 0 */6 * * * cd /path/to/acocosDB && python manage.py backup_db --quiet >> /var/log/acocos-backup.log 2>&1
 ```
 
-One job is deliberately **not** in that loop: deleting notes/tasks that have
-been marked done for 4+ weeks (28 days). It's a separate host crontab entry
-instead, so it can be added or removed independently of the report/rates jobs
-and doesn't need the `scheduler` container rebuilt to change its schedule:
-
-```bash
-# /etc/crontab or `crontab -e` on the host — runs daily at 03:00 server time.
-# Replace /path/to/acocosDB with the real deploy path.
-0 3 * * * cd /path/to/acocosDB && docker compose -f docker-compose.prod.yml exec -T web python manage.py purge_completed_notes >> /var/log/acocos-purge-notes.log 2>&1
-```
-
-`purge_completed_notes` is idempotent (safe to re-run; matches zero rows once
-caught up) and logs the number of notes deleted. Run it by hand any time with
-`docker compose -f docker-compose.prod.yml exec web python manage.py purge_completed_notes`.
-
 ## Backups
 
 Two layers, so a copy always exists on the box **and** a copy always exists off it:

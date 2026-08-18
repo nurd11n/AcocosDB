@@ -50,13 +50,20 @@ Revenue, profit and units are for the selected period; debt is a running balance
 Выручка (начислено)/Получено/Ожидается are deliberately three SEPARATE cards, not
 one figure that quietly means something different each time — booked and cash-in-
 hand can diverge a lot for a shop carrying client debt, and both need to stay
-visible at once.{% endcomment %}
+visible at once.
+
+Split into two clearly labelled zones — Доходы (income: booked/collected/
+pending/debt/profit/discount/units) and Расходы (expenses: spent/net-cash/
+the 3-section breakdown) — rather than one 9-card wall mixing money coming
+in with money going out. Расходы sits directly under Доходы, near the top
+of the page, not buried below the Заказы panels further down.{% endcomment %}
+<h2 class="dash-section-title">{% trans "Доходы" %}</h2>
 <div class="metrics">
  {% comment %}
- Grouped for scanability, not just insertion order: the four money-flow
- cards (billed -> collected -> still owed from this period -> total owed
- across all time) sit together first, then the three performance/analysis
- cards. Same 4+3 grid either way, but now the split means something.
+ Grouped for scanability, not just insertion order: the three money-flow
+ cards (billed -> collected -> still owed from this period) sit together
+ first, then debt/profit/discount/units. Still a 4+3 split in the same
+ 4-column grid, now over 7 cards of income only.
  {% endcomment %}
  <div class="metric">
   <span class="metric__icon"><svg class="ic"><use href="#i-revenue"/></svg></span>
@@ -129,7 +136,60 @@ visible at once.{% endcomment %}
  </div>
 </div>
 
+{% comment %}
+Расходы — its OWN section, right under Доходы and well above Заказы/К
+производству further down: everything expense-related lives in one place
+instead of two tiles buried in the income grid plus a panel scattered among
+production panels. «Потрачено»/«Чистый приход» as small stat call-outs (the
+same figures the xlsx export's Сводка sheet carries), next to the 3-section
+classification she scans a report by (Зарплата/Материалы/Прочее —
+apps.manufacturing.dashboard.expenses_by_section). Display grouping only:
+аренда stays its own real category underneath, never merged into прочее
+(see Expense.SECTION_LABELS's own docstring) — merging them here would be
+purely visual, merging them in the data would make «Чистая прибыль после
+накладных» on /manufacturing/dashboard/ sometimes count прочее and
+sometimes not.
+{% endcomment %}
+<h2 class="dash-section-title">{% trans "Расходы" %}</h2>
+<div class="panels panels--equal">
+ <div class="panel panel--anchored">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-payments"/></svg>{% trans "Итоги" %}</h2>
+  <div class="metrics metrics--pair">
+   <div class="metric metric--flat">
+    <span class="metric__icon"><svg class="ic"><use href="#i-payments"/></svg></span>
+    <div class="metric__body">
+     <div class="metric__label">{% trans "Потрачено" %}</div>
+     <div class="metric__value" data-count="{{ metrics.spent.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.spent.value|money:cur_symbol }}</div>
+     <div class="metric__sub">{% trans "расходы за период" %}</div>
+    </div>
+   </div>
+   <div class="metric metric--flat">
+    <span class="metric__icon"><svg class="ic"><use href="#i-profit"/></svg></span>
+    <div class="metric__body">
+     <div class="metric__label">{% trans "Чистый приход" %}</div>
+     <div class="metric__value" data-count="{{ metrics.net_cash.value|raw_int }}" data-suffix=" {{ cur_symbol }}">{{ metrics.net_cash.value|money:cur_symbol }}</div>
+     <div class="metric__sub">{% trans "получено минус потрачено" %}</div>
+    </div>
+   </div>
+  </div>
+  <a class="top__link" href="{% url 'manufacturing:expenses' %}"><svg class="ic"><use href="#i-payments"/></svg>{% trans "Все расходы" %}</a>
+ </div>
+ <div class="panel panel--anchored">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-channels"/></svg>{% trans "По разделам" %}</h2>
+  <div class="bars">
+   {% for row in expenses_by_section %}
+   <div class="bar__row">
+    <span class="bar__label">{{ row.label }}</span>
+    <span class="bar__amt num">{{ row.total|money:cur_symbol }}</span>
+   </div>
+   {% endfor %}
+  </div>
+  <a class="top__link" href="{% url 'manufacturing:dashboard' %}"><svg class="ic"><use href="#i-storage"/></svg>{% trans "Дашборд производства" %}</a>
+ </div>
+</div>
+
 {% comment %}Заказы panels (CLAUDE.md Part 3g) — always сом, not the view-currency toggle.{% endcomment %}
+<h2 class="dash-section-title">{% trans "Производство" %}</h2>
 <div class="panels">
  <div class="panel">
   <h2 class="panel__title"><svg class="ic"><use href="#i-orders"/></svg>{% trans "Заказы в работе" %}</h2>

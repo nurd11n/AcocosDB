@@ -1800,8 +1800,17 @@ def sale_cancel(request, pk):
     order = get_object_or_404(SaleOrder, pk=pk)
     if not _can_cancel(request.user, order):
         raise PermissionDenied
+    # [:255] matches StockMovement.reason's own max_length — truncated here,
+    # server-side, so a crafted/overlong POST can never reach add_movement's
+    # full_clean() and raise there instead, which the blanket `except
+    # ValidationError: pass` below would then silently swallow as "already
+    # cancelled" — a real cancel request failing with zero feedback.
+    reason = request.POST.get("reason", "").strip()[:255]
+    if not reason:
+        messages.error(request, _("Укажите причину отмены."))
+        return redirect("pos:sale_result", pk=order.pk)
     try:
-        cancel_sale(order, user=request.user)
+        cancel_sale(order, user=request.user, reason=reason)
     except ValidationError:
         pass  # already cancelled — idempotent no-op
     return redirect("pos:sale_result", pk=order.pk)
@@ -1827,8 +1836,12 @@ def sale_return(request, pk):
                 qty = 0
             if qty > 0:
                 returns[item.pk] = qty
+        reason = request.POST.get("reason", "").strip()[:255]  # matches StockMovement.reason
+        if not reason:
+            messages.error(request, _("Укажите причину возврата."))
+            return redirect("pos:sale_return", pk=order.pk)
         try:
-            return_items(order, returns, user=request.user)
+            return_items(order, returns, user=request.user, reason=reason)
         except ValidationError as exc:
             messages.error(request, "; ".join(exc.messages))
             return redirect("pos:sale_return", pk=order.pk)

@@ -1,11 +1,12 @@
 {% load i18n %}
 {% comment %}
-Step 2 of creating an order. Posting back to the same URL saves the срок and
-swaps step 3 (оплата) into this same slot, so the two dialogs read as one run
-rather than two separate errands.
+Step 2, and the end of creation. Posting back to the same URL saves the срок
+and finishes — оплата is no longer a 3rd step here (merged into the
+standing «Аванс» card every order's own detail page already shows, see
+apps.orders.views.step_due's docstring), so this is the last dialog.
 {% endcomment %}
 <div class="card">
- <p class="step-eyebrow">{% trans "Шаг 2 из 3" %}</p>
+ <p class="step-eyebrow">{% trans "Шаг 2 из 2" %}</p>
  <h2>{% trans "Срок заказа" %}</h2>
  <p class="hint">{% trans "Когда заказ должен быть готов. Можно оставить пустым." %}</p>
  <form hx-post="{% url 'orders:step_due' order.pk %}" hx-target="#order-modal" hx-swap="innerHTML">
@@ -16,7 +17,7 @@ rather than two separate errands.
   <input type="text" name="note" value="{{ order.note }}" maxlength="255"
     placeholder="{% trans "напр. подшить рукава" %}">
   <div class="row" style="margin-top:var(--space-3)">
-   <button type="submit" class="btn btn-primary">{% trans "Далее: оплата" %}</button>
+   <button type="submit" class="btn btn-primary">{% trans "Сохранить заказ" %}</button>
    <button type="button" class="btn btn-ghost" data-clear-target="order-modal">{% trans "Назад" %}</button>
   </div>
  </form>

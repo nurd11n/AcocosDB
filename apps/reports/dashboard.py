@@ -232,7 +232,15 @@ def _metrics(start, end, prev_start, prev_end):
             "pct": discount_pct,
             "delta": _delta(discount, discount_prev),
         },
-        "received": {"value": received, "delta": _delta(received, received_prev)},
+        # prev_value: exposed (not just folded into `delta`'s rounded %) so
+        # apps.reports.dashboard.dashboard_data can derive net_cash_prev
+        # (received_prev − spent_prev) for the net-cash tile's own delta,
+        # without a second, duplicate received query.
+        "received": {
+            "value": received,
+            "prev_value": received_prev,
+            "delta": _delta(received, received_prev),
+        },
         "expected": {
             "value": expected,
             "display_value": abs(expected),
@@ -496,6 +504,18 @@ def dashboard_data(period: str) -> dict:
 
     metrics = _metrics(start, end, prev_start, prev_end)
     metrics["debt"] = _debt(prev_end)
+    # «Потрачено» / net-cash — ADDED beside the existing tiles, never folded
+    # into revenue/profit/received above: apps.manufacturing.Expense is cash
+    # going OUT, a different question from everything else in `metrics`. See
+    # apps.manufacturing.dashboard's own module docstring.
+    from apps.manufacturing.dashboard import expenses_by_section, spent_kgs
+
+    spent = spent_kgs(start, end)
+    spent_prev = spent_kgs(prev_start, prev_end)
+    metrics["spent"] = {"value": spent, "delta": _delta(spent, spent_prev)}
+    net_cash = metrics["received"]["value"] - spent
+    net_cash_prev = metrics["received"]["prev_value"] - spent_prev
+    metrics["net_cash"] = {"value": net_cash, "delta": _delta(net_cash, net_cash_prev)}
 
     return {
         "period": period,
@@ -509,6 +529,12 @@ def dashboard_data(period: str) -> dict:
         "methods": _methods(start, end),
         "top_products": _top_products(start, end),
         "dead_stock": _dead_stock(),
+        # 3-section classification (Зарплата/Материалы/Прочее) of the SAME
+        # money the «Потрачено» tile already totals above — see
+        # apps.manufacturing.dashboard.expenses_by_section's own docstring.
+        # IS money, so IS walked by _convert_money below (unlike orders_open/
+        # queue_top right after it).
+        "expenses_by_section": expenses_by_section(start, end),
         # «Заказы» panels (CLAUDE.md Part 3g) — deliberately NOT touched by
         # _convert_money's view-currency toggle (it only walks the keys above)
         # since production orders are a separate concern from the revenue
@@ -606,6 +632,9 @@ def dashboard_sheets(data: dict) -> dict[str, export.Sheet]:
     # column deliberately mixes a period label, money, and counts — it stays
     # TEXT-typed and each figure is pre-rounded, since one number format
     # can't serve all three.
+    section_totals = {row["section"]: row["total"] for row in data["expenses_by_section"]}
+    from apps.manufacturing.models import Expense
+
     svodka = export.Sheet(
         [export.Column("Показатель"), export.Column("Значение")],
         [
@@ -615,6 +644,12 @@ def dashboard_sheets(data: dict) -> dict[str, export.Sheet]:
             ["Маржа, %", margin if margin is not None else ""],
             ["Скидки, сом", _num(m["discount"]["value"])],
             ["Продано, шт", int(m["units"]["value"])],
+            ["Получено, сом", _num(m["received"]["value"])],
+            ["Потрачено, сом", _num(m["spent"]["value"])],
+            ["  из них зарплата, сом", _num(section_totals[Expense.SECTION_WAGES])],
+            ["  из них материалы, сом", _num(section_totals[Expense.SECTION_MATERIALS])],
+            ["  из них прочее, сом", _num(section_totals[Expense.SECTION_OTHER])],
+            ["Чистый приход, сом", _num(m["net_cash"]["value"])],
             ["Долг (текущий), сом", _num(m["debt"]["value"])],
             ["Должников", int(m["debt"]["clients"])],
         ],

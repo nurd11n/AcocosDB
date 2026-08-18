@@ -51,8 +51,13 @@ def available_for(variant) -> int:
     return on_hand - reserved
 
 
-def add_movement(variant, movement_type, quantity, user=None, reason="", sale_order=None):
-    """Create one ledger row. Quantity sign is normalized from the type."""
+def add_movement(
+    variant, movement_type, quantity, user=None, reason="", sale_order=None, cost=None
+):
+    """Create one ledger row. Quantity sign is normalized from the type.
+    `cost` (сом, per-unit) is only meaningful on PRODUCTION_IN — see
+    StockMovement.cost's own docstring — and is always None for every other
+    caller (sale/writeoff/adjustment/purchase/return never set it)."""
     qty = abs(int(quantity))
     if movement_type in StockMovement.OUT_TYPES:
         qty = -qty
@@ -63,6 +68,7 @@ def add_movement(variant, movement_type, quantity, user=None, reason="", sale_or
         reason=reason,
         created_by=user,
         sale_order=sale_order,
+        cost=cost,
     )
     movement.full_clean()
     movement.save()

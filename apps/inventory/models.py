@@ -213,9 +213,22 @@ class ProductVariant(models.Model):
         max_length=3,
         choices=CURRENCY_CHOICES,
         default=settings.CURRENCY,
-        help_text=_("Applies to both cost price and sale price."),
+        help_text=_("Applies to the sale price. Cost price is always в сом — see its own field."),
     )
-    cost_price = models.DecimalField(_("cost price"), max_digits=12, decimal_places=2)
+    # ALWAYS KGS, regardless of `currency` above (which is sale_price's currency
+    # only) — dashboard.py's _LINE_COGS reads this as a bare сом number with no
+    # read-time conversion (CLAUDE.md: stored amounts, never read-time FX), so
+    # a cost entered in a foreign currency without converting it first would
+    # silently corrupt every profit figure derived from it. A fabric purchase
+    # in USD/RUB must be converted at the FROZEN rate at time of purchase
+    # (apps.core.currency.snapshot_rate_to_base — same mechanism a payment
+    # freezes its own rate with) before landing here, same discipline as
+    # apps.manufacturing.services.apply_production_cost. See migration
+    # 0009_cost_price_always_kgs for the one-time normalization of rows that
+    # predate this rule (converted at TODAY's rate — the best available
+    # approximation, since a manually-typed cost_price never recorded when it
+    # was actually incurred).
+    cost_price = models.DecimalField(_("cost price (сом)"), max_digits=12, decimal_places=2)
     sale_price = models.DecimalField(_("sale price"), max_digits=12, decimal_places=2)
     low_stock_threshold = models.PositiveIntegerField(_("low stock threshold"), default=2)
     is_active = models.BooleanField(_("active"), default=True)
@@ -299,6 +312,21 @@ class StockMovement(models.Model):
         on_delete=models.SET_NULL,
     )
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
+    # Per-unit cost (сом) this specific batch actually cost to bring in — set
+    # ONLY on PRODUCTION_IN rows written by apps.manufacturing.services.
+    # record_production_run (the real per-batch cost, including any absorbed
+    # defect cost — see that function's docstring), NULL everywhere else.
+    # This is deliberately a per-MOVEMENT fact, not a second place cost_price
+    # lives: apps.manufacturing.services also pushes this same figure onto
+    # ProductVariant.cost_price so it's what confirm_sale freezes onto the
+    # NEXT sale (apps.reports.dashboard._LINE_COGS still reads ONLY
+    # SaleItem.cost_price/ProductVariant.cost_price, never this field) — this
+    # column exists purely so a per-batch cost HISTORY survives later
+    # cost_price overwrites, for the manufacturing dashboard's "real vs
+    # assumed cost" gap view.
+    cost = models.DecimalField(
+        _("cost (сом)"), max_digits=12, decimal_places=2, null=True, blank=True
+    )
 
     class Meta:
         verbose_name = _("stock movement")
@@ -322,6 +350,9 @@ class StockMovement(models.Model):
             models.CheckConstraint(
                 condition=~Q(movement_type__in=OUTGOING_TYPES) | Q(quantity__lt=0),
                 name="stockmovement_outgoing_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(cost__isnull=True) | Q(cost__gte=0), name="stockmovement_cost_nonneg"
             ),
         ]
 
