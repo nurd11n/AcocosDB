@@ -49,9 +49,13 @@ BUSINESS_MODEL_PERMISSIONS = {
         "favourite": {"view"},
         "stockalert": {"view"},
     },
-    "notes": {
-        "note": {"add", "change", "view"},
-    },
+    # "notes" entry removed 2026-08 along with the app itself — this dict is
+    # a frozen historical snapshot (see module docstring), but the migration
+    # DEPENDENCY on ("notes", "0002_note_completed_at") below had to go too:
+    # Django's migration graph errors on a dependency naming an app that no
+    # longer exists. The permission query below simply matches nothing for
+    # an app_label with no content type, so dropping the dict entry changes
+    # no behavior — only the now-impossible dependency required a real edit.
 }
 
 
@@ -97,7 +101,6 @@ class Migration(migrations.Migration):
         ("sales", "0018_payment_payment_must_be_linked_to_order_or_deposit"),
         ("orders", "0001_initial"),
         ("inbox", "0001_initial"),
-        ("notes", "0002_note_completed_at"),
     ]
 
     operations = [

@@ -148,8 +148,18 @@ def confirm_sale(
 
 
 @transaction.atomic
-def cancel_sale(order: SaleOrder, user=None) -> SaleOrder:
+def cancel_sale(order: SaleOrder, user=None, reason: str = "") -> SaleOrder:
     """Cancel an approved sale: return the items to stock with RETURN_IN movements.
+
+    `reason` is a plain manager-typed note (why — client changed their mind,
+    wrong size, ordered by mistake...) — NOT a classification, and
+    deliberately unrelated to apps.manufacturing's defect/брак tracking
+    (that's about production QUALITY on goods being made; a sale being
+    cancelled is a completely separate fact about a completed transaction).
+    Falls back to a generic English default when empty — only the /pos/ UI
+    requires a real reason (apps.pos.views.sale_cancel); the admin's bulk
+    cancel_selected action has no natural per-row reason prompt and keeps
+    working exactly as before.
 
     A historical sale (see SaleOrder.is_historical) never wrote a SALE_OUT
     movement in the first place — restocking it via RETURN_IN would
@@ -163,6 +173,7 @@ def cancel_sale(order: SaleOrder, user=None) -> SaleOrder:
     locked = SaleOrder.objects.select_for_update().get(pk=order.pk)
     if locked.status != SaleOrder.CONFIRMED:
         raise ValidationError(_("Only approved sales can be cancelled."))
+    reason_text = reason.strip() if reason else f"Cancel sale #{locked.pk}"
     if not locked.is_historical:
         for item in locked.items.select_related("variant"):
             add_movement(
@@ -170,7 +181,7 @@ def cancel_sale(order: SaleOrder, user=None) -> SaleOrder:
                 movement_type=StockMovement.RETURN_IN,
                 quantity=item.quantity,
                 user=user,
-                reason=f"Cancel sale #{locked.pk}",
+                reason=reason_text,
                 sale_order=locked,
             )
     locked.status = SaleOrder.CANCELLED
@@ -179,9 +190,14 @@ def cancel_sale(order: SaleOrder, user=None) -> SaleOrder:
 
 
 @transaction.atomic
-def return_items(order: SaleOrder, returns: dict[int, int], user=None) -> SaleOrder:
+def return_items(
+    order: SaleOrder, returns: dict[int, int], user=None, reason: str = ""
+) -> SaleOrder:
     """Partial return/exchange: put the returned units back in stock and shrink
     the sale accordingly. `returns` is {sale_item_id: qty_returned}.
+
+    `reason` — see cancel_sale's own docstring: a plain typed note, never a
+    defect/брак classification.
 
     A return mutates the order (line quantities + total) rather than creating a
     separate document — simplest thing that's correct for a small shop, and the
@@ -208,6 +224,7 @@ def return_items(order: SaleOrder, returns: dict[int, int], user=None) -> SaleOr
                 % {"qty": qty, "sku": item.variant.sku, "have": item.quantity}
             )
 
+    reason_text = reason.strip() if reason else f"Return sale #{order.pk}"
     for item_id, qty in cleaned.items():
         item = items[item_id]
         # A historical sale (see SaleOrder.is_historical) never removed
@@ -218,7 +235,7 @@ def return_items(order: SaleOrder, returns: dict[int, int], user=None) -> SaleOr
                 movement_type=StockMovement.RETURN_IN,
                 quantity=qty,
                 user=user,
-                reason=f"Return sale #{order.pk}",
+                reason=reason_text,
                 sale_order=order,
             )
         old_qty = item.quantity

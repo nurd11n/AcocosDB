@@ -13,7 +13,6 @@ urlpatterns = [
     path("<int:pk>/", views.detail, name="detail"),
     path("<int:pk>/due-date/", views.set_due_date, name="set_due_date"),
     path("<int:pk>/step/due/", views.step_due, name="step_due"),
-    path("<int:pk>/step/payment/", views.step_payment, name="step_payment"),
     path("<int:pk>/products/", views.product_grid, name="product_grid"),
     path(
         "<int:pk>/products/<int:product_id>/variants/",

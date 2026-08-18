@@ -66,15 +66,9 @@ BUSINESS_MODEL_PERMISSIONS: dict[str, dict[str, set[str]]] = {
         # also block add/change/delete outright, this mirrors that.
         # BotContent: Owner-only, like Campaign — system-wide bot copy.
     },
-    "notes": {
-        # The shared scratchpad: Editor writes, Viewer reads. Before this
-        # was listed at all, NO role held a notes permission and the views
-        # checked none — so a Viewer could create, edit and permanently
-        # DELETE another user's note (apps/notes/views.py now gates on
-        # these; delete stays Owner-only, like every other business model,
-        # by simply never appearing in this set).
-        "note": {"add", "change", "view"},
-    },
+    # apps.notes (Заметки) removed 2026-08 — unused, deleted entirely rather
+    # than kept around "just in case" (do not resurrect this entry without
+    # the app itself existing again).
 }
 
 

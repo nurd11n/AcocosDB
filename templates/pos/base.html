@@ -72,8 +72,10 @@
    {% if inbox_open_requests %}<span class="badge badge--debt" style="position:absolute;top:2px;right:6px;padding:0 5px;font-size:10px;line-height:15px">{{ inbox_open_requests }}</span>{% endif %}
  </a>
  {% endif %}
- <a href="{% url 'notes:index' %}" {% if active == 'notes' %}aria-current="page"{% endif %}>
-   <svg class="ic"><use href="#i-notes"/></svg>{% trans "Заметки" %}</a>
+ {% if request.user.is_superuser %}
+ <a href="{% url 'manufacturing:contractors' %}" {% if active == 'manufacturing' %}aria-current="page"{% endif %}>
+   <svg class="ic"><use href="#i-storage"/></svg>{% trans "Производство" %}</a>
+ {% endif %}
  <form method="post" action="{% url 'logout' %}" class="bottom-nav__logout-form">
   {% csrf_token %}
   <button type="submit" class="bottom-nav__logout">

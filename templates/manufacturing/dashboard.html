@@ -1,0 +1,183 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Дашборд производства" %}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2><svg class="ic"><use href="#i-orders"/></svg>{% trans "Дашборд производства" %}</h2>
+ <div class="filters">
+  <div class="filters__set">
+   <div class="filters__group" role="group" aria-label="{% trans 'Период' %}">
+    {% for code, label in periods %}
+    <a class="fpill{% if code == period %} is-on{% endif %}" href="?period={{ code }}">{{ label }}</a>
+    {% endfor %}
+   </div>
+  </div>
+ </div>
+</div>
+
+{% comment %}
+Net profit after overhead — gross_profit comes UNCHANGED from apps.reports.
+dashboard's own _metrics (never recomputed here); overhead is ONLY the
+аренда category (Expense.OVERHEAD_CATEGORIES), never every expense — see
+apps.manufacturing.dashboard.overhead_kgs's own docstring for why
+production-attributed categories must never be subtracted here too.
+{% endcomment %}
+<div class="card">
+ <h3>{% trans "Прибыль" %}</h3>
+ <div class="row">
+  <div>
+   <p class="hint">{% trans "Валовая прибыль" %} ({{ period_label }})</p>
+   <p class="num" style="font-size:20px;font-weight:600">{{ gross_profit|money:"сом" }}</p>
+  </div>
+  <div>
+   <p class="hint">{% trans "Накладные расходы (аренда)" %}</p>
+   <p class="num" style="font-size:20px;font-weight:600">−{{ overhead|money:"сом" }}</p>
+  </div>
+  <div>
+   <p class="hint">{% trans "Чистая прибыль после накладных" %}</p>
+   <p class="num" style="font-size:20px;font-weight:600">{{ net_profit_after_overhead|money:"сом" }}</p>
+  </div>
+ </div>
+</div>
+
+<div class="card">
+ <h3>{% trans "Расходы" %}</h3>
+ <p class="hint">{% trans "Всего потрачено" %}: <span class="num">{{ spent|money:"сом" }}</span></p>
+ {% comment %}
+ 3 sections (Зарплата/Материалы/Прочее — apps.manufacturing.dashboard.
+ expenses_by_section) — a display grouping of the 5 real categories
+ (Expense.SECTION_LABELS's own docstring: аренда stays its own category
+ underneath, never folded into прочее, so net-profit-after-overhead below
+ keeps meaning exactly the same thing every period).
+ {% endcomment %}
+ <div class="table-scroll" style="margin-top:var(--space-2)">
+ <table class="table">
+  <thead><tr><th>{% trans "Раздел" %}</th><th class="num">{% trans "Сумма" %}</th></tr></thead>
+  <tbody>
+   {% for row in expenses_by_section %}
+   <tr><td>{{ row.label }}</td><td class="num">{{ row.total|money:"сом" }}</td></tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ </div>
+ <details style="margin-top:var(--space-2)">
+  <summary class="hint">{% trans "По категориям подробнее" %}</summary>
+  <div class="table-scroll" style="margin-top:var(--space-2)">
+  <table class="table">
+   <thead><tr><th>{% trans "Категория" %}</th><th class="num">{% trans "Сумма" %}</th></tr></thead>
+   <tbody>
+    {% for row in expenses_by_category %}
+    <tr><td>{{ row.label }}</td><td class="num">{{ row.total|money:"сом" }}</td></tr>
+    {% empty %}
+    <tr><td colspan="2" class="muted">{% trans "Расходов за период нет" %}</td></tr>
+    {% endfor %}
+   </tbody>
+  </table>
+  </div>
+ </details>
+</div>
+
+<div class="card">
+ <h3>{% trans "Производство" %}</h3>
+ <div class="row">
+  <div><p class="hint">{% trans "Принято, шт" %}</p><p class="num" style="font-size:18px">{{ production.accepted }}</p></div>
+  <div><p class="hint">{% trans "Брак, шт" %}</p><p class="num" style="font-size:18px">{{ production.defect }}</p></div>
+  <div><p class="hint">{% trans "Успех" %}</p>
+   <p class="num" style="font-size:18px">{% if production.success_rate is not None %}{% widthratio production.success_rate 1 100 %}%{% else %}—{% endif %}</p>
+  </div>
+ </div>
+</div>
+
+<div class="card">
+ <h3>{% trans "Брак по подрядчикам" %}</h3>
+ <div class="table-scroll">
+ <table class="table">
+  <thead>
+   <tr><th>{% trans "Подрядчик" %}</th><th class="num">{% trans "Принято" %}</th><th class="num">{% trans "Брак" %}</th><th class="num">{% trans "% брака" %}</th></tr>
+  </thead>
+  <tbody>
+   {% for row in defect_by_contractor %}
+   <tr>
+    <td>{{ row.name }}</td>
+    <td class="num">{{ row.accepted }}</td>
+    <td class="num">{{ row.defect }}</td>
+    <td class="num">{% widthratio row.defect_rate 1 100 %}%</td>
+   </tr>
+   {% empty %}
+   <tr><td colspan="4" class="muted">{% trans "Нет данных за период" %}</td></tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ </div>
+</div>
+
+<div class="card">
+ <h3>{% trans "Себестоимость: реальная и предполагаемая" %}</h3>
+ <p class="hint">{% trans "Только товары с реальными данными о производстве" %}</p>
+ <div class="table-scroll" style="margin-top:var(--space-2)">
+ <table class="table">
+  <thead>
+   <tr><th>{% trans "Товар" %}</th><th class="num">{% trans "Предполагаемая" %}</th><th class="num">{% trans "Реальная" %}</th><th class="num">{% trans "Разница" %}</th></tr>
+  </thead>
+  <tbody>
+   {% for row in cost_gap %}
+   <tr>
+    <td>{{ row.variant }}</td>
+    <td class="num">{{ row.assumed_cost|money:"сом" }}</td>
+    <td class="num">{{ row.real_cost|money:"сом" }}</td>
+    <td class="num">{{ row.gap|money:"сом" }}</td>
+   </tr>
+   {% empty %}
+   <tr><td colspan="4" class="muted">{% trans "Пока нет производства с учётом себестоимости" %}</td></tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ </div>
+</div>
+
+<div class="card">
+ <h3>{% trans "Балансы подрядчиков" %}</h3>
+ {% for row in contractor_balances %}
+ <div class="line-row">
+  <div class="line-row__label"><a href="{% url 'manufacturing:contractor_detail' row.contractor.pk %}">{{ row.contractor.name }}</a></div>
+  <div class="line-row__total num">
+   {% for cur, amt in row.balances.items %}{{ amt|money:cur }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+  </div>
+ </div>
+ {% empty %}
+ <p class="muted">{% trans "Все балансы на нуле" %}</p>
+ {% endfor %}
+</div>
+
+<div class="card">
+ <h3>{% trans "В работе" %}</h3>
+ <div class="table-scroll">
+ <table class="table">
+  <thead>
+   <tr>
+    <th>{% trans "Товар" %}</th>
+    <th class="num">{% trans "Кол-во" %}</th>
+    <th>{% trans "Подрядчик" %}</th>
+    <th>{% trans "Срок" %}</th>
+    <th class="num">{% trans "Ожид. себестоимость" %}</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for row in wip %}
+   <tr>
+    <td>{{ row.variant }}</td>
+    <td class="num">{{ row.qty }}</td>
+    <td>{% if row.contractor %}{{ row.contractor.name }}{% else %}—{% endif %}</td>
+    <td class="{% if row.overdue %}q-due--overdue{% endif %}">
+      {% if row.due_date %}{{ row.due_date|date:"d.m.Y" }}{% if row.days_remaining is not None %} ({{ row.days_remaining }} {% trans "дн." %}){% endif %}{% else %}{% trans "без срока" %}{% endif %}
+    </td>
+    <td class="num">{{ row.expected_cost|money:"сом" }}</td>
+   </tr>
+   {% empty %}
+   <tr><td colspan="5" class="muted">{% trans "Нечего производить" %}</td></tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ </div>
+</div>
+{% endblock %}

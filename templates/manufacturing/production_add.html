@@ -1,0 +1,75 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Записать производство" %}{% endblock %}
+{% block content %}
+<div class="card">
+ <h2>{% trans "Записать производство" %}</h2>
+ {% if order_item %}
+ <p class="muted">{% trans "Для заказа" %} №{{ order_item.order_id }} — {{ order_item.variant }}
+   ({% trans "нужно" %} {{ order_item.remaining_to_produce }})</p>
+ {% endif %}
+
+ <form method="post" style="margin-top:var(--space-3)">
+  {% csrf_token %}
+  {% if order_item %}<input type="hidden" name="order_item" value="{{ order_item.pk }}">{% endif %}
+
+  <label>{% trans "Товар" %}</label>
+  <select name="variant" required>
+   {% for v in variants %}
+   <option value="{{ v.pk }}" {% if order_item and order_item.variant_id == v.pk %}selected{% endif %}>{{ v }}</option>
+   {% endfor %}
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Подрядчик" %}</label>
+  <select name="contractor" required>
+   {% for c in contractors %}
+   <option value="{{ c.pk }}">{{ c.name }}</option>
+   {% endfor %}
+  </select>
+
+  <div class="row" style="margin-top:var(--space-2)">
+   <div>
+    <label>{% trans "Принято, шт" %}</label>
+    <input type="number" name="accepted_qty" min="0" inputmode="numeric"
+      value="{% if order_item %}{{ order_item.remaining_to_produce }}{% endif %}">
+   </div>
+   <div>
+    <label>{% trans "Брак, шт" %}</label>
+    <input type="number" name="defect_qty" min="0" inputmode="numeric" value="0">
+   </div>
+  </div>
+  <p class="hint">{% trans "Процент успеха считается автоматически — принято ÷ (принято + брак)." %}</p>
+
+  <label style="margin-top:var(--space-2)">{% trans "Валюта затрат" %}</label>
+  <select name="currency">
+   <option value="KGS">сом — KGS</option>
+   <option value="USD">$ — USD</option>
+   <option value="RUB">₽ — RUB</option>
+  </select>
+
+  <div class="row" style="margin-top:var(--space-2)">
+   <div>
+    <label>{% trans "Ткань" %}</label>
+    <input type="text" name="material_cost" inputmode="decimal" placeholder="0">
+   </div>
+   <div>
+    <label>{% trans "Фурнитура" %}</label>
+    <input type="text" name="trim_cost" inputmode="decimal" placeholder="0">
+   </div>
+   <div>
+    <label>{% trans "Работа" %}</label>
+    <input type="text" name="labor_cost" inputmode="decimal" placeholder="0">
+   </div>
+  </div>
+  <p class="hint">
+    {% trans "Стоимость брака не пропадает — она учитывается в себестоимости принятых единиц. Оплата подрядчику начисляется только за принятое." %}
+  </p>
+
+  <label style="margin-top:var(--space-2)">{% trans "Заметка" %}</label>
+  <input type="text" name="note" placeholder="{% trans "необязательно" %}">
+
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Сохранить" %}</button>
+  <a class="btn btn-ghost" href="{% url 'manufacturing:contractors' %}" style="margin-top:var(--space-2)">{% trans "Отмена" %}</a>
+ </form>
+</div>
+{% endblock %}

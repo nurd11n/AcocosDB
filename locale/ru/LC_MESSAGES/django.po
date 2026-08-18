@@ -3601,6 +3601,80 @@ msgstr "коррект."
 msgid "мало"
 msgstr "мало"
 
+#: apps/manufacturing/models.py:40
+msgid "contact"
+msgstr "контакт"
+
+#: apps/manufacturing/models.py:47 apps/manufacturing/models.py:83
+#: apps/manufacturing/models.py:166
+msgid "contractor"
+msgstr "подрядчик"
+
+#: apps/manufacturing/models.py:48
+msgid "contractors"
+msgstr "подрядчики"
+
+#: apps/manufacturing/models.py:77
+msgid "Accrual (owed for labor)"
+msgstr "Начисление (за работу)"
+
+#: apps/manufacturing/models.py:78
+msgid "Payment (cash handed over)"
+msgstr "Выплата (наличными)"
+
+#: apps/manufacturing/models.py:87
+msgid "kind"
+msgstr "тип"
+
+#: apps/manufacturing/models.py:96 apps/manufacturing/models.py:170
+#: apps/manufacturing/models.py:291
+msgid "date"
+msgstr "дата"
+
+#: apps/manufacturing/models.py:120
+msgid "contractor transaction"
+msgstr "операция с подрядчиком"
+
+#: apps/manufacturing/models.py:121
+msgid "contractor transactions"
+msgstr "операции с подрядчиком"
+
+#: apps/manufacturing/models.py:168
+msgid "accepted quantity"
+msgstr "принятое количество"
+
+#: apps/manufacturing/models.py:169
+msgid "defect quantity"
+msgstr "количество брака"
+
+#: apps/manufacturing/models.py:191
+msgid "production run"
+msgstr "партия производства"
+
+#: apps/manufacturing/models.py:192
+msgid "production runs"
+msgstr "партии производства"
+
+#: apps/manufacturing/models.py:300
+msgid "contractor / supplier"
+msgstr "подрядчик / поставщик"
+
+#: apps/manufacturing/models.py:341
+msgid "expense"
+msgstr "расход"
+
+#: apps/manufacturing/models.py:342
+msgid "expenses"
+msgstr "расходы"
+
+#: apps/manufacturing/admin.py:48
+msgid "contractor balance"
+msgstr "баланс"
+
+#: apps/manufacturing/admin.py:85
+msgid "success rate"
+msgstr "процент успеха"
+
 #~ msgid "Mark reviewed (Отметить проверенным)"
 #~ msgstr "Отметить проверенным"
 

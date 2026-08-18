@@ -141,11 +141,11 @@ INSTALLED_APPS = [
     "apps.clients",
     "apps.sales",
     "apps.orders",
+    "apps.manufacturing",
     "apps.reports",
     "apps.campaigns",
     "apps.inbox",
     "apps.pos",
-    "apps.notes",
     "apps.wa",
 ]
 
@@ -487,6 +487,15 @@ JAZZMIN_SETTINGS = {
         "clients.ClientOpeningBalance",
         "campaigns",
         "campaigns.Campaign",
+        # Производство last, right before Система — every day-to-day action
+        # here (recording production, contractors, expenses) already has its
+        # own /pos/ + /manufacturing/ surface (apps.manufacturing.views); the
+        # /panel/ admin is only ever an occasional lookup/edit, same tier as
+        # Рассылки right above it, not a place she opens routinely.
+        "manufacturing",
+        "manufacturing.Contractor",
+        "manufacturing.ProductionRun",
+        "manufacturing.Expense",
         "core",
         "auth",
         "axes",
@@ -501,6 +510,10 @@ JAZZMIN_SETTINGS = {
         "inventory.Product": "fas fa-tshirt",
         "inventory.ProductVariant": "fas fa-boxes",
         "inventory.StockMovement": "fas fa-exchange-alt",
+        "manufacturing.Contractor": "fas fa-people-carry",
+        "manufacturing.ContractorTransaction": "fas fa-hand-holding-usd",
+        "manufacturing.ProductionRun": "fas fa-industry",
+        "manufacturing.Expense": "fas fa-file-invoice",
         "clients.Client": "fas fa-address-book",
         "clients.Interaction": "fas fa-comments",
         "clients.ClientOpeningBalance": "fas fa-file-invoice-dollar",
@@ -515,6 +528,13 @@ JAZZMIN_SETTINGS = {
             {"name": "Дашборд", "url": "dashboard", "icon": "fas fa-chart-area"},
             {"name": "Склад", "url": "storage", "icon": "fas fa-warehouse"},
             {"name": "Статистика", "url": "stats", "icon": "fas fa-chart-line"},
+        ],
+        "manufacturing": [
+            {
+                "name": "Дашборд производства",
+                "url": "manufacturing:dashboard",
+                "icon": "fas fa-chart-pie",
+            },
         ],
     },
     "show_ui_builder": False,

@@ -36,7 +36,7 @@ class OrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     date_hierarchy = "created_at"
     list_select_related = ["client"]
     autocomplete_fields = ["client"]
-    readonly_fields = ["sale_order", "delivered_at", "created_by"]
+    readonly_fields = ["sale_order", "delivered_at", "created_by", "cancel_reason"]
     inlines = [OrderItemInline]
     actions = ["cancel_selected"]
 

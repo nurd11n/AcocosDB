@@ -3,9 +3,9 @@
 SecurityEvent (failed logins, 403s, rate-limit blocks) is written by traffic
 the shop does not control — a scanner, a credential-stuffing run, a bot. It
 was the only growing table in this app with NO retention policy at all, while
-every comparable one already had one: notes purge at 28 days
-(purge_completed_notes), draft sales at 24h (cleanup_draft_sales), backups on
-a tiered schedule, request counters on an 8-day cache TTL. Left unbounded it
+every comparable one already had one: draft sales at 24h
+(cleanup_draft_sales), backups on a tiered schedule, request counters on an
+8-day cache TTL. Left unbounded it
 grows fastest exactly when under attack, in the SAME database that holds
 sales, clients and debts — so an abuse-log table nobody reads could fill the
 disk and take the actual business down with it.

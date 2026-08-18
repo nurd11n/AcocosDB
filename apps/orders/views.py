@@ -23,8 +23,6 @@ from apps.sales.models import Payment
 
 from .models import Order, OrderItem
 from .services import (
-    GROUP_CHOICES,
-    GROUP_VARIANT,
     cancel_order,
     hand_over,
     mark_produced,
@@ -110,16 +108,12 @@ def index(request):
 
 @pos_view
 def queue(request):
-    group = request.GET.get("group", GROUP_VARIANT)
-    if group not in GROUP_CHOICES:
-        group = GROUP_VARIANT
-    rows = production_queue(group)
+    rows = production_queue()
     return render(
         request,
         "orders/queue.html",
         {
             "rows": rows,
-            "group": group,
             "summary": queue_summary(rows),
             "active": "orders",
         },
@@ -273,8 +267,8 @@ def variant_picker(request, pk, product_id):
 
 
 def _wizard_mode(request) -> bool:
-    """A brand-new order walks a guided route — товары → срок → оплата →
-    сохранено — while an existing one opens as a free-form edit page. The flag
+    """A brand-new order walks a guided route — товары → срок → сохранено —
+    while an existing one opens as a free-form edit page. The flag
     rides in the URL (?new=1) rather than in the DB, because it's a property of
     *this visit*, not of the order. HTMX posts don't carry the page's query
     string, so fall back to HX-Current-URL, which htmx always sends."""
@@ -342,13 +336,14 @@ def item_add(request, pk):
         qty = max(int(request.POST.get("quantity", "1")), 1)
     except (TypeError, ValueError):
         qty = 1
-    # OrderItem carries its own currency, but Order.total naively sums
-    # unit_price*quantity across every line as if they shared one currency —
-    # and hand_over copies unit_price straight onto SaleItem rows with no
-    # conversion. An empty order adopts the first item's currency; once
-    # items exist, a mismatched variant would silently corrupt that total
-    # (and, at handover, the resulting sale's total_kgs), so it's rejected
-    # instead of guessed at — same rule as the draft-sale cart
+    # Every OrderItem shares the order's own currency (see OrderItem's own
+    # docstring — it has no currency field of its own). Order.total naively
+    # sums unit_price*quantity across every line as if they shared one
+    # currency, and hand_over copies unit_price straight onto SaleItem rows
+    # with no conversion. An empty order adopts the first item's currency;
+    # once items exist, a mismatched variant would silently corrupt that
+    # total (and, at handover, the resulting sale's total_kgs), so it's
+    # rejected instead of guessed at — same rule as the draft-sale cart
     # (apps.pos.views.item_add).
     if not order.items.exists():
         if order.currency != variant.currency:
@@ -360,7 +355,7 @@ def item_add(request, pk):
         ) % {"vc": variant.currency, "oc": order.currency}
         return _after_mutation(request, order, error)
     existing = order.items.filter(variant=variant).first()
-    if existing and existing.currency == variant.currency:
+    if existing:
         existing.quantity += qty
         existing.save(update_fields=["quantity"])
     else:
@@ -369,7 +364,6 @@ def item_add(request, pk):
             variant=variant,
             quantity=qty,
             unit_price=variant.sale_price,
-            currency=variant.currency,
         )
     return _after_mutation(request, order)
 
@@ -414,68 +408,30 @@ def set_due_date(request, pk):
     return redirect("orders:index")
 
 
-def _payment_step_context(order) -> dict:
-    """Step 3's numbers. The остаток is what the client will owe — but only
-    once the order is handed over: an open заказ is not a sale, so it carries
-    no debt yet (apps.clients.services.client_debts_by_currency counts
-    CONFIRMED sales only). hand_over relinks these deposits onto the sale it
-    creates, and the remainder becomes the debt from that moment."""
-    paid = order_paid_amount(order)
-    return {
-        "order": order,
-        "paid": paid,
-        "remaining": max(order.total - paid, Decimal("0")),
-        "deposits": list(order.deposits.order_by("-created_at")),
-        "currencies": CURRENCY_CODES,
-        "methods": Payment.METHOD_CHOICES,
-    }
-
-
 @pos_view
 @require_can_sell
 def step_due(request, pk):
-    """Step 2 of creating an order: the срок, in its own dialog. GET opens it;
-    POST saves and hands straight on to step 3 (оплата) by swapping the next
-    dialog into the same slot — so the two steps read as one continuous run."""
+    """Step 2, and the end of creation: the срок, in its own dialog. GET
+    opens it; POST saves and finishes — creation used to have a 3rd step
+    here (оплата, its own dialog) merged 2026-08 into the SAME «Аванс» card
+    every order already shows on its own detail page (order_body.html):
+    taking a deposit the moment an order is created and taking one later are
+    the same action, so there is now exactly one place it's ever entered,
+    not two. Landing on the order's own page after this step means that
+    card is right there if she wants to use it immediately."""
     order = get_object_or_404(Order, pk=pk)
     if request.method == "POST":
         raw = request.POST.get("due_date", "").strip()
         order.due_date = raw or None
         order.note = request.POST.get("note", "").strip()
         order.save(update_fields=["due_date", "note"])
-        return render(request, "orders/partials/step_payment.html", _payment_step_context(order))
+        messages.success(request, _("Заказ №%(n)s сохранён.") % {"n": order.pk})
+        if _is_htmx(request):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = reverse("orders:detail", args=[order.pk])
+            return response
+        return redirect("orders:detail", pk=order.pk)
     return render(request, "orders/partials/step_due.html", {"order": order})
-
-
-@pos_view
-@require_can_sell
-@require_POST
-def step_payment(request, pk):
-    """Step 3, and the end of creation: record whatever the client paid up
-    front (optional — «в долг» is a real answer), then finish. The order is
-    saved either way; this dialog only decides how much of it is prepaid."""
-    order = get_object_or_404(Order, pk=pk)
-    amount = _parse_decimal(request.POST.get("amount"))
-    if amount and amount > 0:
-        try:
-            record_deposit(
-                order,
-                amount,
-                user=request.user,
-                method=request.POST.get("method") or Payment.CASH,
-                currency=request.POST.get("currency") or order.currency,
-            )
-        except ValidationError as exc:
-            context = _payment_step_context(order)
-            context["error"] = "; ".join(exc.messages)
-            return render(request, "orders/partials/step_payment.html", context)
-
-    messages.success(request, _("Заказ №%(n)s сохранён.") % {"n": order.pk})
-    if _is_htmx(request):
-        response = HttpResponse(status=204)
-        response["HX-Redirect"] = reverse("orders:index")
-        return response
-    return redirect("orders:index")
 
 
 @pos_view
@@ -561,8 +517,17 @@ def cancel(request, pk):
     if not request.user.is_superuser:
         raise PermissionDenied
     order = get_object_or_404(Order, pk=pk)
+    # [:255] matches Order.cancel_reason's own max_length — cancel_order's
+    # plain order.save() never calls full_clean(), so an untruncated overlong
+    # value here would reach the database as-is: silently accepted on SQLite,
+    # but a raw uncaught IntegrityError (a 500, not a clean message) on
+    # Postgres, where varchar(255) is a real, enforced constraint.
+    reason = request.POST.get("reason", "").strip()[:255]
+    if not reason:
+        messages.error(request, _("Укажите причину отмены."))
+        return redirect("orders:detail", pk=order.pk)
     try:
-        cancel_order(order, user=request.user)
+        cancel_order(order, user=request.user, reason=reason)
     except ValidationError as exc:
         messages.error(request, "; ".join(exc.messages))
     return redirect("orders:detail", pk=order.pk)

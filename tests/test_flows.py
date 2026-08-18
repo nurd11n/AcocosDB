@@ -3551,7 +3551,7 @@ def test_pos_cancel_view_returns_stock(client, django_user_model, variant):
     variant.refresh_from_db()
     assert variant.stock == 3
 
-    resp = client.post(f"/pos/sale/{order_id}/cancel/")
+    resp = client.post(f"/pos/sale/{order_id}/cancel/", {"reason": "клиент передумал"})
     assert resp.status_code == 302
     assert resp.url == f"/pos/sale/{order_id}/result/"
     order = SaleOrder.objects.get(pk=order_id)
@@ -5075,18 +5075,23 @@ def test_dashboard_query_budget_is_flat_and_bounded(django_user_model):
     _seed_dashboard_sales(4950, variants, clients, day_offset=7)  # 5000 total
     big = {p: count(p) for p in PERIODS}
 
-    # Budget raised 12 -> 14 -> 16 -> 17 -> 18: the «Заказы» panels (Part 3g)
-    # added two flat queries, the CLIENT_BOTS.md panels (telegram_reach: 2
-    # counts; top_favourited: 1 aggregate + 1 variant lookup) added two more,
-    # a product now having many images (apps.inventory.services.
-    # cover_image_names) adds a bulk cover-image lookup to the top-products
-    # AND dead-stock panels (net +1, not +2, since 16 already had a query of
-    # slack), and _metrics() now sums received/expected cash from a SECOND
-    # aggregate query (Payment, a different table than SaleOrder/SaleItem —
-    # can't be folded into the existing ones) — +1. All still independent of
-    # sales volume, just a slightly higher fixed floor.
+    # Budget raised 12 -> 14 -> 16 -> 17 -> 18 -> 20 -> 21: the «Заказы»
+    # panels (Part 3g) added two flat queries, the CLIENT_BOTS.md panels
+    # (telegram_reach: 2 counts; top_favourited: 1 aggregate + 1 variant
+    # lookup) added two more, a product now having many images
+    # (apps.inventory.services.cover_image_names) adds a bulk cover-image
+    # lookup to the top-products AND dead-stock panels (net +1, not +2,
+    # since 16 already had a query of slack), _metrics() now sums
+    # received/expected cash from a SECOND aggregate query (Payment, a
+    # different table than SaleOrder/SaleItem — can't be folded into the
+    # existing ones) — +1, «Потрачено»/net-cash (apps.manufacturing.
+    # dashboard.spent_kgs, current + previous period — a THIRD table,
+    # Expense, same reasoning) — +2, and the dashboard's «Расходы» panel
+    # (apps.manufacturing.dashboard.expenses_by_section, ONE grouped query
+    # over that same Expense table) — +1. All still independent of sales
+    # volume, just a slightly higher fixed floor.
     for p in PERIODS:
-        assert big[p] <= 18, f"{p}: {big[p]} queries at 5000 sales (budget 18)"
+        assert big[p] <= 21, f"{p}: {big[p]} queries at 5000 sales (budget 21)"
         assert big[p] == small[p], f"{p} query count scaled with rows: {small[p]} -> {big[p]}"
 
 
@@ -6402,11 +6407,12 @@ def test_crafted_post_above_stock_is_clamped_not_saved_beyond_available(
 def test_order_rejects_a_second_item_in_a_different_currency(
     client, django_user_model, variant, settings
 ):
-    """OrderItem carries its own currency, but Order.total naively sums
+    """Every OrderItem shares the order's own currency (it has none of its
+    own — see that model's docstring), but Order.total naively sums
     unit_price*quantity across every line as one number — a second item
-    priced in a different currency used to be silently accepted, corrupting
-    that total (and, at handover, the resulting sale's total_kgs, since
-    SaleItem has no currency of its own and inherits the sale's single
+    priced in a different currency would corrupt that total (and, at
+    handover, the resulting sale's total_kgs, since SaleItem has no
+    currency of its own either and inherits the sale's single
     order.currency). Must reject, same as the draft-sale cart already does."""
     settings.CURRENCY = "KGS"
     owner = django_user_model.objects.create_superuser("mix_owner", "o@e.com", "x" * 12)
@@ -6652,9 +6658,11 @@ def test_queue_row_breaks_down_who_ordered_what(variant, settings):
     assert row["to_produce"] == 8
 
 
-def test_queue_groups_by_product_and_by_client(variant, settings):
-    """Same arithmetic, three views of it. Grouping never invents or loses
-    units: the per-size split sums back to the product row."""
+def test_queue_is_one_row_per_variant(variant, settings):
+    """production_queue() takes no grouping argument (product/client rollups
+    removed 2026-08, apps.orders CLAUDE.md Part 4) — always one row per
+    SKU, aggregating demand across every open order for that variant, with
+    a `lines` breakdown of who's waiting on it."""
     from apps.orders.services import create_order, production_queue
 
     settings.CURRENCY = "KGS"
@@ -6675,22 +6683,13 @@ def test_queue_groups_by_product_and_by_client(variant, settings):
         ],
     )
 
-    # Two SKUs -> two variant rows, but ONE product row holding both.
-    assert len({r["key"] for r in production_queue("variant")}) == 2
-    product_rows = production_queue("product")
-    assert len(product_rows) == 1
-    prow = product_rows[0]
-    assert prow["to_produce"] == 5  # 3 + 2, nothing in stock
-    assert len(prow["variants"]) == 2
-    assert sum(v["to_produce"] for v in prow["variants"]) == prow["to_produce"]
-
-    # One client -> one client row listing both sizes they're waiting on.
-    client_rows = production_queue("client")
-    assert len(client_rows) == 1
-    crow = client_rows[0]
-    assert crow["client"].pk == cust.pk
-    assert crow["remaining"] == 5
-    assert len(crow["lines"]) == 2
+    rows = production_queue()
+    assert len({r["key"] for r in rows}) == 2  # two SKUs -> two rows
+    assert sum(r["to_produce"] for r in rows) == 5  # 3 + 2, nothing in stock
+    row = next(r for r in rows if r["variant"].pk == variant.pk)
+    assert row["to_produce"] == 3
+    assert len(row["lines"]) == 1
+    assert row["lines"][0]["client"].pk == cust.pk
 
 
 def test_queue_sorts_by_nearest_due_date_and_flags_overdue(variant, settings):
@@ -6728,9 +6727,12 @@ def test_queue_sorts_by_nearest_due_date_and_flags_overdue(variant, settings):
     assert rows[2]["due_date"] is None and rows[2]["overdue"] is False
 
 
-def test_queue_view_accepts_group_param_and_ignores_garbage(
+def test_queue_view_has_no_grouping_and_ignores_stray_params(
     client, django_user_model, variant, settings
 ):
+    """The queue page is always one row per variant (grouping removed
+    2026-08, apps.orders CLAUDE.md Part 4) — a stray/garbage ?group= param
+    someone still bookmarks is simply ignored, never a 500."""
     settings.CURRENCY = "KGS"
     client.force_login(
         django_user_model.objects.create_superuser("queue_owner", "q@e.com", "x" * 12)
@@ -6740,15 +6742,14 @@ def test_queue_view_accepts_group_param_and_ignores_garbage(
 
     create_order(cust, [{"variant": variant, "quantity": 2, "unit_price": variant.sale_price}])
 
-    for group in ("variant", "product", "client"):
-        resp = client.get(f"/orders/queue/?group={group}")
-        assert resp.status_code == 200
-        assert resp.context["group"] == group
-        assert "ViewGroup" in resp.content.decode()
-    # An unknown grouping falls back to the default rather than 500ing.
+    resp = client.get("/orders/queue/")
+    assert resp.status_code == 200
+    assert "group" not in resp.context
+    assert "ViewGroup" in resp.content.decode()
+
     resp = client.get("/orders/queue/?group=../etc/passwd")
     assert resp.status_code == 200
-    assert resp.context["group"] == "variant"
+    assert "ViewGroup" in resp.content.decode()
 
 
 def test_orders_index_status_filter_separates_open_from_delivered(
@@ -6874,11 +6875,14 @@ def test_empty_order_hides_money_sections_until_it_has_items(
     assert "Аванс внесён" in body
 
 
-def test_guided_creation_walks_items_then_due_then_payment_then_saves(
+def test_guided_creation_walks_items_then_due_then_saves(
     client, django_user_model, variant, settings
 ):
-    """A new order takes the guided route: товары → срок → оплата → сохранено,
-    the last two in dialogs, ending back on the list with a success flash."""
+    """A new order takes the guided route: товары → срок → сохранено — оплата
+    is no longer a 3rd wizard step (merged 2026-08 into the same standing
+    «Аванс» card an existing order already shows, apps.orders CLAUDE.md
+    Part 4), so finishing step 2 lands directly on the order's own page,
+    where that card is immediately usable."""
     settings.CURRENCY = "KGS"
     owner = django_user_model.objects.create_superuser("wiz_owner", "w@e.com", "x" * 12)
     client.force_login(owner)
@@ -6893,39 +6897,43 @@ def test_guided_creation_walks_items_then_due_then_payment_then_saves(
     hx = {"HTTP_HX_REQUEST": "true", "HTTP_HX_CURRENT_URL": f"http://t/orders/{order_id}/?new=1"}
 
     body = client.get(f"/orders/{order_id}/?new=1").content.decode()
-    assert "Далее: срок и оплата" in body
-    assert "Внести аванс" not in body  # аванс is step 3, not an inline card
+    assert "Далее: срок" in body
+    assert "Внести аванс" not in body  # not shown until creation finishes
     assert "Завершение" not in body  # can't hand over an order being created
 
     client.post(f"/orders/{order_id}/items/add/", {"variant_id": variant.pk, "quantity": 5}, **hx)
 
     body = client.get(f"/orders/{order_id}/step/due/", **hx).content.decode()
-    assert "Шаг 2 из 3" in body
-    # Saving the срок hands straight on to step 3 in the same slot.
-    body = client.post(
-        f"/orders/{order_id}/step/due/", {"due_date": "2026-09-15", "note": "к свадьбе"}, **hx
-    ).content.decode()
-    assert "Шаг 3 из 3" in body
-    assert "станет долгом клиента после выдачи" in body
-
+    assert "Шаг 2 из 2" in body
+    # Saving the срок FINISHES creation — no more dialogs.
     resp = client.post(
-        f"/orders/{order_id}/step/payment/",
-        {"amount": "2000", "currency": "KGS", "method": "cash"},
-        **hx,
+        f"/orders/{order_id}/step/due/", {"due_date": "2026-09-15", "note": "к свадьбе"}, **hx
     )
     assert resp.status_code == 204
-    assert resp["HX-Redirect"] == "/orders/"
+    assert resp["HX-Redirect"] == f"/orders/{order_id}/"
 
     from apps.orders.models import Order
 
     order = Order.objects.get(pk=order_id)
     assert str(order.due_date) == "2026-09-15"
     assert order.note == "к свадьбе"
-    assert order.deposits.count() == 1
 
-    body = client.get("/orders/").content.decode()
+    # Landing on the order's own (now non-wizard) page, the Аванс card is
+    # immediately there — the SAME path (orders:deposit_add) whether used
+    # right now or weeks later, never a second payment form.
+    body = client.get(f"/orders/{order_id}/").content.decode()
     assert f"Заказ №{order_id} сохранён." in body
-    assert "flash--ok" in body  # a success reads as success, not as an error
+    assert "flash--ok" in body
+    assert "Внести аванс" in body
+
+    resp = client.post(
+        f"/orders/{order_id}/deposit/",
+        {"amount": "2000", "currency": "KGS", "method": "cash"},
+        **hx,
+    )
+    assert resp.status_code == 200
+    order.refresh_from_db()
+    assert order.deposits.count() == 1
 
 
 def test_handover_moves_money_stock_and_debt_exactly_once(
@@ -9061,6 +9069,85 @@ def test_cancel_sale_dialog_names_the_order_and_amount(client, django_user_model
     assert f"Отменить продажу №{order.pk} на 500" in body
     assert 'data-confirm-tone="danger"' in body
     assert "Да, отменить продажу" in body
+    assert 'name="reason"' in body  # a plain typed reason, asked for every time
+
+
+def test_cancel_sale_without_a_reason_is_rejected_and_nothing_changes(
+    client, django_user_model, variant
+):
+    """«ask for the reason» — an empty/missing reason must not cancel the
+    sale at all, and must never touch apps.manufacturing's defect (брак)
+    tracking, which is a completely separate concept (production quality on
+    goods being made, not a completed sale being cancelled)."""
+    from apps.manufacturing.models import ProductionRun
+
+    _login_editor(client, django_user_model, "no-reason-cancel")
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(
+        created_by=django_user_model.objects.get(username="no-reason-cancel"), currency="KGS"
+    )
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("500"))
+    confirm_sale(order)
+
+    resp = client.post(f"/pos/sale/{order.pk}/cancel/")  # no reason posted
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CONFIRMED  # unchanged — never cancelled
+    assert not ProductionRun.objects.exists()  # never touched at all
+
+    resp = client.post(f"/pos/sale/{order.pk}/cancel/", {"reason": "клиент передумал"})
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CANCELLED
+    movement = StockMovement.objects.filter(sale_order=order, movement_type="return_in").first()
+    assert movement.reason == "клиент передумал"  # plain text, not a category
+
+
+def test_cancel_sale_with_an_overlong_reason_is_truncated_not_silently_dropped(
+    client, django_user_model, variant
+):
+    """A raw crafted POST past the client-side maxlength=255 must never
+    reach StockMovement.reason's own max_length and blow up inside
+    add_movement's full_clean() — the view's blanket
+    `except ValidationError: pass` (idempotent-cancel guard) would swallow
+    that silently, leaving the sale uncancelled with zero feedback. Must
+    truncate server-side instead, so the cancel still goes through."""
+    _login_editor(client, django_user_model, "overlong-cancel")
+    add_movement(variant, StockMovement.PURCHASE_IN, 5)
+    order = SaleOrder.objects.create(
+        created_by=django_user_model.objects.get(username="overlong-cancel"), currency="KGS"
+    )
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("500"))
+    confirm_sale(order)
+
+    resp = client.post(f"/pos/sale/{order.pk}/cancel/", {"reason": "x" * 500})
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.status == SaleOrder.CANCELLED  # went through, not silently dropped
+    movement = StockMovement.objects.filter(sale_order=order, movement_type="return_in").first()
+    assert len(movement.reason) == 255
+
+
+def test_return_without_a_reason_is_rejected(client, django_user_model, variant):
+    owner = django_user_model.objects.create_superuser("no-reason-return", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create()
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3200"))
+    confirm_sale(order)
+
+    resp = client.post(f"/pos/sale/{order.pk}/return/", {f"return_{order.items.first().pk}": "1"})
+    order.refresh_from_db()
+    assert order.items.first().quantity == 2  # unchanged — the return never applied
+
+    resp = client.post(
+        f"/pos/sale/{order.pk}/return/",
+        {f"return_{order.items.first().pk}": "1", "reason": "не подошёл размер"},
+    )
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.items.first().quantity == 1
+    movement = StockMovement.objects.filter(sale_order=order, movement_type="return_in").first()
+    assert movement.reason == "не подошёл размер"
 
 
 def test_cancel_order_dialog_names_the_order_and_amount(client, django_user_model, variant):
@@ -9077,19 +9164,54 @@ def test_cancel_order_dialog_names_the_order_and_amount(client, django_user_mode
     assert f"Отменить заказ №{order.pk} на 1\N{NBSP}000" in body
     assert 'data-confirm-tone="danger"' in body
     assert "Да, отменить заказ" in body
+    assert 'name="reason"' in body
 
 
-def test_delete_note_dialog_names_the_note_and_stays_red(client, django_user_model):
-    from apps.notes.models import Note
+def test_cancel_order_requires_a_reason_and_stores_it_plainly(client, django_user_model, variant):
+    """Same rule as a sale cancel/return — a plain typed reason, required,
+    never a defect/брак classification (apps.manufacturing is untouched by
+    this entirely)."""
+    from apps.manufacturing.models import ProductionRun
+    from apps.orders.models import Order, OrderItem
 
-    owner = django_user_model.objects.create_superuser("dlg-note-owner", password="x" * 12)
+    owner = django_user_model.objects.create_superuser("order-reason-owner", "o@e.com", "x" * 12)
     client.force_login(owner)
-    note = Note.objects.create(title="Диалоговая проверка", body="x", created_by=owner)
+    buyer = Client.objects.create(first_name="ReasonOrder", phone="+996700990602")
+    order = Order.objects.create(client=buyer, currency="KGS")
+    OrderItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("500"))
 
-    body = client.get(f"/notes/{note.pk}/edit/").content.decode()
-    assert "Диалоговая проверка" in body
-    assert 'data-confirm-tone="danger"' in body
-    assert "Да, удалить" in body
+    resp = client.post(f"/orders/{order.pk}/cancel/")  # no reason
+    order.refresh_from_db()
+    assert order.status == Order.NEW  # unchanged
+    assert not ProductionRun.objects.exists()
+
+    resp = client.post(f"/orders/{order.pk}/cancel/", {"reason": "клиент передумал"})
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.status == Order.CANCELLED
+    assert order.cancel_reason == "клиент передумал"
+
+
+def test_cancel_order_with_an_overlong_reason_is_truncated_not_a_500(
+    client, django_user_model, variant
+):
+    """cancel_order's plain order.save() never calls full_clean(), so an
+    untruncated overlong reason would reach the database as-is — a raw
+    uncaught IntegrityError (a 500) on Postgres, where varchar(255) is a
+    real constraint. Must truncate server-side before it ever gets there."""
+    from apps.orders.models import Order, OrderItem
+
+    owner = django_user_model.objects.create_superuser("overlong-order-owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    buyer = Client.objects.create(first_name="OverlongOrder", phone="+996700990603")
+    order = Order.objects.create(client=buyer, currency="KGS")
+    OrderItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("500"))
+
+    resp = client.post(f"/orders/{order.pk}/cancel/", {"reason": "y" * 500})
+    assert resp.status_code == 302
+    order.refresh_from_db()
+    assert order.status == Order.CANCELLED
+    assert len(order.cancel_reason) == 255
 
 
 def test_stock_action_wizard_colours_writeoff_red_and_receive_green(
@@ -9378,16 +9500,20 @@ def test_dashboard_top_products_and_dead_stock_sheets_include_category(variant):
     assert top_row[0] == "Dresses / Evening Dress"
 
 
-def test_production_queue_product_rollup_label_includes_category(variant):
+def test_production_queue_row_label_includes_category(variant):
+    """The queue's one-row-per-variant label (ProductVariant.__str__) leads
+    with category, same as everywhere else this string renders — see that
+    model's own docstring on why (products in different categories can
+    share a name)."""
     from apps.orders.models import Order, OrderItem
-    from apps.orders.services import GROUP_PRODUCT, production_queue
+    from apps.orders.services import production_queue
 
     cust = Client.objects.create(first_name="QueueCat", phone="+996700007773")
     order = Order.objects.create(client=cust, currency="KGS")
     OrderItem.objects.create(order=order, variant=variant, quantity=3, unit_price=Decimal("3200"))
 
-    rows = production_queue(group_by=GROUP_PRODUCT)
-    assert rows[0]["label"] == "Dresses / Evening Dress"
+    rows = production_queue()
+    assert rows[0]["label"].startswith("Dresses / Evening Dress")
 
 
 # ---- Multiple product-image upload — the real fix was a real multi-file ---

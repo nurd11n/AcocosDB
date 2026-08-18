@@ -20,7 +20,15 @@
       inputmode="numeric" style="max-width:80px" aria-label="{% trans "К возврату" %}">
   </div>
   {% endfor %}
-  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-4)">
+  {% comment %}
+  A plain typed reason — NOT a category/classification, and unrelated to
+  apps.manufacturing's defect (брак) tracking, same as sale_cancel's own
+  reason field (see result.html).
+  {% endcomment %}
+  <label class="hint" for="return-reason" style="margin-top:var(--space-3)">{% trans "Причина возврата" %}</label>
+  <input type="text" id="return-reason" name="reason" required maxlength="255"
+    placeholder="{% trans "например: не подошёл размер" %}">
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">
     {% trans "Оформить возврат" %}</button>
   <a class="btn btn-ghost" href="{% url 'pos:sale_result' order.pk %}" style="margin-top:var(--space-2)">
     {% trans "Отмена" %}</a>

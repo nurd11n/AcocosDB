@@ -2,9 +2,8 @@
 cross-site GET (an <img>/link a logged-in manager is tricked into loading)
 cannot trigger them — GET carries no CSRF token, and a GET-write would bypass
 CSRF entirely. Every mutation endpoint returns 405 on GET; the few
-legitimately-mixed GET/POST views (sale_return form, notes edit/index) render
-on GET and only mutate on POST. Read-only renders (search, product grid) stay
-GET.
+legitimately-mixed GET/POST views (sale_return form) render on GET and only
+mutate on POST. Read-only renders (search, product grid) stay GET.
 """
 
 from decimal import Decimal
@@ -107,9 +106,7 @@ def test_pos_readonly_endpoints_still_accept_get(client, owner, variant):
 def test_orders_mutation_endpoints_reject_get(client, owner, variant):
     c = Client.objects.create(first_name="O", phone="+996700000002")
     order = Order.objects.create(client=c, created_by=owner)
-    item = order.items.create(
-        variant=variant, quantity=2, unit_price=Decimal("3200"), currency="KGS"
-    )
+    item = order.items.create(variant=variant, quantity=2, unit_price=Decimal("3200"))
     for url in [
         reverse("orders:item_add", args=[order.pk]),
         reverse("orders:item_remove", args=[order.pk, item.pk]),

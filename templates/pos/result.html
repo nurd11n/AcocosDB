@@ -101,7 +101,18 @@
    data-confirm-ok="{% trans "Да, отменить продажу" %}" data-confirm-tone="danger"
    style="margin-top:var(--space-2)">
   {% csrf_token %}
-  <button type="submit" class="btn btn-ghost btn-ghost--debt">{% trans "Отменить продажу" %}</button>
+  {% comment %}
+  A plain typed reason — NOT a category/classification, and unrelated to
+  apps.manufacturing's defect (брак) tracking (that's production quality on
+  goods being made, a separate concept from a completed sale being
+  cancelled). Required so a cancelled sale's StockMovement.reason always
+  says something real instead of a generic auto-text.
+  {% endcomment %}
+  <label class="hint" for="cancel-reason">{% trans "Причина отмены" %}</label>
+  <input type="text" id="cancel-reason" name="reason" required maxlength="255"
+    placeholder="{% trans "например: клиент передумал" %}">
+  <button type="submit" class="btn btn-ghost btn-ghost--debt" style="margin-top:var(--space-2)">
+    {% trans "Отменить продажу" %}</button>
  </form>
  <p id="cancel-error" class="error" hidden></p>
  {% endif %}
