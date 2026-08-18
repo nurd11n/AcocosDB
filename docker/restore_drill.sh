@@ -37,6 +37,17 @@ notify() {
   echo "[drill] $1"
 }
 
+# Fail fast, before the loop even starts (2026-08-18 production incident,
+# docs/АУДИТ-follow-up.md F2): a bind-mounted file whose host source doesn't
+# exist yet becomes a silent empty DIRECTORY at that path — age then fails
+# with a confusing "is a directory" error, once per cycle, forever, with no
+# alert distinguishing it from a routine decrypt failure. Checking for a real
+# regular file up front turns that into one unambiguous, loud failure.
+if [ ! -f "${AGE_IDENTITY_FILE:-}" ]; then
+  notify "❌ Проверка бэкапа ACOCOS: AGE_IDENTITY_FILE не найден или не является файлом (${AGE_IDENTITY_FILE:-не задан}) — восстановление невозможно."
+  exit 1
+fi
+
 run_drill() {
   LATEST=$(ls -1t "$BACKUP_DIR"/acocos_*.dump.age 2>/dev/null | head -n1)
   if [ -z "$LATEST" ]; then

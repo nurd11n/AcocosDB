@@ -423,3 +423,39 @@ def test_restore_drill_fails_loudly_and_alerts_on_corrupted_dump(tmp_path, teleg
     assert drill_result.returncode != 0
     assert len(received) == 1
     assert "контрольная сумма не совпала" in received[0]["text"]
+
+
+@pytest.mark.parametrize("age_identity_kind", ["missing", "directory"])
+def test_restore_drill_fails_loudly_when_age_identity_file_is_not_a_real_file(
+    tmp_path, telegram_mock, age_identity_kind
+):
+    """2026-08-18 production incident (docs/АУДИТ-follow-up.md F2): a
+    bind-mounted AGE_IDENTITY_FILE whose host source doesn't exist becomes a
+    silent empty DIRECTORY at that container path — this is exactly what
+    happened in production, and it must now fail loudly and alert before
+    the loop even starts, not fail confusingly once per cycle forever."""
+    base_url, received = telegram_mock
+
+    if age_identity_kind == "missing":
+        age_identity_path = tmp_path / "does-not-exist.txt"
+    else:
+        age_identity_path = tmp_path / "age_identity_as_a_dir"
+        age_identity_path.mkdir()
+
+    result = _run(
+        RESTORE_DRILL_SH,
+        {
+            "PATH": __import__("os").environ["PATH"],
+            **_pg_env(),
+            "BACKUP_DIR": str(tmp_path / "backups"),
+            "AGE_IDENTITY_FILE": str(age_identity_path),
+            "DRILL_RUN_ONCE": "1",
+            "TELEGRAM_STAFF_TOKEN": "dummy-token",
+            "DRILL_CHAT_ID": "12345",
+            "TELEGRAM_API_BASE": base_url,
+        },
+    )
+
+    assert result.returncode != 0
+    assert len(received) == 1
+    assert "AGE_IDENTITY_FILE" in received[0]["text"]
