@@ -7,12 +7,24 @@
 # (set AGE_RECIPIENT in .env). Local copy AND offsite copy: a fire, an rm -rf, and
 # ransomware are different threats. Retention is tiered (see prune_backups.py).
 #
-# Required env (.env): POSTGRES_USER, POSTGRES_DB, AGE_RECIPIENT.
-# Optional: RCLONE_REMOTE (e.g. "b2:acocos-backups") to enable offsite sync.
+# Required env (.env): POSTGRES_USER, POSTGRES_DB, AGE_RECIPIENT, RCLONE_REMOTE.
+# Both AGE_RECIPIENT and RCLONE_REMOTE are REQUIRED, not optional (2026-08-18
+# audit, M3): a backup job that silently degrades to unencrypted local-only
+# dumps is worse than one that refuses to run at all — nobody watches container
+# logs for a stray WARNING line, but everybody notices a container stuck
+# restarting in `docker compose ps`. Optional: TELEGRAM_STAFF_TOKEN +
+# DRILL_CHAT_ID (same chat restore_drill.sh already alerts) to get a Telegram
+# ping on failure instead of only a log line.
+# POSTGRES_HOST/POSTGRES_PORT (default db/5432, the Compose service) and
+# BACKUP_DIR (default /backups, the Compose volume mount) let a test point
+# this script at a throwaway Postgres instance and scratch directory instead
+# of touching prod.
 set -eu
 
-BACKUP_DIR=/backups
+BACKUP_DIR=${BACKUP_DIR:-/backups}
 INTERVAL=${BACKUP_INTERVAL_SECONDS:-21600} # 6 hours
+DB_HOST=${POSTGRES_HOST:-db}
+DB_PORT=${POSTGRES_PORT:-5432}
 
 # pg_dump reads PGPASSWORD, not POSTGRES_PASSWORD (that name is specific to
 # the official postgres image's own first-run init, not a libpq client
@@ -22,6 +34,36 @@ INTERVAL=${BACKUP_INTERVAL_SECONDS:-21600} # 6 hours
 # calls).
 export PGPASSWORD="${POSTGRES_PASSWORD:-}"
 
+# Same alert pattern as restore_drill.sh's notify() — deliberately duplicated
+# rather than shared, since these are two independent POSIX sh scripts with no
+# common entrypoint to source a shared file from in the backup image.
+notify() {
+  # $1 = message. Never fails the caller if Telegram is unreachable — the
+  # caller's own exit code (not this function) is what actually signals
+  # success/failure to `docker compose ps` / restart policy.
+  # TELEGRAM_API_BASE (default the real API) lets a test point this at a
+  # local mock server to assert the alert actually fires, without hitting
+  # the network or a real bot token.
+  if [ -n "${TELEGRAM_STAFF_TOKEN:-}" ] && [ -n "${DRILL_CHAT_ID:-}" ]; then
+    curl -s -m 20 -o /dev/null \
+      "${TELEGRAM_API_BASE:-https://api.telegram.org}/bot${TELEGRAM_STAFF_TOKEN}/sendMessage" \
+      --data-urlencode "chat_id=${DRILL_CHAT_ID}" \
+      --data-urlencode "text=$1" || true
+  fi
+  echo "[backup] $1" >&2
+}
+
+# Fail fast, before the loop even starts: a misconfigured backup job should
+# never begin producing degraded output, it should refuse to run at all.
+if [ -z "${AGE_RECIPIENT:-}" ]; then
+  notify "❌ ACOCOS backup: AGE_RECIPIENT не задан — резервное копирование остановлено, дампы НЕ создаются."
+  exit 1
+fi
+if [ -z "${RCLONE_REMOTE:-}" ]; then
+  notify "❌ ACOCOS backup: RCLONE_REMOTE не задан — офсайт-копирование не настроено, резервное копирование остановлено."
+  exit 1
+fi
+
 mkdir -p "$BACKUP_DIR"
 
 while true; do
@@ -29,10 +71,13 @@ while true; do
   BASE="$BACKUP_DIR/acocos_$STAMP.dump"
   echo "[backup] $STAMP starting"
 
-  # 1. Dump (custom format, compressed).
-  if ! pg_dump -Fc -h db -U "$POSTGRES_USER" "$POSTGRES_DB" > "$BASE"; then
-    echo "[backup] pg_dump FAILED — skipping this cycle" >&2
+  # 1. Dump (custom format, compressed). A transient failure here (DB briefly
+  # restarting, a network blip) is worth retrying next cycle rather than
+  # crash-looping the whole container — unlike a missing AGE_RECIPIENT/
+  # RCLONE_REMOTE or a failed encryption, this one is plausibly self-healing.
+  if ! pg_dump -Fc -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" "$POSTGRES_DB" > "$BASE"; then
     rm -f "$BASE"
+    notify "❌ ACOCOS backup: pg_dump завершился с ошибкой ($STAMP) — повтор через ${INTERVAL}с."
     sleep "$INTERVAL"
     continue
   fi
@@ -41,26 +86,37 @@ while true; do
   sha256sum "$BASE" | sed "s|$BACKUP_DIR/||" > "$BASE.sha256"
 
   # 3. Encrypt with age; remove the plaintext so only the .age copy remains.
-  if [ -n "${AGE_RECIPIENT:-}" ]; then
-    age -r "$AGE_RECIPIENT" -o "$BASE.age" "$BASE"
-    rm -f "$BASE"
-    echo "[backup] encrypted -> $(basename "$BASE").age"
-  else
-    echo "[backup] WARNING: AGE_RECIPIENT unset — leaving dump UNENCRYPTED" >&2
+  # A failed encryption is fatal (M3): it must never leave an unencrypted
+  # dump sitting on disk, and it must never be treated as "fine, try again
+  # later" the way a transient pg_dump hiccup is — an age failure usually
+  # means a real misconfiguration (bad recipient, disk full), not a blip.
+  if ! age -r "$AGE_RECIPIENT" -o "$BASE.age" "$BASE"; then
+    rm -f "$BASE" "$BASE.age" "$BASE.sha256"
+    notify "❌ ACOCOS backup: шифрование age завершилось с ошибкой ($STAMP) — незашифрованный дамп удалён, не оставлен на диске."
+    exit 1
   fi
+  rm -f "$BASE"
+  echo "[backup] encrypted -> $(basename "$BASE").age"
 
-  # 4. Offsite: sync the encrypted dumps + checksums + media to B2.
-  if [ -n "${RCLONE_REMOTE:-}" ]; then
-    rclone sync "$BACKUP_DIR" "$RCLONE_REMOTE/db" \
-      --include "*.age" --include "*.sha256" || echo "[backup] rclone db sync failed" >&2
-    rclone sync /media "$RCLONE_REMOTE/media" || echo "[backup] rclone media sync failed" >&2
-    echo "[backup] offsite sync done"
-  else
-    echo "[backup] RCLONE_REMOTE unset — offsite sync skipped"
+  # 4. Offsite: sync the encrypted dumps + checksums + media to B2. A single
+  # sync failure stays non-fatal (retried next cycle, like pg_dump above) —
+  # the encrypted dump is still safe on local disk either way — but is now
+  # alerted, where it previously only logged a stderr line nobody watches.
+  if ! rclone sync "$BACKUP_DIR" "$RCLONE_REMOTE/db" --include "*.age" --include "*.sha256"; then
+    notify "⚠️ ACOCOS backup: rclone sync (db) завершился с ошибкой ($STAMP) — локальная копия зашифрована и цела, офсайт-копия не обновлена."
   fi
+  if ! rclone sync /media "$RCLONE_REMOTE/media"; then
+    notify "⚠️ ACOCOS backup: rclone sync (media) завершился с ошибкой ($STAMP)."
+  fi
+  echo "[backup] offsite sync done"
 
   # 5. Prune old local backups by the retention tiers (offsite mirrors via sync).
-  python3 /usr/local/bin/prune_backups.py "$BACKUP_DIR" || echo "[backup] prune failed" >&2
+  # Resolved relative to this script's own location (both are copied to
+  # /usr/local/bin together by backup.Dockerfile) rather than a hardcoded
+  # absolute path, so the same script also runs unmodified straight out of
+  # the repo checkout (docker/backup.sh + docker/prune_backups.py) for tests.
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  python3 "$SCRIPT_DIR/prune_backups.py" "$BACKUP_DIR" || notify "⚠️ ACOCOS backup: prune_backups.py завершился с ошибкой ($STAMP) — старые локальные копии не подчищены, сам бэкап тем не менее сделан и выгружен."
 
   # BACKUP_RUN_ONCE=1 runs a single cycle and exits — used for the deploy-day
   # manual verification (see README). Unset (the service default) loops forever.
