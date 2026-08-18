@@ -130,7 +130,7 @@ services:
       # README's "Application-layer hardening" section for the jail.
       - ./caddy_logs:/var/log/caddy
 
-  # Encrypted, checksummed backups every 6 hours, synced offsite to B2.
+  # Encrypted, checksummed backups every 6 hours, synced offsite.
   backup:
     build:
       context: .
@@ -143,6 +143,21 @@ services:
     volumes:
       - ./backups:/backups
       - media:/media:ro
+      # RCLONE_CONFIG_* env vars (see .env.example) only cover simple
+      # key/secret remotes like B2. A remote needing OAuth or a crypt layer
+      # (e.g. Google Drive via an rclone crypt remote) needs a real
+      # rclone.conf instead — this file MUST exist on the host at
+      # ./secrets/rclone.conf BEFORE `up`/`create` ever runs. Docker
+      # silently creates an empty DIRECTORY at the container path if the
+      # host source is missing (the exact bug that made restore-drill's
+      # age_identity.txt mount useless — `is a directory` — see
+      # docs/АУДИТ-follow-up.md); an empty directory here fails the same
+      # way, just as silently, and every sync degrades into a warning that
+      # never actually reaches the offsite remote. If RCLONE_REMOTE is a
+      # simple RCLONE_CONFIG_*-configurable remote (e.g. plain B2, no
+      # crypt), create an empty ./secrets/rclone.conf so the mount has a
+      # real (if empty) file to bind, and the env vars still do the work.
+      - ./secrets/rclone.conf:/root/.config/rclone/rclone.conf:ro
     depends_on:
       db:
         condition: service_healthy
