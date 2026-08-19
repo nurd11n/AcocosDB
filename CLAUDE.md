@@ -304,10 +304,19 @@ payment/qty, nonneg total). django-simple-history on Product, ProductVariant, Cl
 Payment; LogEntry for Owner; bot messages read-only.
 
 Backups: pg_dump -Fc every 6h → sha256 → age-encrypted (private key OFF the server) → rclone to
-Backblaze B2 (dumps AND media/); tiered retention (4/day×7d · daily×30d · weekly×6mo); weekly
-restore drill into a scratch DB that asserts row counts + freshness and Telegrams the Owner. The
-Postgres data volume MUST sit on an encrypted host disk (LUKS / provider-encrypted) — Docker
-volumes are not encrypted by default. Restore runbook: README.md.
+the configured offsite remote (Backblaze B2 by default; a remote needing OAuth/a crypt layer,
+e.g. Google Drive via rclone crypt, needs a real rclone.conf mounted at ./secrets/rclone.conf —
+see docker-compose.prod.yml's backup service) (dumps AND media/); tiered retention (4/day×7d ·
+daily×30d · weekly×6mo); weekly restore drill into a scratch DB that asserts row counts +
+freshness and Telegrams the Owner. AGE_RECIPIENT and RCLONE_REMOTE are REQUIRED, not optional
+(2026-08-18 audit, M3) — backup.sh refuses to run (exits non-zero, alerts) rather than silently
+degrading to unencrypted or local-only dumps; a failed encryption never leaves a plaintext .dump
+on disk. Optional HEALTHCHECKS_PING_URL adds a dead-man's-switch ping on every completed cycle,
+catching the backup not running AT ALL (host down, container never starts) — a different failure
+mode than the Telegram alerts above, which only fire when the script runs and finds something
+wrong. The Postgres data volume MUST sit on an encrypted host disk (LUKS / provider-encrypted) —
+Docker volumes are not encrypted by default. Restore runbook: README.md (full setup) and
+docs/RESTORE-DRILL.md (on-demand drill + reading results, right now, without waiting for Sunday).
 
 Two UI languages, Russian reports
 
@@ -322,7 +331,10 @@ send_daily_report → ONE .xlsx, Russian headers, sheets Продажи · Ос�
 value here only) · Долги · Заказы (open orders, due dates, deposits, remaining).
 Emailed (EMAIL_* + REPORT_RECIPIENTS) AND sent as a Telegram document to BotUsers with
 receives_reports=True. --format csv writes UTF-8-BOM CSV. Scheduler runs it at REPORT_HOUR
-(default 21:00, Asia/Bishkek). The dashboard also gets two Заказы panels — «Заказы в работе»
+(default 21:00, Asia/Bishkek), alongside audit_stale_totals (2026-08-18 audit, M2 — read-only,
+Telegrams the Owner ONLY when a confirmed sale's stored total no longer matches its line items,
+silent otherwise, same pattern as send_security_digest below) and send_security_digest. The
+dashboard also gets two Заказы panels — «Заказы в работе»
 (open-order count + KGS value) and «К производству» (top variants by need, linking to the full
 queue) — deliberately NOT touched by the dashboard's сом/$/₽ view-currency toggle.
 
