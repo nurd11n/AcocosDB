@@ -13,6 +13,14 @@ Telegrams the result — this doc is for triggering ONE drill on demand and
 reading its result yourself, right now, rather than waiting for Sunday or
 digging through container logs.
 
+**After deploying this fix for the first time (or after the 2026-08-18
+incident's fix specifically — rebuilt image, real `secrets/rclone.conf` and
+`secrets/age_identity.txt` in place), run `sh docker/verify_deployment.sh`
+first.** It runs everything below in one shot — a real backup cycle, a real
+restore drill, checks for stray plaintext left over from before the fix —
+and prints a plain PASS/FAIL summary instead of you having to read and
+interpret raw command output by hand.
+
 **This deployment's offsite remote is `gdrive_crypt:`** — Google Drive
 wrapped in an rclone crypt remote (`drive.file` scope), not the bare
 Backblaze B2 remote README.md's setup walkthrough uses as its example.
