@@ -29,5 +29,8 @@
   {% endif %}
 </button>
 {% empty %}
-<p class="muted" style="grid-column:1/-1">{% trans "Ничего не найдено" %}</p>
+<div style="grid-column:1/-1">
+  <p class="muted">{% trans "Ничего не найдено" %}</p>
+  <a class="btn btn-ghost" href="{% url 'pos:sale_detail' order.pk %}">{% trans "Очистить поиск" %}</a>
+</div>
 {% endfor %}
