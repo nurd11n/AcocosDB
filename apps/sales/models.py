@@ -18,6 +18,29 @@ DISCOUNT_PERCENT = "percent"
 DISCOUNT_FIXED = "fixed"
 
 
+class SaleOrderQuerySet(models.QuerySet):
+    def confirmed_revenue(self):
+        """THE single definition of "revenue" this project counts: confirmed
+        sales that are not a backdated historical entry (see
+        SaleOrder.is_historical's own docstring — a backdated entry must
+        never inflate revenue/profit/units, but debt and payments stay
+        counted, so this is NOT what a debt query should use — see
+        apps.reports.dashboard._debt and send_daily_report's debts sheet,
+        which deliberately filter status=CONFIRMED alone).
+
+        Every revenue-shaped aggregate — apps.sales.services' today/period
+        functions, apps.reports.dashboard's _metrics/_calendar_days/
+        _channels/_top_products/_dead_stock, send_daily_report's sales sheet
+        (transitively, via apps.sales.services.todays_confirmed_orders) —
+        filters through this one method instead of each hand-repeating
+        `status=CONFIRMED, is_historical=False` (2026-08-18 audit, M1: three
+        independent implementations of the same predicate, one exclusion
+        rule to remember in three places instead of one). Chain further
+        filters (date ranges, client, etc.) on top; this only ever narrows,
+        never a full canonical queryset callers can't add to."""
+        return self.filter(status=self.model.CONFIRMED, is_historical=False)
+
+
 class SaleOrder(models.Model):
     # DB values kept stable; only the labels shown to users changed to the
     # approval wording (Pending -> Approved) the shop actually uses.
@@ -29,6 +52,8 @@ class SaleOrder(models.Model):
         (CONFIRMED, _("Approved")),
         (CANCELLED, _("Cancelled")),
     ]
+
+    objects = SaleOrderQuerySet.as_manager()
 
     # Payment status is DERIVED from payments recorded against the order, never
     # stored — same principle as stock and client debt.
@@ -105,12 +130,16 @@ class SaleOrder(models.Model):
     # stock is NEVER decremented (the goods left long before today, so
     # writing a SALE_OUT movement would falsely shrink CURRENT stock for an
     # item that's already accounted for) and it is EXCLUDED from every
-    # revenue/profit/units dashboard and daily-report aggregate (see
-    # apps.reports.dashboard._metrics/_calendar_days/_channels/
-    # _top_products and apps.sales.services' today/period revenue
-    # functions — all filter is_historical=False). Debt and payments are
-    # DELIBERATELY NOT excluded: if entered still unpaid, it's a real debt
-    # like any other and must show in «Баланс»/the statement.
+    # revenue/profit/units dashboard and daily-report aggregate — every one
+    # of those filters through SaleOrderQuerySet.confirmed_revenue /
+    # SaleItemQuerySet.confirmed_revenue (see those methods, apps.sales.
+    # models), not a per-caller repeated is_historical=False, so this field
+    # only needs to be excluded in ONE place to be excluded everywhere.
+    # Debt and payments are DELIBERATELY NOT excluded: if entered still
+    # unpaid, it's a real debt like any other and must show in
+    # «Баланс»/the statement — see apps.reports.dashboard._debt and
+    # send_daily_report's debts sheet, which intentionally do NOT use
+    # confirmed_revenue().
     is_historical = models.BooleanField(_("historical sale"), default=False)
     history = HistoricalRecords()
 
@@ -201,6 +230,16 @@ class SaleOrder(models.Model):
         return self.payment_status_for(self.total, self.paid_amount)
 
 
+class SaleItemQuerySet(models.QuerySet):
+    def confirmed_revenue(self):
+        """Line-item counterpart to SaleOrderQuerySet.confirmed_revenue —
+        same predicate, walked through the order FK
+        (order__status=CONFIRMED, order__is_historical=False), for the
+        per-line aggregates (units, COGS, top-products) that need SaleItem
+        rows rather than whole orders. See that method's docstring."""
+        return self.filter(order__status=SaleOrder.CONFIRMED, order__is_historical=False)
+
+
 class SaleItem(models.Model):
     # Same values as the module-level constants above — kept as class
     # attributes too so callers can write SaleItem.DISCOUNT_PERCENT, the
@@ -213,6 +252,8 @@ class SaleItem(models.Model):
         (DISCOUNT_PERCENT, _("Percent")),
         (DISCOUNT_FIXED, _("Fixed amount")),
     ]
+
+    objects = SaleItemQuerySet.as_manager()
 
     order = models.ForeignKey(
         SaleOrder, verbose_name=_("sale order"), on_delete=models.CASCADE, related_name="items"
