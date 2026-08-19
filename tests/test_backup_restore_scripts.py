@@ -42,7 +42,9 @@ _MISSING_TOOLS = shutil.which("age") is None or shutil.which("rclone") is None
 
 pytestmark = [
     pytestmark,
-    pytest.mark.skipif(_NOT_POSTGRES, reason="backup/restore scripts need a real Postgres connection"),
+    pytest.mark.skipif(
+        _NOT_POSTGRES, reason="backup/restore scripts need a real Postgres connection"
+    ),
     pytest.mark.skipif(_MISSING_TOOLS, reason="age and/or rclone not on PATH"),
 ]
 
@@ -116,7 +118,9 @@ class _CapturingTelegramHandler(http.server.BaseHTTPRequestHandler):
         # curl --data-urlencode form-encodes the text; decode it here so
         # assertions can match the plain Russian alert copy directly.
         text = parse_qs(raw_body).get("text", [""])[0]
-        _CapturingTelegramHandler.received.append({"path": self.path, "body": raw_body, "text": text})
+        _CapturingTelegramHandler.received.append(
+            {"path": self.path, "body": raw_body, "text": text}
+        )
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b'{"ok": true}')
@@ -161,7 +165,10 @@ def healthcheck_mock():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}/ping/dummy-uuid", _CapturingPingHandler.received
+        yield (
+            f"http://127.0.0.1:{server.server_port}/ping/dummy-uuid",
+            _CapturingPingHandler.received,
+        )
     finally:
         server.shutdown()
         thread.join(timeout=5)
@@ -345,6 +352,85 @@ def test_backup_fails_loudly_and_alerts_when_required_var_unset(
     assert expected_snippet in received[0]["text"]
 
 
+def test_backup_fails_loudly_when_rclone_config_mount_is_an_empty_directory(
+    tmp_path, telegram_mock
+):
+    """Reproduces the exact 2026-08-18 production incident (docs/АУДИТ-
+    follow-up.md F2): docker-compose.prod.yml bind-mounts ./secrets/
+    rclone.conf into the container, but if that host file never existed
+    when the container was created, Docker silently substitutes an empty
+    DIRECTORY at that path — every rclone call then fails with a confusing
+    config error, indistinguishable from a routine problem. Must now fail
+    loudly and alert before the loop even starts, like the AGE_IDENTITY_FILE
+    check in restore_drill.sh."""
+    base_url, received = telegram_mock
+    backups_dir = tmp_path / "backups"
+    broken_rclone_config = tmp_path / "rclone.conf"
+    broken_rclone_config.mkdir()  # the exact Docker-created empty-directory bug
+
+    env = {
+        "PATH": __import__("os").environ["PATH"],
+        **_pg_env(),
+        "BACKUP_DIR": str(backups_dir),
+        "AGE_RECIPIENT": "age1notreallyused0000000000000000000000000000000000000000",
+        "RCLONE_REMOTE": str(tmp_path / "offsite"),
+        "RCLONE_CONFIG_PATH": str(broken_rclone_config),
+        "BACKUP_RUN_ONCE": "1",
+        "TELEGRAM_STAFF_TOKEN": "dummy-token",
+        "DRILL_CHAT_ID": "12345",
+        "TELEGRAM_API_BASE": base_url,
+    }
+
+    result = _run(BACKUP_SH, env)
+
+    assert result.returncode != 0
+    assert not backups_dir.exists() or list(backups_dir.iterdir()) == []
+    assert len(received) == 1
+    assert "директория" in received[0]["text"]
+
+
+def test_backup_runs_normally_when_rclone_config_path_is_absent_or_a_real_file(
+    tmp_path, telegram_mock
+):
+    """The flip side: a MISSING rclone config path is perfectly valid (a
+    local-filesystem RCLONE_REMOTE, exactly what this test suite itself
+    uses, needs no config file at all) and must not be treated as broken —
+    only an actual directory in its place is wrong."""
+    _seed_real_data()
+    base_url, received = telegram_mock
+    backups_dir = tmp_path / "backups"
+    age_identity = tmp_path / "age_identity.txt"
+    subprocess.run(["age-keygen", "-o", str(age_identity)], check=True, capture_output=True)
+    pubkey = next(
+        line.split(": ", 1)[1].strip()
+        for line in age_identity.read_text().splitlines()
+        if line.lower().startswith("# public key:") or line.lower().startswith("public key:")
+    )
+
+    result = _run(
+        BACKUP_SH,
+        {
+            "PATH": __import__("os").environ["PATH"],
+            **_pg_env(),
+            "BACKUP_DIR": str(backups_dir),
+            "AGE_RECIPIENT": pubkey,
+            "RCLONE_REMOTE": str(tmp_path / "offsite"),
+            "RCLONE_CONFIG_PATH": str(tmp_path / "does-not-exist.conf"),
+            "BACKUP_RUN_ONCE": "1",
+            "TELEGRAM_STAFF_TOKEN": "dummy-token",
+            "DRILL_CHAT_ID": "12345",
+            "TELEGRAM_API_BASE": base_url,
+        },
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(list(backups_dir.glob("*.dump.age"))) == 1
+    # No false alarm about rclone.conf specifically — a /media sync warning
+    # is expected here too (this test machine has no real /media directory
+    # to sync from at all, unrelated to the rclone.conf check under test).
+    assert not any("директория" in r["text"] for r in received)
+
+
 def test_backup_refuses_to_leave_plaintext_dump_after_failed_encryption(tmp_path, telegram_mock):
     """M3: a failed `age` encryption must exit non-zero, alert, and leave NO
     plaintext .dump file behind — the exact scenario the audit flagged."""
@@ -367,8 +453,12 @@ def test_backup_refuses_to_leave_plaintext_dump_after_failed_encryption(tmp_path
     result = _run(BACKUP_SH, env)
 
     assert result.returncode != 0
-    assert list(backups_dir.glob("*.dump")) == [], "plaintext dump left on disk after failed encryption"
-    assert list(backups_dir.glob("*")) == [], "no artifact of any kind should survive a failed encryption"
+    assert list(backups_dir.glob("*.dump")) == [], (
+        "plaintext dump left on disk after failed encryption"
+    )
+    assert list(backups_dir.glob("*")) == [], (
+        "no artifact of any kind should survive a failed encryption"
+    )
     assert len(received) == 1
     assert "шифрование" in received[0]["text"]
 

@@ -15,10 +15,11 @@
 # restarting in `docker compose ps`. Optional: TELEGRAM_STAFF_TOKEN +
 # DRILL_CHAT_ID (same chat restore_drill.sh already alerts) to get a Telegram
 # ping on failure instead of only a log line.
-# POSTGRES_HOST/POSTGRES_PORT (default db/5432, the Compose service) and
-# BACKUP_DIR (default /backups, the Compose volume mount) let a test point
-# this script at a throwaway Postgres instance and scratch directory instead
-# of touching prod.
+# POSTGRES_HOST/POSTGRES_PORT (default db/5432, the Compose service),
+# BACKUP_DIR (default /backups, the Compose volume mount), and
+# RCLONE_CONFIG_PATH (default /root/.config/rclone/rclone.conf, the Compose
+# mount target) let a test point this script at a throwaway Postgres
+# instance and scratch files instead of touching prod.
 #
 # Optional: HEALTHCHECKS_PING_URL (a healthchecks.io check URL, or anything
 # speaking the same GET-to-mark-alive protocol). Pinged once at the end of
@@ -82,6 +83,23 @@ if [ -z "${AGE_RECIPIENT:-}" ]; then
 fi
 if [ -z "${RCLONE_REMOTE:-}" ]; then
   notify "❌ ACOCOS backup: RCLONE_REMOTE не задан — офсайт-копирование не настроено, резервное копирование остановлено."
+  exit 1
+fi
+# Same production incident class as restore_drill.sh's AGE_IDENTITY_FILE
+# check (docs/АУДИТ-follow-up.md F2): docker-compose.prod.yml bind-mounts
+# ./secrets/rclone.conf into the container. If that host file never existed
+# when the container was created, Docker silently substitutes an empty
+# DIRECTORY at this path instead of erroring — rclone then fails every
+# single sync with a confusing "didn't find section in config file" or
+# "is a directory" error, indistinguishable in logs from a routine problem.
+# Only a DIRECTORY here is wrong — the path simply not existing is fine
+# (valid for a local-filesystem RCLONE_REMOTE or a plain RCLONE_CONFIG_*
+# env-var remote that needs no file at all, exactly what this project's own
+# tests use), and an empty real file is also fine (a deliberate placeholder
+# — see the mount's own comment in docker-compose.prod.yml).
+RCLONE_CONFIG_PATH="${RCLONE_CONFIG_PATH:-/root/.config/rclone/rclone.conf}"
+if [ -d "$RCLONE_CONFIG_PATH" ]; then
+  notify "❌ ACOCOS backup: $RCLONE_CONFIG_PATH — это директория, а не файл (secrets/rclone.conf не был создан на хосте до запуска контейнера) — офсайт-копирование сломано."
   exit 1
 fi
 
