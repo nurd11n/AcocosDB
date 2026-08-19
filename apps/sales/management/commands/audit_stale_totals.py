@@ -107,19 +107,41 @@ class Command(BaseCommand):
                     f"expected={expected_kgs} (diff {diff:+})"
                 )
 
-        total_diff = sum(
+        # Two SEPARATE totals, not one combined figure: item_total_diff stays
+        # in each order's own currency (summed loosely across orders that may
+        # not share a currency — see the caveat printed below), while
+        # rate_total_diff is always KGS (that's what total_kgs IS, by
+        # definition — see the field's docstring) and so is safe to sum
+        # straight across every order regardless of currency. Reporting only
+        # item_total_diff (as this command used to) silently showed "+0"
+        # impact for a sale with a rate-only mismatch, even though real сом
+        # value was at stake.
+        item_total_diff = sum(
             (items_total - order.total for order, items_total in item_mismatches), Decimal("0")
         )
-        self.stdout.write(
-            self.style.WARNING(
-                f"Net effect on reported revenue if left as-is: {total_diff:+} (сом-equivalent "
-                "per order's own currency, not converted/summed across currencies here)."
-            )
+        rate_total_diff = sum(
+            (expected_kgs - order.total_kgs for order, expected_kgs in rate_mismatches),
+            Decimal("0"),
         )
+        if item_mismatches:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Net effect on line-item totals if left as-is: {item_total_diff:+} "
+                    "(сом-equivalent per order's own currency, not converted/summed across "
+                    "currencies here)."
+                )
+            )
+        if rate_mismatches:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Net effect on total_kgs if left as-is: {rate_total_diff:+} KGS "
+                    "(total_kgs is always KGS, so this IS safely summed across orders)."
+                )
+            )
 
-        self._alert(item_mismatches, rate_mismatches, total_diff)
+        self._alert(item_mismatches, rate_mismatches, item_total_diff, rate_total_diff)
 
-    def _alert(self, item_mismatches, rate_mismatches, total_diff):
+    def _alert(self, item_mismatches, rate_mismatches, item_total_diff, rate_total_diff):
         token = settings.TELEGRAM_STAFF_TOKEN
         chat_id = settings.DRILL_CHAT_ID
         if not (token and chat_id):
@@ -144,7 +166,10 @@ class Command(BaseCommand):
                 f"Сумма в сомах не совпадает с курсом на момент продажи: "
                 f"{len(rate_mismatches)} шт. ({ids})"
             )
-        lines.append(f"Влияние на выручку, если не исправить: {total_diff:+}")
+        if item_mismatches:
+            lines.append(f"Влияние на позиции, если не исправить: {item_total_diff:+}")
+        if rate_mismatches:
+            lines.append(f"Влияние на сумму в сомах, если не исправить: {rate_total_diff:+} KGS")
         lines.append("Подробности: manage.py audit_stale_totals")
         text = "\n".join(lines)
 
