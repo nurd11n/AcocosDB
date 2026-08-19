@@ -1,21 +1,38 @@
-Django>=5.1,<5.2
-django-otp>=1.5  # TOTP + static-backup-code 2FA, shared by /pos/ and /panel/
-qrcode>=7.4  # renders the TOTP enrollment QR (apps.core.otp_views)
-django-environ>=0.11
-django-jazzmin>=3.0
-django-axes>=7.0
-django-simple-history>=3.7
-django-import-export[xlsx]>=4.0
-whitenoise>=6.7
-psycopg[binary]>=3.2
-django-redis>=5.4
-django-csp>=3.8,<4
-argon2-cffi>=23.1
-Pillow>=10.4
-requests>=2.32
-PySocks>=1.7  # lets requests use a socks5:// proxy (NBKR_PROXY — nbkr.kg IP block)
-certifi>=2024.2  # explicit: config.settings points SSL_CERT_FILE at its CA bundle
-aiogram>=3.13
-gunicorn>=23.0
-openpyxl>=3.1
-xhtml2pdf>=0.2.16  # renders the receipt PDF; pure Python, no system C libraries
+# Every direct dependency pinned to an exact version (2026-08-19, H2 remediation
+# of the 2026-08-18 audit's Django-5.1-EOL / pip-audit findings) — this project
+# had drifted to whatever was "latest compatible" at install time, which is how
+# it silently landed on an EOL, CVE-affected Django. Bumping any version here is
+# a deliberate act now, not an accident of when `pip install` happened to run.
+# Transitive packages that pip-audit flagged directly (aiohttp, pypdf, sqlparse,
+# tablib) are pinned explicitly below too, even though nothing here imports them
+# directly, so a vulnerable version can never be silently pulled back in by a
+# loose range on their parent package.
+Django==5.2.17  # LTS; audit flagged 5.1.15 as EOL with 6 CVEs, fixed in 5.2.15+
+django-otp==1.7.0  # TOTP + static-backup-code 2FA, shared by /pos/ and /panel/
+qrcode==8.2  # renders the TOTP enrollment QR (apps.core.otp_views)
+django-environ==0.14.0
+django-jazzmin==3.0.5
+django-axes==8.3.1
+django-simple-history==3.12.0
+django-import-export[xlsx]==4.4.1
+whitenoise==6.12.0
+psycopg[binary]==3.3.4
+django-redis==6.0.0
+django-csp==3.8  # NOT 4.0 — a deliberate existing <4 boundary; 4.x's config API
+                  # changed and wasn't evaluated here, out of scope for H2
+argon2-cffi==25.1.0
+Pillow==12.3.0
+requests==2.34.2
+PySocks==1.7.1  # lets requests use a socks5:// proxy (NBKR_PROXY — nbkr.kg IP block)
+certifi==2026.6.17  # explicit: config.settings points SSL_CERT_FILE at its CA bundle
+aiogram==3.29.1
+gunicorn==26.0.0
+openpyxl==3.1.5
+xhtml2pdf==0.2.17  # renders the receipt PDF; pure Python, no system C libraries
+
+# --- Transitive, pinned directly because pip-audit flagged them (not imported
+# by name anywhere in this project) ---
+aiohttp==3.14.3    # via aiogram — PYSEC-2026-3545/3546/3547, fixed 3.14.2/3.14.3
+pypdf==6.15.0      # via xhtml2pdf — PYSEC-2026-3655/3656, fixed 6.15.0
+sqlparse==0.6.0    # via Django itself — CVE-2026-71491/59894/59893/54284, fixed 0.6.0
+tablib==3.10.0     # via django-import-export — CVE-2026-9318, fixed 3.10.0
