@@ -463,6 +463,57 @@ def test_backup_refuses_to_leave_plaintext_dump_after_failed_encryption(tmp_path
     assert "шифрование" in received[0]["text"]
 
 
+def test_backup_refuses_to_leave_plaintext_dump_after_failed_checksum(tmp_path, telegram_mock):
+    """F3 (docs/АУДИТ-follow-up.md): a failing `sha256sum` must itself stop
+    the cycle — it used to be piped into `sed` (`sha256sum ... | sed ...`),
+    and under `set -eu` without `pipefail` a pipeline's exit status is only
+    the LAST command's, so a real sha256sum failure was invisible to `set -e`
+    and the cycle would have pressed on to encrypt/sync an unverified dump.
+    Shadow `sha256sum` on PATH with a script that always fails, and assert
+    the cycle exits non-zero, alerts, and leaves no plaintext dump behind —
+    exactly the same shape as the encryption-failure test above."""
+    _seed_real_data()
+    base_url, received = telegram_mock
+    backups_dir = tmp_path / "backups"
+    age_identity = tmp_path / "age_identity.txt"
+    subprocess.run(["age-keygen", "-o", str(age_identity)], check=True, capture_output=True)
+    pubkey = next(
+        line.split(": ", 1)[1].strip()
+        for line in age_identity.read_text().splitlines()
+        if line.lower().startswith("# public key:") or line.lower().startswith("public key:")
+    )
+
+    fake_bin = tmp_path / "fake_bin"
+    fake_bin.mkdir()
+    fake_sha256sum = fake_bin / "sha256sum"
+    fake_sha256sum.write_text("#!/bin/sh\nexit 1\n")
+    fake_sha256sum.chmod(0o755)
+
+    env = {
+        "PATH": f"{fake_bin}:{__import__('os').environ['PATH']}",
+        **_pg_env(),
+        "BACKUP_DIR": str(backups_dir),
+        "AGE_RECIPIENT": pubkey,
+        "RCLONE_REMOTE": str(tmp_path / "offsite"),
+        "BACKUP_RUN_ONCE": "1",
+        "TELEGRAM_STAFF_TOKEN": "dummy-token",
+        "DRILL_CHAT_ID": "12345",
+        "TELEGRAM_API_BASE": base_url,
+    }
+
+    result = _run(BACKUP_SH, env)
+
+    assert result.returncode != 0
+    assert list(backups_dir.glob("*.dump")) == [], (
+        "plaintext dump left on disk after failed checksum"
+    )
+    assert list(backups_dir.glob("*")) == [], (
+        "no artifact of any kind should survive a failed checksum"
+    )
+    assert len(received) == 1
+    assert "sha256sum" in received[0]["text"]
+
+
 def test_restore_drill_fails_loudly_and_alerts_on_corrupted_dump(tmp_path, telegram_mock):
     """restore_drill.sh's existing checksum-mismatch alert, exercised for
     real (not just read) — a corrupted/tampered dump must fail the drill and
