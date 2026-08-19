@@ -326,6 +326,40 @@ def test_no_template_relies_on_an_inline_style_element(client, owner):
     assert offenders == [], f"inline <style> would be blocked by CSP: {offenders}"
 
 
+def test_htmx_config_disables_the_style_injection_csp_blocks(client, owner):
+    """L2 (2026-08-18 audit): htmx's own default (includeIndicatorStyles=true)
+    injects a <style> block into <head> at runtime via insertAdjacentHTML — a
+    LIVE CSP violation (style-src-elem 'self', no 'unsafe-inline'), verified
+    in a real browser console before this fix, confirmed clean after. Can't
+    observe htmx's own runtime JS behavior from a Django test client (no JS
+    execution), so this pins down the actual fix mechanism instead: every
+    page loading htmx.min.js must carry the disabling meta tag BEFORE that
+    script tag (htmx reads config at its own init time), and no page may
+    reach for 'unsafe-inline' as the fix instead."""
+    import pathlib
+    import re
+
+    htmx_pages = [
+        p
+        for p in pathlib.Path("templates").rglob("*.html")
+        if "vendor/htmx/htmx.min.js" in p.read_text(encoding="utf-8")
+    ]
+    assert htmx_pages, "expected at least one template to load htmx"
+    for p in htmx_pages:
+        text = p.read_text(encoding="utf-8")
+        meta_pos = text.find('name="htmx-config"')
+        script_pos = text.find("vendor/htmx/htmx.min.js")
+        assert meta_pos != -1, f"{p} loads htmx but has no htmx-config meta tag"
+        assert meta_pos < script_pos, f"{p}: htmx-config meta tag must come BEFORE the script tag"
+        meta_tag = re.search(r'<meta name="htmx-config"[^>]*>', text).group()
+        assert '"includeIndicatorStyles": false' in meta_tag
+
+    resp = client.get("/pos/clients/")
+    assert "'unsafe-inline'" not in resp.headers["Content-Security-Policy"].split(
+        "style-src-elem"
+    )[1].split(";")[0]
+
+
 # ---- X-Frame-Options: /panel/'s own iframe popup vs public clickjacking ----
 
 

@@ -7,6 +7,17 @@
 
 <link rel="stylesheet" href="{% static 'pos/tokens.css' %}">
 <link rel="stylesheet" href="{% static 'pos/app.css' %}">
+{% comment %}
+L2 (2026-08-18 audit): htmx's own default is includeIndicatorStyles=true,
+which injects a raw style block into head at init (its .htmx-indicator
+loading-spinner CSS) via insertAdjacentHTML — blocked by style-src-elem
+'self' (no 'unsafe-inline'), a live CSP violation. This project doesn't use
+the htmx-indicator class anywhere, so there's nothing to lose by disabling
+it: htmx reads this officially-supported meta tag
+(https://htmx.org/docs/#config) before it initializes, no inline script
+needed (still zero inline scripts, per CSP).
+{% endcomment %}
+<meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
 <script src="{% static 'vendor/htmx/htmx.min.js' %}"></script>
 
 <link rel="manifest" href="{% static 'pos/manifest.json' %}">
