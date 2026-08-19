@@ -896,9 +896,18 @@ def client_create_new(request):
 @pos_view
 @require_can_sell
 def sale_detail(request, pk):
-    order = get_object_or_404(SaleOrder, pk=pk, created_by=request.user)
+    # L1 (2026-08-18 audit): looked up by pk alone, not created_by=request.user
+    # — a confirmed sale isn't ownership-scoped (sale_result's own
+    # sales.view_saleorder check decides access, exactly as it already did),
+    # so a non-creator hitting a link to someone else's confirmed sale gets
+    # redirected there instead of a dead-end 404. A still-DRAFT order stays
+    # ownership-scoped below (a draft is a private in-progress cart — nobody
+    # but its creator should even learn it exists), unchanged from before.
+    order = get_object_or_404(SaleOrder, pk=pk)
     if order.status != SaleOrder.DRAFT:
         return redirect("pos:sale_result", pk=order.pk)
+    if order.created_by_id != request.user.id:
+        raise Http404
     context = {
         **_sale_body_context(order, request, can_override_rate=request.user.is_superuser),
         "active": "sale",

@@ -24,5 +24,8 @@ point of a заказ (CLAUDE.md Part 3g).
     {{ tile.stock }} {% trans "на складе" %}</span>
 </button>
 {% empty %}
-<p class="muted" style="grid-column:1/-1">{% trans "Ничего не найдено" %}</p>
+<div style="grid-column:1/-1">
+  <p class="muted">{% trans "Ничего не найдено" %}</p>
+  <a class="btn btn-ghost" href="{% url 'orders:detail' order.pk %}">{% trans "Очистить поиск" %}</a>
+</div>
 {% endfor %}

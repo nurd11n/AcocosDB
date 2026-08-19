@@ -7,6 +7,12 @@
 <link rel="stylesheet" href="{% static 'pos/tokens.css' %}">
 <link rel="stylesheet" href="{% static 'pos/app.css' %}">
 <link rel="stylesheet" href="{% static 'pos/dashboard.css' %}">
+{% comment %}
+L2 (2026-08-18 audit): see templates/pos/base.html's identical comment —
+htmx's default includeIndicatorStyles injects a style block CSP blocks;
+this meta tag (htmx's own supported mechanism) disables it.
+{% endcomment %}
+<meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
 <script src="{% static 'vendor/htmx/htmx.min.js' %}"></script>
 <link rel="icon" href="{% static 'pos/icons/icon-192.png' %}">
 <meta name="theme-color" content="#F5F6F7" media="(prefers-color-scheme: light)">
