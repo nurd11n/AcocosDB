@@ -166,6 +166,28 @@ def test_wrong_token_counts_toward_the_axes_lockout(client, django_user_model, s
     assert attempt.failures_since_start == 1
 
 
+def test_lockout_page_title_matches_the_real_status_code(client, django_user_model, settings):
+    """L3 (2026-08-18 audit): templates/errors/lockout.html's title used to
+    say "423" while axes' own AXES_HTTP_RESPONSE_CODE default (never
+    overridden in settings) actually returns 429 — cosmetic, but a real
+    mismatch between what the page claims and what it does. Live-verify
+    both agree now, past a real 5-failure lockout, not just read the
+    template."""
+    from axes.models import AccessAttempt
+
+    settings.OTP_ENABLED = False
+    django_user_model.objects.create_user("lockout_title_user", password="realpassword123")
+    AccessAttempt.objects.all().delete()
+
+    for _ in range(5):
+        resp = client.post(
+            "/login/", {"username": "lockout_title_user", "password": "wrong"}
+        )
+
+    assert resp.status_code == 429
+    assert "<title>ACOCOS — 429</title>" in resp.content.decode()
+
+
 def test_wrong_token_and_right_password_show_the_same_generic_message(
     client, django_user_model, settings
 ):
