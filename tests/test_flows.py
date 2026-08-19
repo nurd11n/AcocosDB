@@ -4657,6 +4657,148 @@ def test_audit_stale_totals_detects_a_manufactured_mismatch(variant, capsys):
     assert "items currently add up to=15000.00" in out
 
 
+def test_audit_stale_totals_alerts_via_telegram_on_a_seeded_mismatch(
+    variant, capsys, settings, monkeypatch
+):
+    """M2 (2026-08-18 audit): the command already caught this — the missing
+    piece was anyone finding out. Same silent-unless-something-is-wrong
+    Telegram pattern as send_security_digest, same recipient settings."""
+    settings.TELEGRAM_STAFF_TOKEN = "test-staff-token"
+    settings.DRILL_CHAT_ID = "12345"
+
+    sent = {}
+
+    class _FakeResponse:
+        ok = True
+
+    def fake_post(url, data=None, timeout=None):
+        sent["url"] = url
+        sent["data"] = data
+        return _FakeResponse()
+
+    monkeypatch.setattr(
+        "apps.sales.management.commands.audit_stale_totals.requests.post", fake_post
+    )
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create(currency="KGS")
+    item = SaleItem.objects.create(
+        order=order, variant=variant, quantity=2, unit_price=Decimal("3000")
+    )
+    confirm_sale(order)
+    SaleItem.objects.filter(pk=item.pk).update(quantity=5)  # bypass services.py directly
+
+    call_command("audit_stale_totals")
+
+    assert sent, "expected a Telegram alert to be sent"
+    assert sent["data"]["chat_id"] == "12345"
+    assert f"#{order.pk}" in sent["data"]["text"]
+    assert "ACOCOS" in sent["data"]["text"]
+    out = capsys.readouterr().out
+    assert "Alert sent." in out
+
+
+def test_audit_stale_totals_alert_reports_rate_mismatch_impact_not_zero(
+    variant, capsys, settings, monkeypatch
+):
+    """F4 (docs/АУДИТ-follow-up.md): a RATE-only mismatch (total_kgs stale,
+    item totals otherwise fine) used to make the alert's "impact" figure
+    read "+0" — it was computed only from item_mismatches, so a sale with no
+    item drift at all contributed nothing to it even though its total_kgs
+    was genuinely wrong. Manufacture a pure rate mismatch (item totals
+    untouched) and confirm both stdout and the Telegram text now report a
+    nonzero KGS-denominated impact for it."""
+    settings.TELEGRAM_STAFF_TOKEN = "test-staff-token"
+    settings.DRILL_CHAT_ID = "12345"
+
+    sent = {}
+
+    class _FakeResponse:
+        ok = True
+
+    def fake_post(url, data=None, timeout=None):
+        sent["data"] = data
+        return _FakeResponse()
+
+    monkeypatch.setattr(
+        "apps.sales.management.commands.audit_stale_totals.requests.post", fake_post
+    )
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3000"))
+    confirm_sale(order)  # total=total_kgs=6000.00, rate_to_kgs=1 (KGS order)
+    # Corrupt ONLY total_kgs directly, bypassing confirm_sale/return_items
+    # entirely — order.total and its line items stay perfectly consistent
+    # (item_mismatches empty), but total_kgs no longer matches total * rate.
+    SaleOrder.objects.filter(pk=order.pk).update(total_kgs=Decimal("1.00"))
+
+    call_command("audit_stale_totals")
+
+    out = capsys.readouterr().out
+    assert "order.total no longer matches" not in out  # no item mismatch at all
+    assert "Net effect on total_kgs if left as-is: +5999.00 KGS" in out
+
+    text = sent["data"]["text"]
+    assert "Влияние на сумму в сомах, если не исправить: +5999.00 KGS" in text
+    assert "Влияние на позиции" not in text  # no item mismatch section at all
+
+
+def test_audit_stale_totals_does_not_alert_when_clean(variant, capsys, settings, monkeypatch):
+    """The flip side: a normal, matching sale must NOT trigger a Telegram
+    call at all — an alert that fires every day gets muted (own module
+    docstring), so silence on a clean day is the whole point."""
+    settings.TELEGRAM_STAFF_TOKEN = "test-staff-token"
+    settings.DRILL_CHAT_ID = "12345"
+
+    called = []
+    monkeypatch.setattr(
+        "apps.sales.management.commands.audit_stale_totals.requests.post",
+        lambda *a, **k: called.append(1),
+    )
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 5)
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("3000"))
+    confirm_sale(order)
+
+    call_command("audit_stale_totals")
+
+    assert called == []
+    out = capsys.readouterr().out
+    assert "No stale totals found" in out
+
+
+def test_audit_stale_totals_skips_alert_when_telegram_not_configured(
+    variant, capsys, settings, monkeypatch
+):
+    """A discrepancy found with no TELEGRAM_STAFF_TOKEN/DRILL_CHAT_ID set must
+    not crash the scheduled job — it stays a silent (to Telegram) no-op, same
+    as send_security_digest's own handling of the same situation."""
+    settings.TELEGRAM_STAFF_TOKEN = ""
+    settings.DRILL_CHAT_ID = ""
+
+    called = []
+    monkeypatch.setattr(
+        "apps.sales.management.commands.audit_stale_totals.requests.post",
+        lambda *a, **k: called.append(1),
+    )
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create(currency="KGS")
+    item = SaleItem.objects.create(
+        order=order, variant=variant, quantity=2, unit_price=Decimal("3000")
+    )
+    confirm_sale(order)
+    SaleItem.objects.filter(pk=item.pk).update(quantity=5)
+
+    call_command("audit_stale_totals")  # must not raise
+
+    assert called == []
+    out = capsys.readouterr().out
+    assert "alert not sent" in out
+
+
 def test_cleanup_draft_sales_deletes_only_old_drafts():
     fresh = SaleOrder.objects.create()
     old = SaleOrder.objects.create()
