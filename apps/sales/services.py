@@ -277,12 +277,10 @@ def return_items(
 def today_summary() -> dict:
     """Revenue broken down by currency — orders can be in different currencies,
     so there is no single "revenue" number without a display-time conversion.
-    Excludes is_historical sales (see SaleOrder.is_historical) — a backdated
-    entry must never inflate this or any other revenue figure."""
+    Excludes is_historical sales (see SaleOrderQuerySet.confirmed_revenue) —
+    a backdated entry must never inflate this or any other revenue figure."""
     today = timezone.localdate()
-    qs = SaleOrder.objects.filter(
-        status=SaleOrder.CONFIRMED, confirmed_at__date=today, is_historical=False
-    )
+    qs = SaleOrder.objects.confirmed_revenue().filter(confirmed_at__date=today)
     revenue_by_currency: dict[str, Decimal] = defaultdict(Decimal)
     for row in qs.values("currency").annotate(t=Sum("total")):
         revenue_by_currency[row["currency"]] += row["t"] or Decimal("0")
@@ -292,15 +290,15 @@ def today_summary() -> dict:
 
 def todays_confirmed_orders():
     """Today's approved sales with items + payments preloaded — used by the
-    daily report. Excludes is_historical (see SaleOrder.is_historical) —
-    the date filter alone would already exclude a genuinely backdated entry
-    in almost every case, but this stays explicit rather than relying on
-    that coincidence (she COULD backdate to today by mistake)."""
+    daily report. Excludes is_historical (see
+    SaleOrderQuerySet.confirmed_revenue) — the date filter alone would
+    already exclude a genuinely backdated entry in almost every case, but
+    this stays explicit rather than relying on that coincidence (she COULD
+    backdate to today by mistake)."""
     today = timezone.localdate()
     return (
-        SaleOrder.objects.filter(
-            status=SaleOrder.CONFIRMED, confirmed_at__date=today, is_historical=False
-        )
+        SaleOrder.objects.confirmed_revenue()
+        .filter(confirmed_at__date=today)
         .select_related("client")
         .prefetch_related("items__variant", "payments")
         .order_by("confirmed_at")
@@ -312,11 +310,12 @@ def today_revenue_kgs() -> Decimal:
     total_kgs — never re-converted at a live rate (CLAUDE.md: 'every
     dashboard aggregate sums total_kgs and never re-converts'). This is the
     one figure /stats/ and /pos/today/ must agree with apps.reports.dashboard
-    on; a same-day rate refresh must not move it. Excludes is_historical."""
+    on; a same-day rate refresh must not move it. Excludes is_historical
+    (see SaleOrderQuerySet.confirmed_revenue)."""
     today = timezone.localdate()
-    return SaleOrder.objects.filter(
-        status=SaleOrder.CONFIRMED, confirmed_at__date=today, is_historical=False
-    ).aggregate(s=Sum("total_kgs"))["s"] or Decimal("0")
+    return SaleOrder.objects.confirmed_revenue().filter(confirmed_at__date=today).aggregate(
+        s=Sum("total_kgs")
+    )["s"] or Decimal("0")
 
 
 def revenue_last_n_days_kgs(n: int = 7) -> list[dict]:
@@ -325,13 +324,13 @@ def revenue_last_n_days_kgs(n: int = 7) -> list[dict]:
     rule as today_revenue_kgs. Unlike revenue_last_n_days (per-currency,
     unconverted — kept for callers that want the currency breakdown), this
     is a single already-KGS number, ready to chart without a live
-    conversion. Excludes is_historical."""
+    conversion. Excludes is_historical (see
+    SaleOrderQuerySet.confirmed_revenue)."""
     today = timezone.localdate()
     start = today - timedelta(days=n - 1)
     rows = (
-        SaleOrder.objects.filter(
-            status=SaleOrder.CONFIRMED, confirmed_at__date__gte=start, is_historical=False
-        )
+        SaleOrder.objects.confirmed_revenue()
+        .filter(confirmed_at__date__gte=start)
         .annotate(day=TruncDate("confirmed_at"))
         .values("day")
         .annotate(revenue_kgs=Sum("total_kgs"))
@@ -350,12 +349,11 @@ def sales_by_channel_kgs(days: int = 30) -> list[dict]:
     """[{channel, label, revenue_kgs}] over the last `days` days — SUM(total_kgs)
     per channel, same frozen-value rule as today_revenue_kgs. See
     sales_by_channel for the per-currency (unconverted) variant. Excludes
-    is_historical."""
+    is_historical (see SaleOrderQuerySet.confirmed_revenue)."""
     since = timezone.localdate() - timedelta(days=days - 1)
     rows = (
-        SaleOrder.objects.filter(
-            status=SaleOrder.CONFIRMED, confirmed_at__date__gte=since, is_historical=False
-        )
+        SaleOrder.objects.confirmed_revenue()
+        .filter(confirmed_at__date__gte=since)
         .values("channel")
         .annotate(revenue_kgs=Sum("total_kgs"))
     )
@@ -372,13 +370,12 @@ def sales_by_channel_kgs(days: int = 30) -> list[dict]:
 
 def revenue_last_n_days(n: int = 7) -> list[dict]:
     """[{day, by_currency: {currency: amount}}] for the last n days, oldest
-    first. Excludes is_historical."""
+    first. Excludes is_historical (see SaleOrderQuerySet.confirmed_revenue)."""
     today = timezone.localdate()
     start = today - timedelta(days=n - 1)
     rows = (
-        SaleOrder.objects.filter(
-            status=SaleOrder.CONFIRMED, confirmed_at__date__gte=start, is_historical=False
-        )
+        SaleOrder.objects.confirmed_revenue()
+        .filter(confirmed_at__date__gte=start)
         .annotate(day=TruncDate("confirmed_at"))
         .values("day", "currency")
         .annotate(revenue=Sum("total"))
@@ -397,12 +394,12 @@ def revenue_last_n_days(n: int = 7) -> list[dict]:
 
 def sales_by_channel(days: int = 30) -> list[dict]:
     """[{channel, label, by_currency: {currency: amount}}] over the last
-    `days` days. Excludes is_historical."""
+    `days` days. Excludes is_historical (see
+    SaleOrderQuerySet.confirmed_revenue)."""
     since = timezone.localdate() - timedelta(days=days - 1)
     rows = (
-        SaleOrder.objects.filter(
-            status=SaleOrder.CONFIRMED, confirmed_at__date__gte=since, is_historical=False
-        )
+        SaleOrder.objects.confirmed_revenue()
+        .filter(confirmed_at__date__gte=since)
         .values("channel", "currency")
         .annotate(revenue=Sum("total"))
     )
@@ -423,15 +420,13 @@ def pending_orders_count() -> int:
 def units_sold_by_variant(days: int = 30) -> dict[int, int]:
     """{variant_id: units sold} over the last `days` days from confirmed sales.
     Powers the bestseller / slow-mover view — units, not money, so no currency
-    conversion is involved. Excludes is_historical: a backdated entry must
-    not make a discontinued item look like it's newly selling again."""
+    conversion is involved. Excludes is_historical (see
+    SaleItemQuerySet.confirmed_revenue): a backdated entry must not make a
+    discontinued item look like it's newly selling again."""
     since = timezone.localdate() - timedelta(days=days - 1)
     rows = (
-        SaleItem.objects.filter(
-            order__status=SaleOrder.CONFIRMED,
-            order__confirmed_at__date__gte=since,
-            order__is_historical=False,
-        )
+        SaleItem.objects.confirmed_revenue()
+        .filter(order__confirmed_at__date__gte=since)
         .values("variant_id")
         .annotate(units=Sum("quantity"))
     )
