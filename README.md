@@ -414,7 +414,9 @@ The `backup` service dumps Postgres every 6 hours, checksums it, encrypts it wit
 sync`s the encrypted dumps + `media/` offsite to Backblaze B2. Retention is tiered
 (4×/day for 7 days, daily for 30 days, weekly for 6 months). The `restore-drill`
 service restores the latest dump into a throwaway DB weekly, asserts the data is
-sane, and Telegrams the Owner the result. Setup + deploy-day verification below.
+sane, and Telegrams the Owner the result. Setup + deploy-day verification below;
+to trigger one drill on demand and read its result immediately, see
+`docs/RESTORE-DRILL.md`.
 
 ### One-time backup setup & deploy-day verification (do this by hand, once)
 
@@ -441,14 +443,17 @@ mv age_identity.txt secrets/            # ./secrets is gitignored
 chmod 600 secrets/age_identity.txt
 ```
 
-**3. Fill in `.env`** (the public key + Backblaze B2 creds + drill chat):
+**3. Fill in `.env`** (the public key + Backblaze B2 creds + drill chat).
+Both `AGE_RECIPIENT` and `RCLONE_REMOTE` are REQUIRED — `backup` refuses to
+start (exits non-zero, alerts to `DRILL_CHAT_ID`) if either is blank
+(2026-08-18 audit, M3):
 ```bash
 AGE_RECIPIENT=age1xxxx...               # the PUBLIC key from step 1
-RCLONE_REMOTE=b2:YOUR-BUCKET            # empty = local-only, no offsite
+RCLONE_REMOTE=b2:YOUR-BUCKET
 RCLONE_CONFIG_B2_TYPE=b2
 RCLONE_CONFIG_B2_ACCOUNT=<b2 keyID>
 RCLONE_CONFIG_B2_KEY=<b2 applicationKey>
-DRILL_CHAT_ID=<owner's Telegram chat id>
+DRILL_CHAT_ID=<owner's Telegram chat id>       # also receives backup-failure alerts
 ```
 Create the private B2 bucket named `YOUR-BUCKET` in the Backblaze console first.
 
