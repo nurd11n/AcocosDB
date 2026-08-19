@@ -373,3 +373,98 @@ def test_panel_gets_sameorigin_but_public_pos_stays_deny(client, owner):
     assert client.get("/panel/inventory/category/add/").headers["X-Frame-Options"] == ("SAMEORIGIN")
     assert client.get("/pos/today/").headers["X-Frame-Options"] == "DENY"
     assert client.get("/login/").headers["X-Frame-Options"] == "DENY"
+
+
+# ---- L1 (2026-08-18 audit): sale_detail dead-link fix, not an access change
+
+
+def test_sale_detail_redirects_a_non_creator_to_result_for_a_confirmed_sale(
+    django_user_model, variant
+):
+    """apps/pos/views.py:899 used to 404 a non-creator hitting a link to
+    someone else's already-CONFIRMED sale, even though sale_result (the
+    page it should land on) was already correctly open to them via
+    sales.view_saleorder. Now redirects there instead of dead-ending."""
+    from django.contrib.auth.models import Group
+    from django.test import Client as DjangoClient
+
+    from apps.core.permissions import EDITOR
+    from apps.sales.models import SaleItem
+    from apps.sales.services import confirm_sale
+
+    call_command("setup_roles")
+    creator = django_user_model.objects.create_user("sd_creator", password="x" * 12, is_staff=True)
+    creator.groups.add(Group.objects.get(name=EDITOR))
+    other = django_user_model.objects.create_user("sd_other", password="x" * 12, is_staff=True)
+    other.groups.add(Group.objects.get(name=EDITOR))
+
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+    order = SaleOrder.objects.create(created_by=creator)
+    SaleItem.objects.create(order=order, variant=variant, quantity=1, unit_price=Decimal("3200"))
+    confirm_sale(order, user=creator)
+
+    other_client = DjangoClient()
+    other_client.force_login(other)
+    resp = other_client.get(reverse("pos:sale_detail", args=[order.pk]))
+    assert resp.status_code == 302
+    assert resp.url == reverse("pos:sale_result", args=[order.pk])
+    # The redirect target itself must actually be reachable — a redirect to
+    # a page that then 403s would just move the dead end one hop over.
+    assert other_client.get(resp.url).status_code == 200
+
+
+def test_sale_detail_still_404s_a_viewer_on_someone_elses_draft(django_user_model, variant):
+    """A Viewer still cannot reach sale_detail at all — but for an EXISTING,
+    unrelated reason (require_can_sell's own permission check runs first and
+    403s before this view's body, let alone the L1 ownership check, ever
+    executes) — Viewer can't open ANY sale via this URL, draft or not. That
+    gate must stay intact; this pins it down explicitly rather than leaving
+    it as an assumption. See the next test for what actually exercises the
+    ownership check the L1 fix touched (a role that clears require_can_sell)."""
+    from django.contrib.auth.models import Group
+    from django.test import Client as DjangoClient
+
+    from apps.core.permissions import EDITOR, VIEWER
+
+    call_command("setup_roles")
+    creator = django_user_model.objects.create_user("sd_creator2", password="x" * 12, is_staff=True)
+    creator.groups.add(Group.objects.get(name=EDITOR))
+    viewer = django_user_model.objects.create_user("sd_viewer", password="x" * 12, is_staff=True)
+    viewer.groups.add(Group.objects.get(name=VIEWER))
+
+    draft = SaleOrder.objects.create(created_by=creator, status=SaleOrder.DRAFT)
+
+    viewer_client = DjangoClient()
+    viewer_client.force_login(viewer)
+    resp = viewer_client.get(reverse("pos:sale_detail", args=[draft.pk]))
+    assert resp.status_code == 403
+
+    # The creator themselves must still reach their own draft normally.
+    creator_client = DjangoClient()
+    creator_client.force_login(creator)
+    assert creator_client.get(reverse("pos:sale_detail", args=[draft.pk])).status_code == 200
+
+
+def test_sale_detail_still_404s_another_editor_on_someone_elses_draft(django_user_model, variant):
+    """What actually exercises the L1 ownership check: a role that DOES
+    clear require_can_sell (so it reaches this view's body) but is NOT the
+    draft's creator. The L1 fix only changes behavior for non-draft orders
+    (see test_sale_detail_redirects_a_non_creator_to_result_for_a_confirmed_sale)
+    — a still-DRAFT sale must stay exactly as ownership-scoped as before."""
+    from django.contrib.auth.models import Group
+    from django.test import Client as DjangoClient
+
+    from apps.core.permissions import EDITOR
+
+    call_command("setup_roles")
+    creator = django_user_model.objects.create_user("sd_creator3", password="x" * 12, is_staff=True)
+    creator.groups.add(Group.objects.get(name=EDITOR))
+    other = django_user_model.objects.create_user("sd_other2", password="x" * 12, is_staff=True)
+    other.groups.add(Group.objects.get(name=EDITOR))
+
+    draft = SaleOrder.objects.create(created_by=creator, status=SaleOrder.DRAFT)
+
+    other_client = DjangoClient()
+    other_client.force_login(other)
+    resp = other_client.get(reverse("pos:sale_detail", args=[draft.pk]))
+    assert resp.status_code == 404
