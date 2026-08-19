@@ -121,8 +121,18 @@ while true; do
     continue
   fi
 
-  # 2. Checksum the plaintext dump so a restore can prove integrity.
-  sha256sum "$BASE" | sed "s|$BACKUP_DIR/||" > "$BASE.sha256"
+  # 2. Checksum the plaintext dump so a restore can prove integrity. Two
+  # steps, not a `sha256sum | sed` pipe: under `set -eu` (no `pipefail` in
+  # POSIX sh) a pipeline's exit status is only its LAST command's, and sed
+  # always succeeds even on empty input — a failing sha256sum would silently
+  # produce an empty/wrong .sha256 file instead of stopping the cycle.
+  if ! sha256sum "$BASE" > "$BASE.sha256.tmp"; then
+    rm -f "$BASE" "$BASE.sha256.tmp"
+    notify "❌ ACOCOS backup: sha256sum завершился с ошибкой ($STAMP) — незашифрованный дамп удалён, не оставлен на диске без контрольной суммы."
+    exit 1
+  fi
+  sed "s|$BACKUP_DIR/||" "$BASE.sha256.tmp" > "$BASE.sha256"
+  rm -f "$BASE.sha256.tmp"
 
   # 3. Encrypt with age; remove the plaintext so only the .age copy remains.
   # A failed encryption is fatal (M3): it must never leave an unencrypted
