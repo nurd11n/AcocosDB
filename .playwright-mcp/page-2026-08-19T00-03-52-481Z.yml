@@ -1,0 +1,324 @@
+- generic [ref=f4e2]:
+  - banner [ref=f4e3]:
+    - heading "ACOCOS — Дашборд" [level=1] [ref=f4e4]
+    - generic [ref=f4e7]:
+      - link "Склад" [ref=f4e8] [cursor=pointer]:
+        - /url: /storage/
+      - link "К продажам" [ref=f4e12] [cursor=pointer]:
+        - /url: /pos/
+      - button "Тема" [ref=f4e17] [cursor=pointer]
+  - generic [ref=f4e21]:
+    - generic [ref=f4e22]:
+      - group "Период" [ref=f4e23]:
+        - button "Сегодня" [ref=f4e24] [cursor=pointer]
+        - button "Месяц" [pressed] [ref=f4e25] [cursor=pointer]
+        - button "3 мес" [ref=f4e26] [cursor=pointer]
+        - button "6 мес" [ref=f4e27] [cursor=pointer]
+        - button "Год" [ref=f4e28] [cursor=pointer]
+      - group "Валюта показа" [ref=f4e29]:
+        - button "сом" [pressed] [ref=f4e30] [cursor=pointer]
+        - button "USD" [ref=f4e31] [cursor=pointer]
+        - button "RUB" [ref=f4e32] [cursor=pointer]
+    - generic [ref=f4e33]:
+      - generic [ref=f4e34]: "Скачать:"
+      - link "Excel (.xlsx)" [ref=f4e35] [cursor=pointer]:
+        - /url: /dashboard/export/?period=month&format=xlsx
+      - link "Топ товаров (.csv)" [ref=f4e38] [cursor=pointer]:
+        - /url: /dashboard/export/?period=month&format=csv&sheet=tovary
+      - link "Выручка (.csv)" [ref=f4e41] [cursor=pointer]:
+        - /url: /dashboard/export/?period=month&format=csv&sheet=vyruchka
+    - heading "Доходы" [level=2] [ref=f4e44]
+    - generic [ref=f4e45]:
+      - generic [ref=f4e50]:
+        - generic [ref=f4e51]: Выручка (начислено)
+        - generic [ref=f4e52]: 93 884 сом
+        - generic [ref=f4e53]: за месяц
+      - generic [ref=f4e58]:
+        - generic [ref=f4e59]: Получено
+        - generic [ref=f4e60]: 190 389 сом
+        - generic [ref=f4e61]: деньги в кассе
+      - generic [ref=f4e66]:
+        - generic [ref=f4e67]: Погашено старых долгов
+        - generic [ref=f4e68]: 96 505 сом
+        - generic [ref=f4e69]: получено больше, чем начислено за период
+      - generic [ref=f4e74]:
+        - generic [ref=f4e75]: Долги
+        - generic [ref=f4e76]: 41 688 сом
+        - generic [ref=f4e77]: 10 клиент(ов) · сейчас
+      - generic [ref=f4e82]:
+        - generic [ref=f4e83]: Прибыль
+        - generic [ref=f4e84]: 47 485 сом
+        - generic [ref=f4e85]: маржа 51%
+      - generic [ref=f4e90]:
+        - generic [ref=f4e91]: Скидки
+        - generic [ref=f4e92]: 775 сом
+        - generic [ref=f4e93]: 1% от суммы до скидки
+      - generic [ref=f4e98]:
+        - generic [ref=f4e99]: Продано
+        - generic [ref=f4e100]: 57 шт
+        - generic [ref=f4e101]: за месяц
+    - heading "Расходы" [level=2] [ref=f4e102]
+    - generic [ref=f4e103]:
+      - generic [ref=f4e104]:
+        - heading "Итоги" [level=2] [ref=f4e105]
+        - generic [ref=f4e108]:
+          - generic [ref=f4e113]:
+            - generic [ref=f4e114]: Потрачено
+            - generic [ref=f4e115]: 0 сом
+            - generic [ref=f4e116]: расходы за период
+          - generic [ref=f4e121]:
+            - generic [ref=f4e122]: Чистый приход
+            - generic [ref=f4e123]: 190 389 сом
+            - generic [ref=f4e124]: получено минус потрачено
+        - link "Все расходы" [ref=f4e125] [cursor=pointer]:
+          - /url: /manufacturing/expenses/
+      - generic [ref=f4e128]:
+        - heading "По разделам" [level=2] [ref=f4e129]
+        - generic [ref=f4e132]:
+          - generic [ref=f4e133]:
+            - generic [ref=f4e134]: Зарплата
+            - generic [ref=f4e135]: 0 сом
+          - generic [ref=f4e136]:
+            - generic [ref=f4e137]: Материалы
+            - generic [ref=f4e138]: 0 сом
+          - generic [ref=f4e139]:
+            - generic [ref=f4e140]: Прочее
+            - generic [ref=f4e141]: 0 сом
+        - link "Дашборд производства" [ref=f4e142] [cursor=pointer]:
+          - /url: /manufacturing/dashboard/
+    - heading "Производство" [level=2] [ref=f4e145]
+    - generic [ref=f4e146]:
+      - generic [ref=f4e147]:
+        - heading "Заказы в работе" [level=2] [ref=f4e148]
+        - paragraph [ref=f4e151]: 18 заказ(ов) · 3 758 400 сом
+        - link "Открыть заказы" [ref=f4e152] [cursor=pointer]:
+          - /url: /orders/
+      - generic [ref=f4e155]:
+        - heading "К производству" [level=2] [ref=f4e156]
+        - generic [ref=f4e159]:
+          - generic [ref=f4e160]:
+            - generic [ref=f4e161]: Dress / Red Dress / S / Red
+            - generic [ref=f4e162]: 130 шт
+          - generic [ref=f4e163]:
+            - generic [ref=f4e164]: WizTest / WizDress / M / gold
+            - generic [ref=f4e165]: 25 шт
+          - generic [ref=f4e166]:
+            - generic [ref=f4e167]: DashCheckCat / DashCheckDress / M / blue
+            - generic [ref=f4e168]: 25 шт
+          - generic [ref=f4e169]:
+            - generic [ref=f4e170]: Демо / Платье Аиша / L / красный
+            - generic [ref=f4e171]: 2 шт
+          - generic [ref=f4e172]:
+            - generic [ref=f4e173]: Демо / Платье Аиша / M / красный
+            - generic [ref=f4e174]: 1 шт
+        - link "Вся очередь" [ref=f4e175] [cursor=pointer]:
+          - /url: /orders/queue/
+    - generic [ref=f4e178]:
+      - heading "Выручка по дням" [level=2] [ref=f4e179]
+      - paragraph [ref=f4e182]: Нажмите на день, чтобы увидеть его продажи
+      - generic [ref=f4e183]:
+        - generic [ref=f4e184]:
+          - generic [ref=f4e185]: Июль 2026
+          - generic [ref=f4e186]:
+            - generic [ref=f4e187]: Пн
+            - generic [ref=f4e188]: Вт
+            - generic [ref=f4e189]: Ср
+            - generic [ref=f4e190]: Чт
+            - generic [ref=f4e191]: Пт
+            - generic [ref=f4e192]: Сб
+            - generic [ref=f4e193]: Вс
+          - generic [ref=f4e194]:
+            - button "1" [disabled] [ref=f4e195]
+            - button "2" [disabled] [ref=f4e196]
+            - button "3" [disabled] [ref=f4e197]
+            - button "4" [disabled] [ref=f4e198]
+            - button "5" [disabled] [ref=f4e199]
+            - button "6" [disabled] [ref=f4e200]
+            - button "7" [disabled] [ref=f4e201]
+            - button "8" [disabled] [ref=f4e202]
+            - button "9" [disabled] [ref=f4e203]
+            - button "10" [disabled] [ref=f4e204]
+            - button "11" [disabled] [ref=f4e205]
+            - button "12" [disabled] [ref=f4e206]
+            - button "13" [disabled] [ref=f4e207]
+            - button "14" [disabled] [ref=f4e208]
+            - button "15" [disabled] [ref=f4e209]
+            - button "16" [disabled] [ref=f4e210]
+            - button "17" [disabled] [ref=f4e211]
+            - button "18" [disabled] [ref=f4e212]
+            - button "19" [disabled] [ref=f4e213]
+            - button "20" [disabled] [ref=f4e214]
+            - button "21.07.2026" [ref=f4e215] [cursor=pointer]: "21"
+            - button "22.07.2026" [ref=f4e216] [cursor=pointer]: "22"
+            - button "23.07.2026" [ref=f4e217] [cursor=pointer]: "23"
+            - button "24.07.2026" [ref=f4e218] [cursor=pointer]: "24"
+            - button "25.07.2026" [ref=f4e219] [cursor=pointer]: "25"
+            - button "26.07.2026" [ref=f4e220] [cursor=pointer]: "26"
+            - button "27.07.2026" [ref=f4e221] [cursor=pointer]: "27"
+            - button "28.07.2026" [ref=f4e222] [cursor=pointer]: "28"
+            - button "29.07.2026" [ref=f4e223] [cursor=pointer]: "29"
+            - button "30.07.2026" [ref=f4e224] [cursor=pointer]: "30"
+            - button "31.07.2026" [ref=f4e225] [cursor=pointer]: "31"
+        - generic [ref=f4e226]:
+          - generic [ref=f4e227]: Август 2026
+          - generic [ref=f4e228]:
+            - generic [ref=f4e229]: Пн
+            - generic [ref=f4e230]: Вт
+            - generic [ref=f4e231]: Ср
+            - generic [ref=f4e232]: Чт
+            - generic [ref=f4e233]: Пт
+            - generic [ref=f4e234]: Сб
+            - generic [ref=f4e235]: Вс
+          - generic [ref=f4e236]:
+            - button "01.08.2026" [ref=f4e237] [cursor=pointer]: "1"
+            - button "02.08.2026" [ref=f4e238] [cursor=pointer]: "2"
+            - button "03.08.2026" [ref=f4e239] [cursor=pointer]: "3"
+            - button "04.08.2026" [ref=f4e240] [cursor=pointer]: "4"
+            - button "05.08.2026" [ref=f4e241] [cursor=pointer]: "5"
+            - button "06.08.2026" [ref=f4e242] [cursor=pointer]: "6"
+            - button "07.08.2026" [ref=f4e243] [cursor=pointer]: "7"
+            - button "08.08.2026" [ref=f4e244] [cursor=pointer]: "8"
+            - button "09.08.2026" [ref=f4e245] [cursor=pointer]: "9"
+            - button "10.08.2026" [ref=f4e246] [cursor=pointer]: "10"
+            - button "11.08.2026" [ref=f4e247] [cursor=pointer]: "11"
+            - button "12.08.2026" [ref=f4e248] [cursor=pointer]: "12"
+            - button "13.08.2026" [ref=f4e249] [cursor=pointer]: "13"
+            - button "14.08.2026" [ref=f4e250] [cursor=pointer]: "14"
+            - button "15.08.2026" [ref=f4e251] [cursor=pointer]: "15"
+            - button "16.08.2026" [ref=f4e252] [cursor=pointer]: "16"
+            - button "17.08.2026" [ref=f4e253] [cursor=pointer]: "17"
+            - button "18.08.2026" [ref=f4e254] [cursor=pointer]: "18"
+            - button "19.08.2026" [ref=f4e255] [cursor=pointer]: "19"
+            - button "20" [disabled] [ref=f4e256]
+            - button "21" [disabled] [ref=f4e257]
+            - button "22" [disabled] [ref=f4e258]
+            - button "23" [disabled] [ref=f4e259]
+            - button "24" [disabled] [ref=f4e260]
+            - button "25" [disabled] [ref=f4e261]
+            - button "26" [disabled] [ref=f4e262]
+            - button "27" [disabled] [ref=f4e263]
+            - button "28" [disabled] [ref=f4e264]
+            - button "29" [disabled] [ref=f4e265]
+            - button "30" [disabled] [ref=f4e266]
+            - button "31" [disabled] [ref=f4e267]
+      - generic [ref=f4e268]:
+        - generic [ref=f4e269]: 18.08.2026
+        - generic [ref=f4e270]:
+          - generic [ref=f4e271]:
+            - generic [ref=f4e272]: 5 520 сом
+            - generic [ref=f4e273]: выручка
+          - generic [ref=f4e274]:
+            - generic [ref=f4e275]: "6"
+            - generic [ref=f4e276]: продаж
+          - generic [ref=f4e277]:
+            - generic [ref=f4e278]: 5 шт
+            - generic [ref=f4e279]: шт
+    - generic [ref=f4e280]:
+      - generic [ref=f4e281]:
+        - heading "Каналы продаж" [level=2] [ref=f4e282]
+        - generic [ref=f4e286]:
+          - generic [ref=f4e287]: Shop
+          - generic [ref=f4e288]: 1 432 780 сом
+      - generic [ref=f4e290]:
+        - heading "Способы оплаты" [level=2] [ref=f4e291]
+        - generic [ref=f4e294]:
+          - img "Способы оплаты" [ref=f4e295]
+          - generic [ref=f4e299]:
+            - generic [ref=f4e301]: Cash · 100%
+            - generic [ref=f4e302]: 2 678 350 сом
+    - generic [ref=f4e303]:
+      - generic [ref=f4e304]:
+        - heading "Топ товаров" [level=2] [ref=f4e305]
+        - table [ref=f4e309]:
+          - rowgroup [ref=f4e310]:
+            - row [ref=f4e311]:
+              - columnheader "Товар" [ref=f4e312]
+              - columnheader "шт" [ref=f4e313]
+              - columnheader "выручка" [ref=f4e314]
+              - columnheader "прибыль" [ref=f4e315]
+          - rowgroup [ref=f4e316]:
+            - row [ref=f4e317]:
+              - cell "Вечерние платья Длинное вечернее платье с вышивкой люкс" [ref=f4e318]:
+                - generic [ref=f4e323]:
+                  - generic [ref=f4e324]: Вечерние платья
+                  - generic [ref=f4e325]: Длинное вечернее платье с вышивкой люкс
+              - cell "252" [ref=f4e326]
+              - cell "386 260 сом" [ref=f4e327]
+              - cell "190 960 сом" [ref=f4e328]
+            - row [ref=f4e329]:
+              - cell "Dress Red Dress" [ref=f4e330]:
+                - generic [ref=f4e332]:
+                  - generic [ref=f4e333]: Dress
+                  - generic [ref=f4e334]: Red Dress
+              - cell "230" [ref=f4e335]
+              - cell "345 000 сом" [ref=f4e336]
+              - cell "115 000 сом" [ref=f4e337]
+            - row [ref=f4e338]:
+              - cell "Платья Вечернее платье" [ref=f4e339]:
+                - generic [ref=f4e344]:
+                  - generic [ref=f4e345]: Платья
+                  - generic [ref=f4e346]: Вечернее платье
+              - cell "15" [ref=f4e347]
+              - cell "193 600 сом" [ref=f4e348]
+              - cell "170 400 сом" [ref=f4e349]
+            - row [ref=f4e350]:
+              - cell "Костюмы Костюм карнавальный «Снежная королева» делюкс" [ref=f4e351]:
+                - generic [ref=f4e356]:
+                  - generic [ref=f4e357]: Костюмы
+                  - generic [ref=f4e358]: Костюм карнавальный «Снежная королева» делюкс
+              - cell "42" [ref=f4e359]
+              - cell "100 800 сом" [ref=f4e360]
+              - cell "50 400 сом" [ref=f4e361]
+            - row [ref=f4e362]:
+              - cell "AutoPosTest Auto Position Dress" [ref=f4e363]:
+                - generic [ref=f4e365]:
+                  - generic [ref=f4e366]: AutoPosTest
+                  - generic [ref=f4e367]: Auto Position Dress
+              - cell "55" [ref=f4e368]
+              - cell "76 750 сом" [ref=f4e369]
+              - cell "10 750 сом" [ref=f4e370]
+            - row [ref=f4e371]:
+              - cell "ReceiptDemo МИМИ 2-КА" [ref=f4e372]:
+                - generic [ref=f4e377]:
+                  - generic [ref=f4e378]: ReceiptDemo
+                  - generic [ref=f4e379]: МИМИ 2-КА
+              - cell "36" [ref=f4e380]
+              - cell "55 800 сом" [ref=f4e381]
+              - cell "30 600 сом" [ref=f4e382]
+            - row [ref=f4e383]:
+              - cell "Test Test dress" [ref=f4e384]:
+                - generic [ref=f4e389]:
+                  - generic [ref=f4e390]: Test
+                  - generic [ref=f4e391]: Test dress
+              - cell "7" [ref=f4e392]
+              - cell "22 400 сом" [ref=f4e393]
+              - cell "15 400 сом" [ref=f4e394]
+            - row [ref=f4e395]:
+              - cell "ReproCat ReproProd" [ref=f4e396]:
+                - generic [ref=f4e401]:
+                  - generic [ref=f4e402]: ReproCat
+                  - generic [ref=f4e403]: ReproProd
+              - cell "3" [ref=f4e404]
+              - cell "18 400 сом" [ref=f4e405]
+              - cell "18 397 сом" [ref=f4e406]
+      - generic [ref=f4e407]:
+        - heading "Долги по срокам" [level=2] [ref=f4e408]
+        - table [ref=f4e411]:
+          - rowgroup [ref=f4e412]:
+            - row [ref=f4e413]:
+              - columnheader "Срок" [ref=f4e414]
+              - columnheader "сумма" [ref=f4e415]
+          - rowgroup [ref=f4e416]:
+            - row [ref=f4e417]:
+              - cell "0–30 дней" [ref=f4e418]
+              - cell "636 210 сом" [ref=f4e419]
+            - row [ref=f4e421]:
+              - cell "31–60 дней" [ref=f4e422]
+              - cell "0 сом" [ref=f4e423]
+            - row [ref=f4e425]:
+              - cell "60+ дней" [ref=f4e426]
+              - cell "0 сом" [ref=f4e427]
+    - generic [ref=f4e429]:
+      - heading "Залежавшийся товар" [level=2] [ref=f4e430]
+      - paragraph [ref=f4e433]: Есть на складе, но не продавалось 90+ дней
+      - paragraph [ref=f4e437]: Нет залежавшегося товара

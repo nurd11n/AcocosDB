@@ -1,0 +1,103 @@
+- generic [ref=f6e1]:
+  - banner [ref=f6e2]:
+    - link "К продажам" [ref=f6e3] [cursor=pointer]:
+      - /url: /pos/
+      - text: ACOCOS
+    - generic [ref=f6e4]:
+      - link "Дашборд" [ref=f6e5] [cursor=pointer]:
+        - /url: /dashboard/
+      - link "Склад" [ref=f6e9] [cursor=pointer]:
+        - /url: /storage/
+      - link "Двухфакторный вход" [ref=f6e13] [cursor=pointer]:
+        - /url: /otp/enroll/
+        - generic [ref=f6e16]: 2FA
+      - link "Админпанель" [ref=f6e17] [cursor=pointer]:
+        - /url: /panel/
+      - button "Тема" [ref=f6e22] [cursor=pointer]
+  - generic [ref=f6e26]:
+    - generic [ref=f6e27]:
+      - heading "Курс" [level=2] [ref=f6e28]
+      - generic [ref=f6e31]:
+        - generic [ref=f6e32]:
+          - generic [ref=f6e33]:
+            - text: 1 $ = 87.45 сом
+            - generic [ref=f6e34]: НБКР 18.08.2026
+          - generic [ref=f6e35]:
+            - text: 1 ₽ = 1.05 сом
+            - generic [ref=f6e36]: НБКР 18.08.2026
+        - button "Изменить курс" [ref=f6e37] [cursor=pointer]
+    - generic [ref=f6e41]:
+      - heading "Клиент" [level=2] [ref=f6e42]
+      - searchbox "Телефон или имя" [ref=f6e43]
+      - generic [ref=f6e44]:
+        - paragraph [ref=f6e45]: Последние клиенты
+        - generic [ref=f6e46]:
+          - generic [ref=f6e47]:
+            - strong [ref=f6e48]: Батч
+            - text: "+996700880880"
+          - button "Выбрать" [ref=f6e49] [cursor=pointer]
+        - generic [ref=f6e50]:
+          - generic [ref=f6e51]:
+            - strong [ref=f6e52]: Импорт
+            - text: "+996700770770"
+          - button "Выбрать" [ref=f6e53] [cursor=pointer]
+        - generic [ref=f6e54]:
+          - generic [ref=f6e55]:
+            - strong [ref=f6e56]: Айгуль
+            - text: "+996700990002"
+          - button "Выбрать" [ref=f6e57] [cursor=pointer]
+        - generic [ref=f6e58]:
+          - generic [ref=f6e59]:
+            - strong [ref=f6e60]: Роза
+            - text: "+996700990001"
+          - button "Выбрать" [ref=f6e61] [cursor=pointer]
+        - generic [ref=f6e62]:
+          - generic [ref=f6e63]:
+            - strong [ref=f6e64]: Realistic2
+            - text: "+996700285586"
+          - button "Выбрать" [ref=f6e65] [cursor=pointer]
+        - generic [ref=f6e66]:
+          - generic [ref=f6e67]:
+            - strong [ref=f6e68]: Realistic
+            - text: "+996700123456"
+          - button "Выбрать" [ref=f6e69] [cursor=pointer]
+        - generic [ref=f6e70]:
+          - generic [ref=f6e71]:
+            - strong [ref=f6e72]: UniqNameb88a46ef
+            - text: "+9967215398"
+          - button "Выбрать" [ref=f6e73] [cursor=pointer]
+        - generic [ref=f6e74]:
+          - generic [ref=f6e75]:
+            - strong [ref=f6e76]: Cli1
+            - text: "+9967211347"
+          - button "Выбрать" [ref=f6e77] [cursor=pointer]
+        - generic [ref=f6e78]:
+          - generic [ref=f6e79]:
+            - strong [ref=f6e80]: UniqName84d5f527
+            - text: "+9967230094"
+          - button "Выбрать" [ref=f6e81] [cursor=pointer]
+        - generic [ref=f6e82]:
+          - generic [ref=f6e83]:
+            - strong [ref=f6e84]: Cli1
+            - text: "+9967106616"
+          - button "Выбрать" [ref=f6e85] [cursor=pointer]
+      - button "+ Новый клиент" [ref=f6e87] [cursor=pointer]
+    - generic [ref=f6e88]:
+      - heading "Товары" [level=2] [ref=f6e89]
+      - searchbox "Поиск по названию или артикулу" [active] [ref=f6e90]: zzzznonexistentxyz
+      - generic [ref=f6e307]:
+        - paragraph [ref=f6e308]: Ничего не найдено
+        - link "Очистить поиск" [ref=f6e309] [cursor=pointer]:
+          - /url: /pos/sale/new/
+  - navigation [ref=f6e287]:
+    - link "Продажа" [ref=f6e288] [cursor=pointer]:
+      - /url: /pos/
+    - link "Сегодня" [ref=f6e291] [cursor=pointer]:
+      - /url: /pos/today/
+    - link "Клиенты" [ref=f6e294] [cursor=pointer]:
+      - /url: /pos/clients/
+    - link "Заказы" [ref=f6e297] [cursor=pointer]:
+      - /url: /orders/
+    - link "Производство" [ref=f6e300] [cursor=pointer]:
+      - /url: /manufacturing/
+    - button "Выход" [ref=f6e304] [cursor=pointer]

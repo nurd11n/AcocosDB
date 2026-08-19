@@ -1,0 +1,240 @@
+- generic [active] [ref=f13e1]:
+  - banner [ref=f13e2]:
+    - link "К продажам" [ref=f13e3] [cursor=pointer]:
+      - /url: /pos/
+      - text: ACOCOS
+    - generic [ref=f13e4]:
+      - link "Дашборд" [ref=f13e5] [cursor=pointer]:
+        - /url: /dashboard/
+      - link "Склад" [ref=f13e9] [cursor=pointer]:
+        - /url: /storage/
+      - link "Двухфакторный вход" [ref=f13e13] [cursor=pointer]:
+        - /url: /otp/enroll/
+      - link "Админпанель" [ref=f13e17] [cursor=pointer]:
+        - /url: /panel/
+      - button "Тема" [ref=f13e22] [cursor=pointer]
+  - generic [ref=f13e26]:
+    - generic [ref=f13e27]:
+      - heading "Курс" [level=2] [ref=f13e28]
+      - generic [ref=f13e31]:
+        - generic [ref=f13e32]:
+          - generic [ref=f13e33]:
+            - text: 1 $ = 87,45 сом
+            - generic [ref=f13e34]: НБКР 18.08.2026
+          - generic [ref=f13e35]:
+            - text: 1 ₽ = 1,05 сом
+            - generic [ref=f13e36]: НБКР 18.08.2026
+        - button "Изменить курс" [ref=f13e37] [cursor=pointer]
+    - generic [ref=f13e41]:
+      - heading "Клиент" [level=2] [ref=f13e42]
+      - generic [ref=f13e43]:
+        - generic [ref=f13e44]:
+          - generic [ref=f13e45]: Батч
+          - generic [ref=f13e46]: "+996700880880"
+        - generic [ref=f13e47]:
+          - text: Долг
+          - generic [ref=f13e48]: "0"
+      - button "Отмена" [ref=f13e49] [cursor=pointer]
+    - generic [ref=f13e50]:
+      - heading "Товары" [level=2] [ref=f13e51]
+      - searchbox "Поиск по названию или артикулу" [ref=f13e52]
+      - generic [ref=f13e53]:
+        - button "AutoPosTest Auto Position Dress 1 500 сом в наличии 953 шт · 2 в заказах" [ref=f13e54] [cursor=pointer]:
+          - generic [ref=f13e55]: AutoPosTest
+          - generic [ref=f13e56]: Auto Position Dress
+          - generic [ref=f13e57]: 1 500 сом
+          - generic [ref=f13e58]: в наличии
+          - generic [ref=f13e59]: 953 шт · 2 в заказах
+        - button "ChainTest ChainDress 1 000 сом нет в наличии" [disabled] [ref=f13e60]:
+          - generic [ref=f13e64]: ChainTest
+          - generic [ref=f13e65]: ChainDress
+          - generic [ref=f13e66]: 1 000 сом
+          - generic [ref=f13e67]: нет в наличии
+        - button "DashCheckCat DashCheckDress 3 000 сом нет в наличии 0 шт · 30 в заказах" [disabled] [ref=f13e68]:
+          - generic [ref=f13e72]: DashCheckCat
+          - generic [ref=f13e73]: DashCheckDress
+          - generic [ref=f13e74]: 3 000 сом
+          - generic [ref=f13e75]: нет в наличии
+          - generic [ref=f13e76]: 0 шт · 30 в заказах
+        - button "TestCat DebtTestDress 3 000 сом в наличии" [ref=f13e77] [cursor=pointer]:
+          - generic [ref=f13e81]: TestCat
+          - generic [ref=f13e82]: DebtTestDress
+          - generic [ref=f13e83]: 3 000 сом
+          - generic [ref=f13e84]: в наличии
+        - button "DialogCheck DialogDress 500 сом в наличии 3 шт · 2 в заказах" [ref=f13e85] [cursor=pointer]:
+          - generic [ref=f13e89]: DialogCheck
+          - generic [ref=f13e90]: DialogDress
+          - generic [ref=f13e91]: 500 сом
+          - generic [ref=f13e92]: в наличии
+          - generic [ref=f13e93]: 3 шт · 2 в заказах
+        - button "PR PRDress 500 сом осталось 1" [ref=f13e94] [cursor=pointer]:
+          - generic [ref=f13e98]: PR
+          - generic [ref=f13e99]: PRDress
+          - generic [ref=f13e100]: 500 сом
+          - generic [ref=f13e101]: осталось 1
+        - button "RC2 RC2Dress 500 сом в наличии 8 шт · 1 в заказах" [ref=f13e102] [cursor=pointer]:
+          - generic [ref=f13e106]: RC2
+          - generic [ref=f13e107]: RC2Dress
+          - generic [ref=f13e108]: 500 сом
+          - generic [ref=f13e109]: в наличии
+          - generic [ref=f13e110]: 8 шт · 1 в заказах
+        - button "Dress Red Dress от 1 500 сом в наличии 855 шт · 2120 в заказах" [ref=f13e111] [cursor=pointer]:
+          - generic [ref=f13e112]: Dress
+          - generic [ref=f13e113]: Red Dress
+          - generic [ref=f13e114]: от 1 500 сом
+          - generic [ref=f13e115]: в наличии
+          - generic [ref=f13e116]: 855 шт · 2120 в заказах
+        - button "RenderCheck RenderDress 500 сом в наличии 3 шт · 1 в заказах" [ref=f13e117] [cursor=pointer]:
+          - generic [ref=f13e121]: RenderCheck
+          - generic [ref=f13e122]: RenderDress
+          - generic [ref=f13e123]: 500 сом
+          - generic [ref=f13e124]: в наличии
+          - generic [ref=f13e125]: 3 шт · 1 в заказах
+        - button "ReproCat ReproProd 6 800 сом в наличии" [ref=f13e126] [cursor=pointer]:
+          - generic [ref=f13e130]: ReproCat
+          - generic [ref=f13e131]: ReproProd
+          - generic [ref=f13e132]: 6 800 сом
+          - generic [ref=f13e133]: в наличии
+        - button "Test Test dress 3 200 сом в наличии 927 шт · 136 в заказах" [ref=f13e134] [cursor=pointer]:
+          - generic [ref=f13e138]: Test
+          - generic [ref=f13e139]: Test dress
+          - generic [ref=f13e140]: 3 200 сом
+          - generic [ref=f13e141]: в наличии
+          - generic [ref=f13e142]: 927 шт · 136 в заказах
+        - button "WizTest WizDress 1 000 сом нет в наличии 0 шт · 25 в заказах" [disabled] [ref=f13e143]:
+          - generic [ref=f13e147]: WizTest
+          - generic [ref=f13e148]: WizDress
+          - generic [ref=f13e149]: 1 000 сом
+          - generic [ref=f13e150]: нет в наличии
+          - generic [ref=f13e151]: 0 шт · 25 в заказах
+        - button "Платья Вечернее платье 3 200 сом в наличии" [ref=f13e152] [cursor=pointer]:
+          - generic [ref=f13e156]: Платья
+          - generic [ref=f13e157]: Вечернее платье
+          - generic [ref=f13e158]: 3 200 сом
+          - generic [ref=f13e159]: в наличии
+        - button "Вечерние платья Длинное вечернее платье с вышивкой люкс 1 550 сом в наличии" [ref=f13e160] [cursor=pointer]:
+          - generic [ref=f13e164]: Вечерние платья
+          - generic [ref=f13e165]: Длинное вечернее платье с вышивкой люкс
+          - generic [ref=f13e166]: 1 550 сом
+          - generic [ref=f13e167]: в наличии
+        - button "Костюмы Костюм карнавальный «Снежная королева» делюкс 2 400 сом в наличии" [ref=f13e168] [cursor=pointer]:
+          - generic [ref=f13e172]: Костюмы
+          - generic [ref=f13e173]: Костюм карнавальный «Снежная королева» делюкс
+          - generic [ref=f13e174]: 2 400 сом
+          - generic [ref=f13e175]: в наличии
+        - button "ReceiptDemo МИМИ 2-КА 1 550 сом в наличии" [ref=f13e176] [cursor=pointer]:
+          - generic [ref=f13e180]: ReceiptDemo
+          - generic [ref=f13e181]: МИМИ 2-КА
+          - generic [ref=f13e182]: 1 550 сом
+          - generic [ref=f13e183]: в наличии
+        - button "Демо Платье Аиша 4 200 сом нет в наличии 0 шт · 6 в заказах" [disabled] [ref=f13e184]:
+          - generic [ref=f13e188]: Демо
+          - generic [ref=f13e189]: Платье Аиша
+          - generic [ref=f13e190]: 4 200 сом
+          - generic [ref=f13e191]: нет в наличии
+          - generic [ref=f13e192]: 0 шт · 6 в заказах
+        - button "Категория 0 Товар с очень длинным названием номер 0 1 000 сом в наличии" [ref=f13e193] [cursor=pointer]:
+          - generic [ref=f13e197]: Категория 0
+          - generic [ref=f13e198]: Товар с очень длинным названием номер 0
+          - generic [ref=f13e199]: 1 000 сом
+          - generic [ref=f13e200]: в наличии
+        - button "Категория 1 Товар с очень длинным названием номер 1 1 000 сом в наличии" [ref=f13e201] [cursor=pointer]:
+          - generic [ref=f13e205]: Категория 1
+          - generic [ref=f13e206]: Товар с очень длинным названием номер 1
+          - generic [ref=f13e207]: 1 000 сом
+          - generic [ref=f13e208]: в наличии
+        - button "Категория 10 Товар с очень длинным названием номер 10 1 000 сом в наличии" [ref=f13e209] [cursor=pointer]:
+          - generic [ref=f13e213]: Категория 10
+          - generic [ref=f13e214]: Товар с очень длинным названием номер 10
+          - generic [ref=f13e215]: 1 000 сом
+          - generic [ref=f13e216]: в наличии
+        - button "Категория 11 Товар с очень длинным названием номер 11 1 000 сом в наличии" [ref=f13e217] [cursor=pointer]:
+          - generic [ref=f13e221]: Категория 11
+          - generic [ref=f13e222]: Товар с очень длинным названием номер 11
+          - generic [ref=f13e223]: 1 000 сом
+          - generic [ref=f13e224]: в наличии
+        - button "Категория 12 Товар с очень длинным названием номер 12 1 000 сом в наличии" [ref=f13e225] [cursor=pointer]:
+          - generic [ref=f13e229]: Категория 12
+          - generic [ref=f13e230]: Товар с очень длинным названием номер 12
+          - generic [ref=f13e231]: 1 000 сом
+          - generic [ref=f13e232]: в наличии
+        - button "Категория 13 Товар с очень длинным названием номер 13 1 000 сом в наличии" [ref=f13e233] [cursor=pointer]:
+          - generic [ref=f13e237]: Категория 13
+          - generic [ref=f13e238]: Товар с очень длинным названием номер 13
+          - generic [ref=f13e239]: 1 000 сом
+          - generic [ref=f13e240]: в наличии
+        - button "Категория 2 Товар с очень длинным названием номер 2 1 000 сом в наличии" [ref=f13e241] [cursor=pointer]:
+          - generic [ref=f13e245]: Категория 2
+          - generic [ref=f13e246]: Товар с очень длинным названием номер 2
+          - generic [ref=f13e247]: 1 000 сом
+          - generic [ref=f13e248]: в наличии
+    - generic [ref=f13e249]:
+      - generic [ref=f13e297]:
+        - generic [ref=f13e298]:
+          - generic [ref=f13e299]:
+            - heading "Позиции · 1" [level=2] [ref=f13e300]
+            - generic [ref=f13e301]:
+              - button "Отменить последнее действие" [ref=f13e302] [cursor=pointer]
+              - button "Вернуть отменённое" [disabled] [ref=f13e305]
+          - generic [ref=f13e309]:
+            - generic [ref=f13e310]: AutoPosTest
+            - generic [ref=f13e311]:
+              - generic [ref=f13e312]: Auto Position Dress
+              - button "Удалить" [ref=f13e313] [cursor=pointer]: ✕
+            - generic [ref=f13e314]: XL · Blue
+            - generic [ref=f13e315]:
+              - generic [ref=f13e316]: 1 × 1 500 сом
+              - generic [ref=f13e317]: 1 500 сом
+            - group [ref=f13e318]:
+              - generic "+ скидка" [ref=f13e319] [cursor=pointer]
+              - option "Без скидки" [selected]
+              - option "%"
+              - option "сом"
+        - generic [ref=f13e320]:
+          - heading "Оплата" [level=2] [ref=f13e321]
+          - generic [ref=f13e322]:
+            - generic [ref=f13e323]: Сумма
+            - textbox [ref=f13e324]
+            - generic [ref=f13e325]:
+              - generic [ref=f13e326]:
+                - generic [ref=f13e327]: Валюта
+                - combobox [ref=f13e328]:
+                  - option "сом" [selected]
+                  - option "$"
+                  - option "₽"
+              - generic [ref=f13e329]:
+                - generic [ref=f13e330]: Способ
+                - combobox [ref=f13e331]:
+                  - option "Наличные" [selected]
+                  - option "MBank"
+                  - option "Перевод"
+                  - option "Прочее"
+            - button "Оплачено полностью" [ref=f13e332] [cursor=pointer]
+            - button "В долг" [ref=f13e333] [cursor=pointer]
+      - generic [ref=f13e334]:
+        - generic [ref=f13e335]:
+          - generic [ref=f13e336]: Итого
+          - generic [ref=f13e337]: 1 500 сом
+        - generic [ref=f13e338]:
+          - generic [ref=f13e339]: Оплачено
+          - generic [ref=f13e340]: 0 сом
+        - generic [ref=f13e341]:
+          - generic [ref=f13e342]: Остаток · долг
+          - generic [ref=f13e343]: 1 500 сом
+        - generic [ref=f13e344]:
+          - generic [ref=f13e346]:
+            - checkbox "Историческая продажа (уже произошла раньше)" [ref=f13e347]
+            - text: Историческая продажа (уже произошла раньше)
+          - button "Подтвердить продажу" [ref=f13e348] [cursor=pointer]
+  - navigation [ref=f13e265]:
+    - link "Продажа" [ref=f13e266] [cursor=pointer]:
+      - /url: /pos/
+    - link "Сегодня" [ref=f13e269] [cursor=pointer]:
+      - /url: /pos/today/
+    - link "Клиенты" [ref=f13e272] [cursor=pointer]:
+      - /url: /pos/clients/
+    - link "Заказы" [ref=f13e275] [cursor=pointer]:
+      - /url: /orders/
+    - link "Производство" [ref=f13e278] [cursor=pointer]:
+      - /url: /manufacturing/
+    - button "Выход" [ref=f13e282] [cursor=pointer]
