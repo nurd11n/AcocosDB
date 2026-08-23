@@ -2,6 +2,19 @@
 {% load i18n pos_extras %}
 {% block title %}{% trans "Записать производство" %}{% endblock %}
 {% block content %}
+{% comment %}
+Back goes where the user actually came FROM: this page is reachable both from
+the Производство hub and from an order's «Записать производство» button
+(?order_item=N, see orders/partials/order_body.html). Sending an order-driven
+visit back to the hub would strand them a click away from the order they were
+working on.
+{% endcomment %}
+{% if order_item %}
+<a class="back-link" href="{% url 'orders:detail' order_item.order_id %}">← {% trans "Заказ" %} №{{ order_item.order_id }}</a>
+{% else %}
+<a class="back-link" href="{% url 'manufacturing:contractors' %}">← {% trans "Производство" %}</a>
+{% endif %}
+
 <div class="card">
  <h2>{% trans "Записать производство" %}</h2>
  {% if order_item %}
