@@ -1133,18 +1133,21 @@ def _split_by_availability(variants: list) -> tuple[list, list]:
 
 
 def _size_entry(size: str, variants: list) -> dict:
-    """One chip's worth of data for the size step. `single_variant` set means
-    this size has nothing to choose within it — clicking the chip selects
-    that one variant directly and skips the color step entirely."""
+    """One chip's worth of data for the size step. Always shows the color
+    step below it, even when that size has only one color — a manager
+    should SEE what she's about to add (CLAUDE.md's own "3 800 сом, not a
+    bare number" instinct applies here too: a name on screen beats a number
+    of taps saved) rather than a tap on "M" silently deciding "Red" for her.
+    The only thing collapsed automatically is the picker having nothing
+    to show at ANY level (see _group_variants_for_picker's single_variant/
+    single_out_of_stock, unaffected by this)."""
     available, unavailable = _split_by_availability(variants)
-    single = len(variants) == 1
     return {
         "value": size,
         "label": size or "—",
         "enabled": bool(available),
-        "single_variant": variants[0] if single else None,
-        "colors_available": [] if single else available,
-        "colors_out": [] if single else unavailable,
+        "colors_available": available,
+        "colors_out": unavailable,
     }
 
 
@@ -1160,14 +1163,18 @@ def _group_variants_for_picker(variants: list) -> dict:
     sorted the list, so grouping by insertion order reproduces that order
     without a second sort here.
 
-    Returns one of four shapes, collapsing whichever step has nothing to
-    choose (a single variant overall, or a single color within one size —
-    both `size` and `color` are blank=True, and this also naturally covers
-    that case since a blank size/color still groups to exactly one bucket):
+    Returns one of four shapes. Only the picker having NOTHING to pick at
+    any level collapses automatically — one variant for the whole product,
+    no size axis and no color axis at all (both are blank=True, and a blank
+    value still groups to one bucket like any other, so this covers that
+    case for free). Once there's a real size step, EVERY size — even one
+    with only a single color underneath it — still shows that color as its
+    own tile: a manager should see what she's about to add, not have a tap
+    on the size silently pick the color for her.
     - {"single_variant": v}                                    — nothing to pick, orderable
     - {"single_out_of_stock": v}                                — nothing to pick, NOT orderable
-    - {"skip_size_step": True, "colors_available"/"colors_out"} — one size, several colors
-    - {"sizes": [...]}                                          — the full two-step picker
+    - {"skip_size_step": True, "colors_available"/"colors_out"} — one size only, its colors shown directly
+    - {"sizes": [...]}                                          — several sizes, each with its own colors
 
     The single_variant/single_out_of_stock split exists so the template never
     has to re-derive "orderable" from a raw quantity — a lone 0-stock variant

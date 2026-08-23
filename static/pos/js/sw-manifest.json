@@ -6,10 +6,10 @@
     "/static/pos/icons/icon-512-maskable.png": "1359b350717033bf246b6373b450424d289fcfc2bc67f1bdc988eaf9aea1874d",
     "/static/pos/icons/icon-512.png": "fffdbb6fb035ac5151dae05fc2b000eae6f9477f5f80b92c1a6e3617ed3073ae",
     "/static/pos/js/confirm.js": "1a63ad7120a6af9f1787cac00d427a8fa5c4e3129c6f7aeb761b5e0e2db0c66d",
-    "/static/pos/js/pos.js": "876edaee17dec5d4053b6f0656af14980d5e4a9d3d1aac053bbdd6ab1dfa45b3",
+    "/static/pos/js/pos.js": "af283b2061e4427a3e23bb01e2d2b12d95fd2c6566819bf93dc4954b8aff7543",
     "/static/pos/js/safety.js": "53f5e5923e0fe059bef124399040be84887082cbe3daea86509b61e2d7d2c00c",
     "/static/pos/tokens.css": "25f8bf8615826931a67454285f0f94e03c4495a071f7733dd32cfa14e2c5925b",
     "/static/vendor/htmx/htmx.min.js": "449317ade7881e949510db614991e195c3a099c4c791c24dacec55f9f4a2a452"
   },
-  "version": "41"
+  "version": "42"
 }

@@ -12,11 +12,12 @@ Presentation only: the form still posts exactly one variant_id + quantity,
 same fields the old <select> posted — item_add's stock cap, currency guard,
 and confirm_sale's own re-check are all completely untouched by this file.
 
-Whichever step has nothing to choose is skipped SERVER-SIDE (see
-apps.pos.views._group_variants_for_picker) rather than rendered as a
-one-option step someone has to tap through anyway — this also covers the
-blank-size/blank-color case for free, since a blank value still groups to
-one bucket like any other.
+Only the picker having NOTHING to pick at any level is skipped SERVER-SIDE
+(see apps.pos.views._group_variants_for_picker) — one variant for the whole
+product, no size axis and no color axis at all. Once there IS a real size
+step, every size still shows its color(s) as tiles, even a size with only
+one color: a manager should see what she's about to add, not have a tap on
+the size silently decide the color for her.
 
 Step navigation after the initial HTMX load is plain data-attribute-driven
 JS (static/pos/js/pos.js) rather than a further round-trip per size tapped:
@@ -49,10 +50,12 @@ showing/hiding a group is real client-side state, not a fetch.
  <label>{% trans "Размер" %}</label>
  <div class="row" role="group" aria-label="{% trans 'Размер' %}" style="flex-wrap:wrap;row-gap:6px">
   {% for size in groups.sizes %}
+  {% comment %}
+  Never carries data-variant-id: a size chip only shows/hides its color
+  group (static/pos/js/pos.js) — even a size with just one color still
+  shows that color as its own tile, so the manager sees what she's adding.
+  {% endcomment %}
   <button type="button" class="fpill" data-size-chip data-size="{{ size.value }}"
-    {% if size.single_variant %}
-      data-variant-id="{{ size.single_variant.pk }}" data-max="{{ size.single_variant.available_qty }}"
-    {% endif %}
     {% if not size.enabled %}disabled{% endif %}>{{ size.label }}</button>
   {% endfor %}
  </div>
