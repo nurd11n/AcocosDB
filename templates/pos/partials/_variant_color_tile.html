@@ -1,0 +1,16 @@
+{% load i18n pos_extras %}
+<button type="button" class="tile tile--swatch" data-color-tile data-variant-id="{{ v.pk }}" data-max="{{ v.available_qty }}"
+  {% if v.available_qty <= 0 %}disabled{% endif %}>
+ <div class="tile__name">{{ v.color|default:"—" }}</div>
+ <div class="tile__price num">{{ v.sale_price|money:v.currency }}</div>
+ {% if v.available_qty <= 0 %}
+  <span class="badge badge--neutral tile__badge">{% trans "нет в наличии" %}</span>
+ {% elif v.available_qty <= v.low_stock_threshold %}
+  <span class="badge badge--partial tile__badge">{% trans "осталось" %} {{ v.available_qty }}</span>
+ {% else %}
+  <span class="badge badge--paid tile__badge">{% trans "в наличии" %}</span>
+ {% endif %}
+ {% if v.reserved_qty %}
+  <div class="tile__reserved">{{ v.available_qty }} {% trans "шт" %} · {{ v.reserved_qty }} {% trans "в заказах" %}</div>
+ {% endif %}
+</button>

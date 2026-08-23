@@ -90,16 +90,17 @@
     if (target) target.innerHTML = "";
   });
 
-  // --- Variant picker: quantity clamps to the selected variant's available
+  // --- Variant picker: quantity clamps to the CHOSEN variant's available
   // stock (Part 1a). Client-side only for instant feedback — the server
-  // clamps and re-explains regardless, since this is UX, not the defence. ---
+  // clamps and re-explains regardless, since this is UX, not the defence.
+  // #variant-picker-input is a hidden field (not a <select>): the two-step
+  // size -> color picker below is what sets its value and data-max. ---
   function clampPickerQty() {
-    var variantSelect = document.getElementById("variant-select");
+    var variantInput = document.getElementById("variant-picker-input");
     var qtyInput = document.getElementById("picker-qty");
     var qtyNote = document.getElementById("picker-qty-note");
-    if (!variantSelect || !qtyInput) return;
-    var opt = variantSelect.options[variantSelect.selectedIndex];
-    var max = opt ? parseInt(opt.getAttribute("data-max"), 10) || 0 : 0;
+    if (!variantInput || !qtyInput) return;
+    var max = parseInt(variantInput.getAttribute("data-max"), 10) || 0;
     qtyInput.max = String(max);
     var value = parseInt(qtyInput.value, 10) || 0;
     if (value > max) {
@@ -113,12 +114,82 @@
     }
   }
   document.addEventListener("change", function (event) {
-    if (event.target.id === "variant-select" || event.target.id === "picker-qty") {
-      clampPickerQty();
-    }
+    if (event.target.id === "picker-qty") clampPickerQty();
   });
   document.addEventListener("input", function (event) {
     if (event.target.id === "picker-qty") clampPickerQty();
+  });
+
+  // --- Variant picker: two-step size -> color selection, replacing a flat
+  // <select> of every size/color/price/qty combination (~30 rows on a real
+  // product — the actual complaint this replaces). Both steps' data arrive
+  // in the ONE HTMX response that opens the picker (see
+  // apps.pos.views._group_variants_for_picker); tapping a size just shows/
+  // hides a <div data-colors-for> already sitting in the DOM — no further
+  // request, since every variant for this product is already here. Picking
+  // a variant — either straight from a single-color size chip, or from a
+  // color tile — fills the hidden #variant-picker-input and reveals the
+  // quantity step. ---
+  function selectPickerVariant(variantId, max) {
+    var variantInput = document.getElementById("variant-picker-input");
+    var qtySection = document.getElementById("picker-qty-section");
+    var qtyInput = document.getElementById("picker-qty");
+    var submit = document.getElementById("picker-submit");
+    if (!variantInput) return;
+    variantInput.value = variantId;
+    variantInput.setAttribute("data-max", String(max));
+    if (qtyInput) qtyInput.value = "1";
+    if (qtySection) qtySection.hidden = false;
+    if (submit) submit.disabled = false;
+    clampPickerQty();
+  }
+  function clearPickerSelection() {
+    var variantInput = document.getElementById("variant-picker-input");
+    var qtySection = document.getElementById("picker-qty-section");
+    var submit = document.getElementById("picker-submit");
+    if (variantInput) {
+      variantInput.value = "";
+      variantInput.setAttribute("data-max", "0");
+    }
+    if (qtySection) qtySection.hidden = true;
+    if (submit) submit.disabled = true;
+  }
+  document.addEventListener("click", function (event) {
+    var sizeChip = event.target.closest("[data-size-chip]");
+    if (sizeChip) {
+      if (sizeChip.disabled) return;
+      var form = sizeChip.closest("form");
+      if (!form) return;
+      var chips = form.querySelectorAll("[data-size-chip]");
+      for (var i = 0; i < chips.length; i++) chips[i].classList.remove("is-on");
+      sizeChip.classList.add("is-on");
+
+      var colorGroups = form.querySelectorAll("[data-colors-for]");
+      for (var j = 0; j < colorGroups.length; j++) {
+        var forSize = colorGroups[j].getAttribute("data-colors-for");
+        colorGroups[j].hidden = forSize !== sizeChip.getAttribute("data-size");
+      }
+
+      if (sizeChip.hasAttribute("data-variant-id")) {
+        selectPickerVariant(
+          sizeChip.getAttribute("data-variant-id"),
+          parseInt(sizeChip.getAttribute("data-max"), 10) || 0
+        );
+      } else {
+        // Several colors under this size — nothing chosen yet. Clears any
+        // selection a PREVIOUSLY tapped size may have already completed.
+        clearPickerSelection();
+      }
+      return;
+    }
+
+    var colorTile = event.target.closest("[data-color-tile]");
+    if (colorTile && !colorTile.disabled) {
+      selectPickerVariant(
+        colorTile.getAttribute("data-variant-id"),
+        parseInt(colorTile.getAttribute("data-max"), 10) || 0
+      );
+    }
   });
 
   // --- Desktop keyboard ---

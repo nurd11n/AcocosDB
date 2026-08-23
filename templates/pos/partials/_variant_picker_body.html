@@ -1,0 +1,105 @@
+{% load i18n pos_extras %}
+{% comment %}
+Two-step size -> color picker, included from BOTH variant_picker.html
+(existing sale) and variant_picker_new.html (new sale, no order yet) — the
+only difference between the two call sites is post_url/hx_target, so this
+is the ONE place the actual picking logic lives. Extends CLAUDE.md's
+"photo grid, not a dropdown" principle down to the variant level: a flat
+<select> of every size/color/price/qty combination (~30 rows on a real
+product) was the mess this replaces.
+
+Presentation only: the form still posts exactly one variant_id + quantity,
+same fields the old <select> posted — item_add's stock cap, currency guard,
+and confirm_sale's own re-check are all completely untouched by this file.
+
+Whichever step has nothing to choose is skipped SERVER-SIDE (see
+apps.pos.views._group_variants_for_picker) rather than rendered as a
+one-option step someone has to tap through anyway — this also covers the
+blank-size/blank-color case for free, since a blank value still groups to
+one bucket like any other.
+
+Step navigation after the initial HTMX load is plain data-attribute-driven
+JS (static/pos/js/pos.js) rather than a further round-trip per size tapped:
+every variant for this product already arrived in this one response, so
+showing/hiding a group is real client-side state, not a fetch.
+{% endcomment %}
+<form hx-post="{{ post_url }}" hx-target="{{ hx_target }}" hx-swap="innerHTML">
+ {% if groups.single_out_of_stock %}
+ {% comment %}
+ One variant, no size, no color axis — and it's out of stock. Same
+ non-clickable dead end a 0-stock color tile gets: no hidden variant_id at
+ all, so there is nothing for a submit to even attempt server-side.
+ {% endcomment %}
+ <p><span class="badge badge--neutral">{% trans "нет в наличии" %}</span></p>
+
+ {% elif groups.single_variant %}
+ {% comment %}Nothing to choose at all — one variant, no size, no color axis.{% endcomment %}
+ <input type="hidden" name="variant_id" id="variant-picker-input"
+   value="{{ groups.single_variant.pk }}" data-max="{{ groups.single_variant.available_qty }}">
+ <p class="hint" style="margin:0 0 var(--space-2)">
+   {{ groups.single_variant.sale_price|money:groups.single_variant.currency }}
+   · {{ groups.single_variant.available_qty }} {% trans "шт" %}
+   {% if groups.single_variant.reserved_qty %} · {{ groups.single_variant.reserved_qty }} {% trans "в заказах" %}{% endif %}
+ </p>
+
+ {% else %}
+ <input type="hidden" name="variant_id" id="variant-picker-input" value="" data-max="0" required>
+
+ {% if groups.sizes %}
+ <label>{% trans "Размер" %}</label>
+ <div class="row" role="group" aria-label="{% trans 'Размер' %}" style="flex-wrap:wrap;row-gap:6px">
+  {% for size in groups.sizes %}
+  <button type="button" class="fpill" data-size-chip data-size="{{ size.value }}"
+    {% if size.single_variant %}
+      data-variant-id="{{ size.single_variant.pk }}" data-max="{{ size.single_variant.available_qty }}"
+    {% endif %}
+    {% if not size.enabled %}disabled{% endif %}>{{ size.label }}</button>
+  {% endfor %}
+ </div>
+ {% endif %}
+
+ {% for size in groups.sizes %}
+  {% if size.colors_available or size.colors_out %}
+  <div class="variant-colors" data-colors-for="{{ size.value }}" hidden style="margin-top:var(--space-2)">
+   <div class="grid">
+    {% for v in size.colors_available %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
+   </div>
+   {% if size.colors_out %}
+   <details style="margin-top:var(--space-2)">
+    <summary class="hint">{% trans "показать нет в наличии" %}</summary>
+    <div class="grid" style="margin-top:var(--space-2)">
+     {% for v in size.colors_out %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
+    </div>
+   </details>
+   {% endif %}
+  </div>
+  {% endif %}
+ {% endfor %}
+
+ {% if groups.skip_size_step %}
+ <label>{% trans "Цвет" %}</label>
+ <div class="grid" style="margin-top:var(--space-2)">
+  {% for v in groups.colors_available %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
+ </div>
+ {% if groups.colors_out %}
+ <details style="margin-top:var(--space-2)">
+  <summary class="hint">{% trans "показать нет в наличии" %}</summary>
+  <div class="grid" style="margin-top:var(--space-2)">
+   {% for v in groups.colors_out %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
+  </div>
+ </details>
+ {% endif %}
+ {% endif %}
+ {% endif %}
+
+ <div id="picker-qty-section" {% if not groups.single_variant %}hidden{% endif %} style="margin-top:var(--space-3)">
+  <label>{% trans "Количество" %}</label>
+  <input type="number" name="quantity" id="picker-qty" inputmode="numeric" value="1" min="1"
+    max="{% if groups.single_variant %}{{ groups.single_variant.available_qty }}{% else %}1{% endif %}" required>
+  <p class="pay-note pay-note--risk" id="picker-qty-note" hidden></p>
+ </div>
+ <div class="row" style="margin-top:var(--space-3)">
+   <button type="submit" class="btn btn-primary" id="picker-submit" {% if not groups.single_variant %}disabled{% endif %}>{% trans "Добавить" %}</button>
+   <button type="button" class="btn btn-ghost" data-clear-target="variant-picker">{% trans "Отмена" %}</button>
+ </div>
+</form>
