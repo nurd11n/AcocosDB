@@ -77,10 +77,12 @@ def test_single_variant_product_skips_both_steps(client, draft):
     )
 
 
-def test_size_with_exactly_one_color_skips_the_color_step(client, draft):
-    """CLAUDE.md's own test brief: "verify it works ... with a size that has
-    only one color." Two sizes, one color each — every chip should carry its
-    variant directly, and no color-tile group should exist for either."""
+def test_size_with_exactly_one_color_still_shows_it_as_a_tile(client, draft):
+    """A manager should SEE what she's about to add — even a size with only
+    one color underneath it still shows that color as its own tile, rather
+    than a tap on the size silently deciding the color for her. Confirmed
+    directly against real usage: a size chip must never carry a variant_id
+    of its own."""
     cat = Category.objects.create(name="C2")
     prod = Product.objects.create(category=cat, name="Брюки")
     va = _make_variant(prod, "P-A", size="S", color="Red", qty=5)
@@ -88,17 +90,19 @@ def test_size_with_exactly_one_color_skips_the_color_step(client, draft):
 
     body = client.get(f"/pos/sale/{draft.pk}/products/{prod.pk}/variants/").content.decode()
 
-    assert "data-colors-for" not in body, "nothing to choose within either size"
-    for v, size in ((va, "S"), (vb, "M")):
-        chip = body[body.index(f'data-size="{size}"') : body.index(f'data-size="{size}"') + 200]
-        assert f'data-variant-id="{v.pk}"' in chip
+    assert "data-colors-for" in body
+    for size in ("S", "M"):
+        chip = body[body.index(f'data-size="{size}"') : body.index(f'data-size="{size}"') + 100]
+        assert "data-variant-id" not in chip, "a size chip never picks a variant by itself"
+    for v in (va, vb):
+        assert f'data-variant-id="{v.pk}"' in body, "the color tile is what carries it"
 
 
-def test_blank_color_variant_is_the_single_variant_for_its_size(client, draft):
+def test_blank_color_still_shows_a_tile_labelled_with_an_em_dash(client, draft):
     """The exact real-world row from the report: size "42-48" with no color
-    at all, alongside sizes that DO have colors. Blank is just another value
-    that groups to one bucket — must be reachable via its size chip, not
-    silently dropped."""
+    at all, alongside sizes that DO have colors. Blank is just another
+    value — still shown as a one-tile step, not auto-picked from the chip,
+    for the same "see what you're adding" reason a named color gets a tile."""
     cat = Category.objects.create(name="C3")
     prod = Product.objects.create(category=cat, name="Жакет")
     v42 = _make_variant(prod, "SK-42", size="42-48", color="", qty=24, price=Decimal("1550"))
@@ -107,9 +111,15 @@ def test_blank_color_variant_is_the_single_variant_for_its_size(client, draft):
 
     body = client.get(f"/pos/sale/{draft.pk}/products/{prod.pk}/variants/").content.decode()
 
-    chip = body[body.index('data-size="42-48"') : body.index('data-size="42-48"') + 200]
-    assert f'data-variant-id="{v42.pk}"' in chip
-    assert 'data-colors-for="50-56"' in body, "the OTHER size still gets its color step"
+    chip = body[body.index('data-size="42-48"') : body.index('data-size="42-48"') + 100]
+    assert "data-variant-id" not in chip
+    assert 'data-colors-for="42-48"' in body
+    assert 'data-colors-for="50-56"' in body
+    tile = body[
+        body.index(f'data-variant-id="{v42.pk}"') - 40 : body.index(f'data-variant-id="{v42.pk}"')
+        + 200
+    ]
+    assert '<div class="tile__name">—</div>' in tile
 
 
 # ---------------------------------------------------------------------------

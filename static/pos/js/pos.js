@@ -126,10 +126,11 @@
   // in the ONE HTMX response that opens the picker (see
   // apps.pos.views._group_variants_for_picker); tapping a size just shows/
   // hides a <div data-colors-for> already sitting in the DOM — no further
-  // request, since every variant for this product is already here. Picking
-  // a variant — either straight from a single-color size chip, or from a
-  // color tile — fills the hidden #variant-picker-input and reveals the
-  // quantity step. ---
+  // request, since every variant for this product is already here. A size
+  // chip never picks a variant itself, even with only one color underneath
+  // it — tapping a color TILE is what fills the hidden #variant-picker-input
+  // and reveals the quantity step, so what's about to be added is always
+  // visible on screen first. ---
   function selectPickerVariant(variantId, max) {
     var variantInput = document.getElementById("variant-picker-input");
     var qtySection = document.getElementById("picker-qty-section");
@@ -170,16 +171,10 @@
         colorGroups[j].hidden = forSize !== sizeChip.getAttribute("data-size");
       }
 
-      if (sizeChip.hasAttribute("data-variant-id")) {
-        selectPickerVariant(
-          sizeChip.getAttribute("data-variant-id"),
-          parseInt(sizeChip.getAttribute("data-max"), 10) || 0
-        );
-      } else {
-        // Several colors under this size — nothing chosen yet. Clears any
-        // selection a PREVIOUSLY tapped size may have already completed.
-        clearPickerSelection();
-      }
+      // A size never picks a variant by itself — only clears whatever a
+      // PREVIOUSLY tapped size may have already completed, so switching
+      // sizes can't leave a stale variant_id from the old size in place.
+      clearPickerSelection();
       return;
     }
 
