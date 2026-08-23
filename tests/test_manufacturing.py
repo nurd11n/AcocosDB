@@ -737,6 +737,134 @@ def test_saving_a_foreign_expense_confirms_both_figures(client, django_user_mode
     assert "874,50" in body and "≈" in body
 
 
+def test_panel_never_asks_for_a_hand_typed_rate(client, django_user_model):
+    """THE BUG BEHIND «181 000 сом showed as 15 928 000»: rate_to_kgs has no
+    model default, so leaving it out of the admin made it a REQUIRED,
+    hand-typed field on /panel/'s add form — and a сом amount filed with the
+    сом-per-dollar rate typed in (88) is stored as amount × 88. A rate is a
+    consequence, never typed (CLAUDE.md)."""
+    owner = django_user_model.objects.create_superuser("panel_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    for url in (
+        "/panel/manufacturing/expense/add/",
+        "/panel/manufacturing/contractortransaction/add/",
+    ):
+        body = client.get(url).content.decode()
+        assert 'name="rate_to_kgs"' not in body, f"{url} still asks for a typed rate"
+
+
+def test_panel_freezes_the_rate_itself_on_add(client, django_user_model):
+    """Saving from /panel/ must derive the rate the same way services.py does
+    — and a сом row must come out at rate 1, never inflated."""
+    owner = django_user_model.objects.create_superuser("freeze_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    today = timezone.localdate()
+    ExchangeRate.objects.create(currency="USD", rate=Decimal("87.45"), date=today)
+
+    client.post(
+        "/panel/manufacturing/expense/add/",
+        {
+            "date": today.isoformat(),
+            "category": Expense.LABOR,
+            "amount": "181000",
+            "currency": "KGS",
+            "note": "",
+            "_save": "",
+        },
+    )
+    e = Expense.objects.get(amount=Decimal("181000"))
+    assert e.rate_to_kgs == Decimal("1")
+    assert e.amount_kgs == Decimal("181000"), "a сом expense must never be scaled"
+
+    client.post(
+        "/panel/manufacturing/expense/add/",
+        {
+            "date": today.isoformat(),
+            "category": Expense.FABRIC,
+            "amount": "10",
+            "currency": "USD",
+            "note": "",
+            "_save": "",
+        },
+    )
+    usd = Expense.objects.get(amount=Decimal("10"))
+    assert usd.rate_to_kgs == Decimal("87.45"), "a foreign row still converts at the DB rate"
+
+
+def test_panel_edit_does_not_restate_a_filed_row(client, django_user_model):
+    """Editing a note must not re-derive the rate — a filed expense never
+    follows today's rate (same freeze rule as Payment.rate_to_kgs)."""
+    owner = django_user_model.objects.create_superuser("edit_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    today = timezone.localdate()
+    ExchangeRate.objects.create(currency="USD", rate=Decimal("87.45"), date=today)
+    e = record_expense(date=today, category=Expense.FABRIC, amount=Decimal("10"), currency="USD")
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("99.00"))
+
+    client.post(
+        f"/panel/manufacturing/expense/{e.pk}/change/",
+        {
+            "date": today.isoformat(),
+            "category": Expense.FABRIC,
+            "amount": "10",
+            "currency": "USD",
+            "note": "edited note",
+            "_save": "",
+        },
+    )
+    e.refresh_from_db()
+    assert e.note == "edited note"
+    assert e.rate_to_kgs == Decimal("87.45"), "an edit must keep the original frozen rate"
+
+
+def test_audit_finds_and_fixes_a_som_row_with_a_bogus_rate(capsys):
+    """The corrupted rows already on record: сом with rate 88. `1 сом = 1 сом`
+    makes this the one unambiguous case, so --fix may repair it; without the
+    flag it only reports."""
+    from django.core.management import call_command
+
+    bad = Expense.objects.create(
+        date=timezone.localdate(),
+        category=Expense.LABOR,
+        amount=Decimal("181000"),
+        currency="KGS",
+        rate_to_kgs=Decimal("88"),
+    )
+    assert bad.amount_kgs == Decimal("15928000")
+
+    call_command("audit_expenses")
+    out = capsys.readouterr().out
+    assert f"#{bad.pk}" in out and "WRONG by definition" in out
+    assert "Nothing was changed" in out
+    bad.refresh_from_db()
+    assert bad.rate_to_kgs == Decimal("88"), "a bare report must never modify a row"
+
+    call_command("audit_expenses", "--fix")
+    assert "FIXED" in capsys.readouterr().out
+    bad.refresh_from_db()
+    assert bad.rate_to_kgs == Decimal("1")
+    assert bad.amount_kgs == Decimal("181000")
+
+
+def test_audit_fix_never_touches_a_foreign_row(capsys):
+    """--fix repairs base-currency rows ONLY. A foreign row's correct rate is
+    whatever was true on its date, which this command cannot know."""
+    from django.core.management import call_command
+
+    today = timezone.localdate()
+    foreign = Expense.objects.create(
+        date=today,
+        category=Expense.FABRIC,
+        amount=Decimal("10"),
+        currency="USD",
+        rate_to_kgs=Decimal("1"),
+    )
+    call_command("audit_expenses", "--fix")
+    foreign.refresh_from_db()
+    assert foreign.rate_to_kgs == Decimal("1")
+    assert "NOT auto-fixed" in capsys.readouterr().out
+
+
 def test_audit_expenses_flags_an_unconverted_foreign_row(capsys):
     """The diagnostic behind the «показало намного больше» report: a foreign
     row filed at rate 1.0 (the old silent fallback) is understated and must
@@ -774,4 +902,4 @@ def test_audit_expenses_is_silent_when_everything_is_in_som(capsys):
         currency="KGS",
     )
     call_command("audit_expenses")
-    assert "nothing to review" in capsys.readouterr().out
+    assert "No mis-rated rows found" in capsys.readouterr().out
