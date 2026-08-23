@@ -10479,3 +10479,29 @@ def test_sale_confirm_view_owner_missing_date_shows_error_not_500(
     assert resp.status_code == 302  # redisplays sale_detail, not a 500
     order.refresh_from_db()
     assert order.status == SaleOrder.DRAFT
+
+
+def test_panel_never_exposes_a_typed_rate_on_a_sale(client, django_user_model, variant):
+    """Same defect class as the hand-typed expense rate that filed 181 000 сом
+    as 15 928 000: confirm_sale freezes SaleOrder.rate_to_kgs and computes
+    total_kgs from it, but the admin left the rate editable while total/
+    total_kgs stayed readonly — so editing it silently desynced total_kgs from
+    total × rate on the revenue path. `currency` locks alongside it: total_kgs
+    was already computed at the old currency's rate and is readonly, so
+    relabelling afterwards leaves every сом aggregate reporting the old number
+    under a new label. (A DRAFT isn't editable in /panel/ at all — its change
+    page 302s — so the confirmed sale IS the whole reachable surface here.)"""
+    owner = django_user_model.objects.create_superuser("rate_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    add_movement(variant, StockMovement.PRODUCTION_IN, 10)
+
+    order = SaleOrder.objects.create(currency="KGS")
+    SaleItem.objects.create(order=order, variant=variant, quantity=2, unit_price=Decimal("500"))
+    confirm_sale(order)
+
+    resp = client.get(f"/panel/sales/saleorder/{order.pk}/change/")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert 'name="rate_to_kgs"' not in body, "a rate is never typed, at any stage"
+    assert 'name="currency"' not in body, "a confirmed sale's currency must lock"
+    assert 'name="total"' not in body, "totals are computed, never typed (pre-existing rule)"

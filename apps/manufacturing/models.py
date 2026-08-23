@@ -124,6 +124,11 @@ class ContractorTransaction(models.Model):
         constraints = [
             models.CheckConstraint(condition=Q(amount__gt=0), name="ctxn_amount_positive"),
             models.CheckConstraint(condition=Q(rate_to_kgs__gt=0), name="ctxn_rate_positive"),
+            # Same rule, same reason as expense_base_currency_rate_is_one.
+            models.CheckConstraint(
+                condition=~Q(currency=settings.CURRENCY) | Q(rate_to_kgs=1),
+                name="ctxn_base_currency_rate_is_one",
+            ),
         ]
 
     def __str__(self):
@@ -347,6 +352,18 @@ class Expense(models.Model):
         constraints = [
             models.CheckConstraint(condition=Q(amount__gt=0), name="expense_amount_positive"),
             models.CheckConstraint(condition=Q(rate_to_kgs__gt=0), name="expense_rate_positive"),
+            # 1 сом IS 1 сом: a base-currency row can only ever have rate 1.
+            # Backs the rule at the DB, not just in services/admin, because
+            # this is exactly how 181 000 сом came to be counted as
+            # 15 928 000 — the /panel/ form used to ask for the rate by hand
+            # and 88 (the сом-per-dollar rate) was typed in. settings.CURRENCY
+            # is baked in at migration time deliberately: changing the base
+            # currency of a live shop is a data migration either way, never a
+            # silent .env edit.
+            models.CheckConstraint(
+                condition=~Q(currency=settings.CURRENCY) | Q(rate_to_kgs=1),
+                name="expense_base_currency_rate_is_one",
+            ),
         ]
 
     def __str__(self):
