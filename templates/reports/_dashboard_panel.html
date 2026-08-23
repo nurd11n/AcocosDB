@@ -188,6 +188,54 @@ sometimes not.
  </div>
 </div>
 
+{% comment %}
+Личные расходы (apps.personal) — a deliberately SEPARATE section from
+Расходы above, visually and structurally: personal_spent/personal_by_tag/
+net_cash_after_personal are computed independently in
+apps.reports.views._dashboard_context and never merged into `metrics` or
+`data` — see apps.personal.dashboard's own module docstring. Always сом,
+never the cur/cur_symbol toggle the Расходы section above follows (that
+toggle only ever walks `data`, which this never touches).
+{% endcomment %}
+<h2 class="dash-section-title">{% trans "Личные расходы" %}</h2>
+<div class="panels panels--equal">
+ <div class="panel panel--anchored">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-payments"/></svg>{% trans "Итоги" %}</h2>
+  <div class="metrics metrics--pair">
+   <div class="metric metric--flat">
+    <span class="metric__icon"><svg class="ic"><use href="#i-payments"/></svg></span>
+    <div class="metric__body">
+     <div class="metric__label">{% trans "Потрачено лично" %}</div>
+     <div class="metric__value">{{ personal_spent|money:"сом" }}</div>
+     <div class="metric__sub">{% trans "личные расходы за период" %}</div>
+    </div>
+   </div>
+   <div class="metric metric--flat">
+    <span class="metric__icon"><svg class="ic"><use href="#i-profit"/></svg></span>
+    <div class="metric__body">
+     <div class="metric__label">{% trans "Остаток после личных расходов" %}</div>
+     <div class="metric__value">{{ net_cash_after_personal|money:"сом" }}</div>
+     <div class="metric__sub">{% trans "чистый приход минус личные расходы" %}</div>
+    </div>
+   </div>
+  </div>
+  <a class="top__link" href="{% url 'personal:expenses' %}"><svg class="ic"><use href="#i-payments"/></svg>{% trans "Все личные расходы" %}</a>
+ </div>
+ <div class="panel panel--anchored">
+  <h2 class="panel__title"><svg class="ic"><use href="#i-channels"/></svg>{% trans "По тегам" %}</h2>
+  <div class="bars">
+   {% for row in personal_by_tag %}
+   <div class="bar__row">
+    <span class="bar__label">{{ row.label }}</span>
+    <span class="bar__amt num">{{ row.total|money:"сом" }}</span>
+   </div>
+   {% empty %}
+   <p class="muted">{% trans "Расходов пока нет" %}</p>
+   {% endfor %}
+  </div>
+ </div>
+</div>
+
 {% comment %}Заказы panels (CLAUDE.md Part 3g) — always сом, not the view-currency toggle.{% endcomment %}
 <h2 class="dash-section-title">{% trans "Производство" %}</h2>
 <div class="panels">
