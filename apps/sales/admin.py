@@ -282,6 +282,27 @@ class SaleOrderAdmin(SimpleHistoryAdmin, admin.ModelAdmin):
     inlines = [SaleItemInline, PaymentInline]
     actions = ["approve_selected", "mark_paid_selected", "cancel_selected"]
 
+    def get_readonly_fields(self, request, obj=None):
+        """rate_to_kgs is NEVER typed — confirm_sale freezes it (and computes
+        total_kgs from it) exactly once. Leaving it editable let a confirmed
+        sale's rate be hand-edited while total/total_kgs stayed readonly,
+        silently desyncing total_kgs from total × rate — the same class of
+        defect as the hand-typed expense rate that filed 181 000 сом as
+        15 928 000 (audit_stale_totals catches the resulting mismatch, but a
+        figure that can't be mistyped never needs catching).
+
+        `currency` locks on CONFIRMED for the same reason: total_kgs was
+        already computed from the old currency's rate and is readonly, so
+        relabelling a confirmed sale's currency afterwards leaves every
+        сом-denominated aggregate reporting the old number under the new
+        label. A DRAFT's currency is still a real choice and stays editable.
+        """
+        ro = list(super().get_readonly_fields(request, obj))
+        ro.append("rate_to_kgs")
+        if obj is not None and obj.status != SaleOrder.DRAFT:
+            ro.append("currency")
+        return ro
+
     def get_queryset(self, request):
         # _paid stays for ORDERING ONLY now (a Python @property can't back
         # list_display's `ordering=`) — never for display. Postgres's NUMERIC

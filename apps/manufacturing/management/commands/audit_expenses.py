@@ -1,5 +1,7 @@
-"""Read-only check (unless --fix): is any expense or contractor transaction on
-record filed in a way that misstates what was actually spent?
+"""Read-only check: is any expense or contractor transaction on record filed
+in a way that misstates what was actually spent?
+
+Never writes anything — report only, same as audit_stale_totals.
 
 Written after a real report of «ввёл сумму — показало намного больше»: 181 000
 сом showing as 15 928 000 in the Расходы totals. Three independent ways a row
@@ -10,10 +12,12 @@ while every TOTAL above it is сом-converted:
    1 сом is 1 сом by definition — so this is unambiguous corruption, not a
    judgement call. Root cause: the /panel/ admin form used to expose
    rate_to_kgs as a required, hand-typed field, so a сом amount filed with
-   the сом-per-dollar rate typed in (88) was stored as amount × 88. The admin
-   now freezes the rate itself (_FrozenRateAdminMixin); rows filed BEFORE
-   that are still on record and still wrong. This is the ONE case --fix will
-   repair, because the correct value is not a guess: it is 1.
+   the сом-per-dollar rate typed in (88) was stored as amount × 88. Now
+   impossible three ways over: the admin freezes the rate itself
+   (_FrozenRateAdminMixin), migration 0002 repaired the rows already filed,
+   and a DB CheckConstraint (expense_base_currency_rate_is_one) rejects it
+   even via raw SQL. Still CHECKED here: if this ever reports a row, the
+   constraint is gone and something is very wrong.
 
 2. A foreign-currency row with rate_to_kgs == 1 — the silent fallback
    snapshot_rate_to_base() takes when no ExchangeRate row exists. 10 $ filed
@@ -30,7 +34,6 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import transaction
 
 from apps.core.currency import format_money, rate_info
 from apps.manufacturing.models import ContractorTransaction, Expense
@@ -39,22 +42,10 @@ MODELS = (("Расход", Expense), ("Операция подрядчика", C
 
 
 class Command(BaseCommand):
-    help = "Report (or --fix) expenses whose stored rate misstates what was spent."
-
-    def add_arguments(self, parser):
-        parser.add_argument(
-            "--fix",
-            action="store_true",
-            help=(
-                "Reset rate_to_kgs to 1 on BASE-CURRENCY rows only (case 1 above), "
-                "where 1 is the only arithmetically possible value. Never touches a "
-                "foreign-currency row."
-            ),
-        )
+    help = "Report expenses whose stored rate misstates what was spent (read-only)."
 
     def handle(self, *args, **options):
         base = settings.CURRENCY
-        do_fix = options["fix"]
         found_any = False
 
         for label, model in MODELS:
@@ -88,16 +79,6 @@ class Command(BaseCommand):
                         f"× {e.rate_to_kgs:.4f} = {format_money(e.amount_kgs, base)} "
                         f"→ should be {format_money(e.amount, base)}"
                     )
-                if do_fix:
-                    with transaction.atomic():
-                        for e in corrupt:
-                            e.rate_to_kgs = Decimal("1")
-                            e.save(update_fields=["rate_to_kgs"])
-                    self.stdout.write(
-                        self.style.SUCCESS(
-                            f"  FIXED: {len(corrupt)} {label} row(s) reset to rate 1."
-                        )
-                    )
 
             if unconverted:
                 found_any = True
@@ -105,7 +86,8 @@ class Command(BaseCommand):
                     self.style.ERROR(
                         f"\n{label}: {len(unconverted)} foreign-currency row(s) filed at rate 1.0 "
                         f"— almost certainly UNDERSTATED (no rate was on record when filed). "
-                        f"NOT auto-fixed — the right rate is whatever was true on that date:"
+                        f"The right rate is whatever was true on that date, which this "
+                        f"command cannot know — correct these by hand in /panel/:"
                     )
                 )
                 for e in unconverted:
@@ -137,11 +119,9 @@ class Command(BaseCommand):
             )
             return
 
-        if not do_fix:
-            self.stdout.write(
-                self.style.WARNING(
-                    "\nNothing was changed. Re-run with --fix to reset ONLY the "
-                    "base-currency rows above to rate 1 (the sole unambiguous case). "
-                    "Foreign-currency rows must be corrected by hand in /panel/."
-                )
+        self.stdout.write(
+            self.style.WARNING(
+                "\nNothing was changed — this command only reports. Correct a row in "
+                "/panel/ (Расходы), after confirming with whoever filed it."
             )
+        )

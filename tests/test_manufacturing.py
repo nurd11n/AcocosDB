@@ -817,38 +817,11 @@ def test_panel_edit_does_not_restate_a_filed_row(client, django_user_model):
     assert e.rate_to_kgs == Decimal("87.45"), "an edit must keep the original frozen rate"
 
 
-def test_audit_finds_and_fixes_a_som_row_with_a_bogus_rate(capsys):
-    """The corrupted rows already on record: сом with rate 88. `1 сом = 1 сом`
-    makes this the one unambiguous case, so --fix may repair it; without the
-    flag it only reports."""
-    from django.core.management import call_command
-
-    bad = Expense.objects.create(
-        date=timezone.localdate(),
-        category=Expense.LABOR,
-        amount=Decimal("181000"),
-        currency="KGS",
-        rate_to_kgs=Decimal("88"),
-    )
-    assert bad.amount_kgs == Decimal("15928000")
-
-    call_command("audit_expenses")
-    out = capsys.readouterr().out
-    assert f"#{bad.pk}" in out and "WRONG by definition" in out
-    assert "Nothing was changed" in out
-    bad.refresh_from_db()
-    assert bad.rate_to_kgs == Decimal("88"), "a bare report must never modify a row"
-
-    call_command("audit_expenses", "--fix")
-    assert "FIXED" in capsys.readouterr().out
-    bad.refresh_from_db()
-    assert bad.rate_to_kgs == Decimal("1")
-    assert bad.amount_kgs == Decimal("181000")
-
-
-def test_audit_fix_never_touches_a_foreign_row(capsys):
-    """--fix repairs base-currency rows ONLY. A foreign row's correct rate is
-    whatever was true on its date, which this command cannot know."""
+def test_audit_fix_flag_is_gone_command_is_read_only(capsys):
+    """The base-currency corruption is now impossible three ways over (admin
+    freezes the rate, migration 0002 repaired existing rows, a DB constraint
+    rejects it even via raw SQL) — so the command that used to repair it is
+    read-only again, like audit_stale_totals. Nothing here may write."""
     from django.core.management import call_command
 
     today = timezone.localdate()
@@ -859,10 +832,11 @@ def test_audit_fix_never_touches_a_foreign_row(capsys):
         currency="USD",
         rate_to_kgs=Decimal("1"),
     )
-    call_command("audit_expenses", "--fix")
+    call_command("audit_expenses")
+    out = capsys.readouterr().out
+    assert "UNDERSTATED" in out and "only reports" in out
     foreign.refresh_from_db()
-    assert foreign.rate_to_kgs == Decimal("1")
-    assert "NOT auto-fixed" in capsys.readouterr().out
+    assert foreign.rate_to_kgs == Decimal("1"), "audit must never modify a row"
 
 
 def test_audit_expenses_flags_an_unconverted_foreign_row(capsys):
@@ -903,3 +877,43 @@ def test_audit_expenses_is_silent_when_everything_is_in_som(capsys):
     )
     call_command("audit_expenses")
     assert "No mis-rated rows found" in capsys.readouterr().out
+
+
+def test_db_rejects_a_som_row_with_a_bogus_rate_even_via_bulk_create():
+    """The rule is backed by a DB CheckConstraint, not just services/admin —
+    same discipline as every other money rule here (CLAUDE.md's test list:
+    "DB constraints reject bad money/stock even via bulk_create"). This is
+    what makes «181 000 сом stored as amount × 88» structurally impossible to
+    recreate, by any path, including raw SQL."""
+    from django.db import IntegrityError, transaction
+
+    for model, kwargs in (
+        (Expense, {"category": Expense.LABOR}),
+        (ContractorTransaction, {"kind": ContractorTransaction.ACCRUAL}),
+    ):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            model.objects.bulk_create(
+                [
+                    model(
+                        date=timezone.localdate(),
+                        amount=Decimal("181000"),
+                        currency="KGS",
+                        rate_to_kgs=Decimal("88"),
+                        **({"contractor": None} if model is Expense else {}),
+                        **kwargs,
+                    )
+                ]
+            )
+
+
+def test_db_still_allows_a_foreign_row_with_a_real_rate(contractor):
+    """The constraint targets base-currency rows only — a genuine foreign
+    expense must still convert normally."""
+    e = Expense.objects.create(
+        date=timezone.localdate(),
+        category=Expense.FABRIC,
+        amount=Decimal("10"),
+        currency="USD",
+        rate_to_kgs=Decimal("87.45"),
+    )
+    assert e.amount_kgs == Decimal("874.50")
