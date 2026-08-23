@@ -9,12 +9,14 @@ in-depth every other money-affecting control in this codebase applies)."""
 from datetime import date as date_cls
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
+from apps.core.currency import format_money, rate_info
 from apps.pos.decorators import pos_view
 
 from .models import Contractor, ContractorTransaction, Expense, ProductionRun
@@ -229,16 +231,27 @@ def expenses(request):
         category = request.POST.get("category")
         currency = request.POST.get("currency") or "KGS"
         entry_date = _parse_date(request.POST.get("date")) or timezone.localdate()
+        # Same rule payments already enforce (apps.sales.services.record_payment):
+        # a foreign-currency amount with NO rate on record must save NOTHING,
+        # never fall back to snapshot_rate_to_base's silent 1.0 — that would
+        # file 10 $ as 10 сом, understating the expense ~87x with no warning.
+        missing_rate = currency != settings.CURRENCY and rate_info(currency) is None
         if not amount or amount <= 0:
             messages.error(request, _("Укажите сумму больше нуля."))
         elif category not in dict(Expense.CATEGORY_CHOICES):
             messages.error(request, _("Некорректная категория."))
+        elif missing_rate:
+            messages.error(
+                request,
+                _("Нет курса для %(c)s — расход не сохранён. Обновите курс и повторите.")
+                % {"c": currency},
+            )
         else:
             contractor_id = request.POST.get("contractor") or None
             contractor = (
                 Contractor.objects.filter(pk=contractor_id).first() if contractor_id else None
             )
-            record_expense(
+            expense = record_expense(
                 date=entry_date,
                 category=category,
                 amount=amount,
@@ -247,7 +260,24 @@ def expenses(request):
                 note=(request.POST.get("note") or "").strip(),
                 user=request.user,
             )
-            messages.success(request, _("Расход добавлен."))
+            # Confirm what was ACTUALLY filed, in both the typed currency and
+            # сом. A currency picked by mistake is otherwise invisible until it
+            # has already inflated every total on the page and the dashboard.
+            if expense.currency != settings.CURRENCY:
+                messages.success(
+                    request,
+                    _("Расход добавлен: %(amt)s ≈ %(kgs)s")
+                    % {
+                        "amt": format_money(expense.amount, expense.currency),
+                        "kgs": format_money(expense.amount_kgs, settings.CURRENCY),
+                    },
+                )
+            else:
+                messages.success(
+                    request,
+                    _("Расход добавлен: %(amt)s")
+                    % {"amt": format_money(expense.amount, expense.currency)},
+                )
             return redirect("manufacturing:expenses")
 
     from datetime import date as date_cls
@@ -267,6 +297,10 @@ def expenses(request):
             # the 100 shown below.
             "sections": expenses_by_section(date_cls(2000, 1, 1), timezone.localdate()),
             "today": timezone.localdate(),
+            # So the list can show «≈ N сом» beside a non-KGS row (CLAUDE.md's
+            # money rule) — the page mixes currencies in one table whose
+            # totals are all сом-converted.
+            "base_currency": settings.CURRENCY,
             "active": "manufacturing",
         },
     )
