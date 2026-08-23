@@ -145,11 +145,11 @@ def test_full_picker_disables_a_size_with_no_stock_in_any_color(client, draft):
     assert "disabled" in chip_5864, "every 58-64 color is out of stock"
 
 
-def test_out_of_stock_colors_are_disabled_and_hidden_behind_a_toggle(client, draft):
+def test_out_of_stock_colors_are_disabled_and_shown_in_their_own_labelled_group(client, draft):
     """Out-of-stock tiles must be non-clickable server-side (same rule the
-    product grid already follows), AND tucked behind «показать нет в
-    наличии» rather than padding the main list — the exact clutter the
-    report screenshotted."""
+    product grid already follows) AND always visible, categorized under
+    «Нет в наличии» — never behind a click. Answering "do we have this in
+    white at all?" shouldn't require an extra tap to find out."""
     cat = Category.objects.create(name="C5")
     prod = Product.objects.create(category=cat, name="Свитер")
     in_stock = _make_variant(prod, "SW-1", size="M", color="Черный", qty=10)
@@ -158,15 +158,18 @@ def test_out_of_stock_colors_are_disabled_and_hidden_behind_a_toggle(client, dra
 
     body = client.get(f"/pos/sale/{draft.pk}/products/{prod.pk}/variants/").content.decode()
 
-    assert "показать нет в наличии" in body
+    assert "показать нет в наличии" not in body, "no longer hidden behind a toggle"
+    assert "<details" not in body
+    assert "В наличии" in body
+    assert "Нет в наличии" in body
     # the out-of-stock tile is disabled...
     out_tile = body[body.index(f'data-variant-id="{out.pk}"') - 40 :]
     assert "disabled" in out_tile[:200]
-    # ...and sits AFTER the <details> opening tag, the in-stock one before it.
-    details_pos = body.index("<details")
+    # ...and sits in the SECOND (out-of-stock) group, the in-stock one first.
     in_stock_pos = body.index(f'data-variant-id="{in_stock.pk}"')
+    out_group_label_pos = body.index("Нет в наличии")
     out_pos = body.index(f'data-variant-id="{out.pk}"')
-    assert in_stock_pos < details_pos < out_pos
+    assert in_stock_pos < out_group_label_pos < out_pos
 
 
 def test_low_stock_color_tile_gets_the_partial_badge(client, draft):

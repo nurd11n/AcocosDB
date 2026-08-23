@@ -1,0 +1,21 @@
+{% load i18n %}
+{% comment %}
+Shared by both places colors get rendered (a chosen size's colors, or the
+whole picker's colors when there's only one size) — always shows BOTH
+groups when they exist, labelled, never behind a click. A manager scanning
+for what's available shouldn't have to tap a toggle first to see it, and
+seeing what's NOT available (rather than it just being absent) is its own
+useful answer ("do we make this in green at all?").
+{% endcomment %}
+{% if colors_available %}
+<p class="hint" style="margin-top:var(--space-2);margin-bottom:0">{% trans "В наличии" %}</p>
+<div class="grid" style="margin-top:var(--space-1)">
+ {% for v in colors_available %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
+</div>
+{% endif %}
+{% if colors_out %}
+<p class="hint" style="margin-top:var(--space-3);margin-bottom:0">{% trans "Нет в наличии" %}</p>
+<div class="grid" style="margin-top:var(--space-1)">
+ {% for v in colors_out %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
+</div>
+{% endif %}

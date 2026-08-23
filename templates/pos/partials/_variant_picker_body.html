@@ -64,34 +64,14 @@ showing/hiding a group is real client-side state, not a fetch.
  {% for size in groups.sizes %}
   {% if size.colors_available or size.colors_out %}
   <div class="variant-colors" data-colors-for="{{ size.value }}" hidden style="margin-top:var(--space-2)">
-   <div class="grid">
-    {% for v in size.colors_available %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
-   </div>
-   {% if size.colors_out %}
-   <details style="margin-top:var(--space-2)">
-    <summary class="hint">{% trans "показать нет в наличии" %}</summary>
-    <div class="grid" style="margin-top:var(--space-2)">
-     {% for v in size.colors_out %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
-    </div>
-   </details>
-   {% endif %}
+   {% include "pos/partials/_variant_color_group.html" with colors_available=size.colors_available colors_out=size.colors_out %}
   </div>
   {% endif %}
  {% endfor %}
 
  {% if groups.skip_size_step %}
  <label>{% trans "Цвет" %}</label>
- <div class="grid" style="margin-top:var(--space-2)">
-  {% for v in groups.colors_available %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
- </div>
- {% if groups.colors_out %}
- <details style="margin-top:var(--space-2)">
-  <summary class="hint">{% trans "показать нет в наличии" %}</summary>
-  <div class="grid" style="margin-top:var(--space-2)">
-   {% for v in groups.colors_out %}{% include "pos/partials/_variant_color_tile.html" with v=v %}{% endfor %}
-  </div>
- </details>
- {% endif %}
+ {% include "pos/partials/_variant_color_group.html" with colors_available=groups.colors_available colors_out=groups.colors_out %}
  {% endif %}
  {% endif %}
 
