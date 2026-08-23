@@ -37,6 +37,7 @@ urlpatterns = [
     path("pos/", include("apps.pos.urls")),
     path("orders/", include("apps.orders.urls")),
     path("manufacturing/", include("apps.manufacturing.urls")),
+    path("personal/", include("apps.personal.urls")),
     path("inbox/", include("apps.inbox.urls")),
     path("wa/", include("apps.wa.urls")),
     path("i18n/", include("django.conf.urls.i18n")),

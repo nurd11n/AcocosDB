@@ -142,6 +142,7 @@ INSTALLED_APPS = [
     "apps.sales",
     "apps.orders",
     "apps.manufacturing",
+    "apps.personal",
     "apps.reports",
     "apps.campaigns",
     "apps.inbox",
@@ -496,6 +497,12 @@ JAZZMIN_SETTINGS = {
         "manufacturing.Contractor",
         "manufacturing.ProductionRun",
         "manufacturing.Expense",
+        # Owner's own spending, not the shop's — same "occasional lookup"
+        # tier as Производство right above (the day-to-day surface is
+        # /personal/, not this admin), placed right before Система since
+        # both are Owner-only-and-only-the-owner-cares-about-this territory.
+        "personal",
+        "personal.PersonalExpense",
         "core",
         "auth",
         "axes",
