@@ -612,3 +612,166 @@ def test_main_dashboard_expense_sections_convert_with_the_currency_toggle(
     converted = _convert_money(data, Decimal("87.00"))
     wages_row = next(r for r in converted["expenses_by_section"] if r["section"] == "wages")
     assert wages_row["total"] == Decimal("100.00")  # 8700 / 87
+
+
+# ---------------------------------------------------------------------------
+# Expense currency handling — a foreign-currency expense must never be
+# silently mis-scaled, and must never be invisible in a сом-totalled list
+# ---------------------------------------------------------------------------
+
+
+def test_kgs_expense_is_never_multiplied_by_a_foreign_rate():
+    """The base-currency case, pinned: a сом expense stores rate 1 and an
+    amount_kgs equal to what was typed — even with a USD rate on record.
+    «Ввёл 1000, показало намного больше» is exactly what a stray rate here
+    would look like."""
+    ExchangeRate.objects.create(currency="USD", rate=Decimal("87.45"), date=timezone.localdate())
+    e = record_expense(
+        date=timezone.localdate(),
+        category=Expense.RENT,
+        amount=Decimal("1000"),
+        currency="KGS",
+    )
+    assert e.rate_to_kgs == Decimal("1")
+    assert e.amount_kgs == Decimal("1000")
+
+
+def test_foreign_expense_converts_at_the_db_rate_and_freezes_it():
+    """The rate comes from the ExchangeRate table (the same row the Курс card
+    and every payment read), and is FROZEN — moving the rate afterwards must
+    never restate an expense already filed."""
+    ExchangeRate.objects.create(currency="USD", rate=Decimal("87.45"), date=timezone.localdate())
+    e = record_expense(
+        date=timezone.localdate(),
+        category=Expense.FABRIC,
+        amount=Decimal("10"),
+        currency="USD",
+    )
+    assert e.rate_to_kgs == Decimal("87.45")
+    assert e.amount_kgs == Decimal("874.50")
+
+    ExchangeRate.objects.filter(currency="USD").update(rate=Decimal("99.00"))
+    e.refresh_from_db()
+    assert e.rate_to_kgs == Decimal("87.45"), "a filed expense must not follow today's rate"
+    assert e.amount_kgs == Decimal("874.50")
+
+
+def test_foreign_expense_without_a_rate_saves_nothing_and_says_so(client, django_user_model):
+    """Same rule record_payment already enforces: no rate on record for a
+    foreign currency means save NOTHING, never fall back to a silent 1.0
+    (which would file 10 $ as 10 сом — understating it ~87x, invisibly)."""
+    owner = django_user_model.objects.create_superuser("norate_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    assert not ExchangeRate.objects.filter(currency="USD").exists()
+
+    resp = client.post(
+        "/manufacturing/expenses/",
+        {
+            "category": Expense.RENT,
+            "amount": "10",
+            "currency": "USD",
+            "date": timezone.localdate().isoformat(),
+        },
+        follow=True,
+    )
+    assert Expense.objects.count() == 0, "nothing may be saved without a rate"
+    assert "Нет курса" in resp.content.decode()
+
+
+def test_expense_list_shows_the_som_equivalent_of_a_foreign_row(client, django_user_model):
+    """CLAUDE.md's money rule («≈ X сом» beside every non-KGS amount) applied
+    here specifically because this list MIXES currencies under сом-converted
+    totals: without the ≈, a «10 $» row reads as smaller than a «1 000 сом»
+    row while contributing ~9x more to every total above it."""
+    owner = django_user_model.objects.create_superuser("equiv_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    ExchangeRate.objects.create(currency="USD", rate=Decimal("87.45"), date=timezone.localdate())
+    record_expense(
+        date=timezone.localdate(),
+        category=Expense.FABRIC,
+        amount=Decimal("10"),
+        currency="USD",
+    )
+    record_expense(
+        date=timezone.localdate(),
+        category=Expense.RENT,
+        amount=Decimal("1000"),
+        currency="KGS",
+    )
+
+    body = client.get("/manufacturing/expenses/").content.decode()
+    assert "874,50" in body, "foreign row must show its сом equivalent"
+    # The KGS row gets no ≈ — it IS сом already, nothing to approximate.
+    assert body.count("≈") == 1
+
+
+def test_expense_form_defaults_to_som_explicitly(client, django_user_model):
+    """`selected` on the KGS option, not merely first-in-list: the browser's
+    own form-state restore (back/forward, bfcache, autofill) otherwise
+    re-selects whatever was last used, so one $ expense silently makes $ the
+    default for every expense after it."""
+    owner = django_user_model.objects.create_superuser("default_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    body = client.get("/manufacturing/expenses/").content.decode()
+    assert '<option value="KGS" selected>' in body
+
+
+def test_saving_a_foreign_expense_confirms_both_figures(client, django_user_model):
+    """The success message states what was actually filed, in both the typed
+    currency and сом — a currency chosen by mistake is otherwise invisible
+    until it has already inflated every total on the page."""
+    owner = django_user_model.objects.create_superuser("confirm_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    ExchangeRate.objects.create(currency="USD", rate=Decimal("87.45"), date=timezone.localdate())
+    resp = client.post(
+        "/manufacturing/expenses/",
+        {
+            "category": Expense.FABRIC,
+            "amount": "10",
+            "currency": "USD",
+            "date": timezone.localdate().isoformat(),
+        },
+        follow=True,
+    )
+    body = resp.content.decode()
+    assert "874,50" in body and "≈" in body
+
+
+def test_audit_expenses_flags_an_unconverted_foreign_row(capsys):
+    """The diagnostic behind the «показало намного больше» report: a foreign
+    row filed at rate 1.0 (the old silent fallback) is understated and must
+    be surfaced; a properly-converted one is listed separately for review,
+    and neither is ever auto-changed."""
+    from django.core.management import call_command
+
+    today = timezone.localdate()
+    bad = Expense.objects.create(
+        date=today,
+        category=Expense.RENT,
+        amount=Decimal("10"),
+        currency="USD",
+        rate_to_kgs=Decimal("1"),  # the old silent fallback
+    )
+    ExchangeRate.objects.create(currency="USD", rate=Decimal("87.45"), date=today)
+    good = record_expense(date=today, category=Expense.FABRIC, amount=Decimal("5"), currency="USD")
+
+    call_command("audit_expenses")
+    out = capsys.readouterr().out
+    assert f"#{bad.pk}" in out and "UNDERSTATED" in out
+    assert f"#{good.pk}" in out
+    assert "Nothing was changed" in out
+    bad.refresh_from_db()
+    assert bad.rate_to_kgs == Decimal("1"), "audit must never modify a row"
+
+
+def test_audit_expenses_is_silent_when_everything_is_in_som(capsys):
+    from django.core.management import call_command
+
+    record_expense(
+        date=timezone.localdate(),
+        category=Expense.RENT,
+        amount=Decimal("1000"),
+        currency="KGS",
+    )
+    call_command("audit_expenses")
+    assert "nothing to review" in capsys.readouterr().out

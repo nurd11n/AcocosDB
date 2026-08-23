@@ -18,8 +18,16 @@
   <input type="text" name="amount" inputmode="decimal" placeholder="{% trans "например 5000" %}">
 
   <label style="margin-top:var(--space-2)">{% trans "Валюта" %}</label>
-  <select name="currency">
-   <option value="KGS">сом — KGS</option>
+  {% comment %}
+  KGS is explicitly `selected`, not merely first: a bare first-option default
+  is restored by the browser's own form-state restore (back/forward, bfcache,
+  autofill) to whatever was last chosen, so a one-off expense in $ silently
+  became the default for every expense after it — and a foreign amount is
+  multiplied by the rate into every total on the page (~87x for USD), which
+  reads as "I typed 1000 and it showed way more".
+  {% endcomment %}
+  <select name="currency" autocomplete="off">
+   <option value="KGS" selected>сом — KGS</option>
    <option value="USD">$ — USD</option>
    <option value="RUB">₽ — RUB</option>
   </select>
