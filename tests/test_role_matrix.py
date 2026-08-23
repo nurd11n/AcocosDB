@@ -39,6 +39,9 @@ OWNER_ONLY = [
     "/manufacturing/",  # contractors list (empty path in manufacturing/urls.py)
     "/manufacturing/expenses/",
     "/manufacturing/dashboard/",
+    "/panel/personal/personalexpense/",
+    "/personal/",
+    "/personal/export/",
 ]
 
 # Surfaces any logged-in staff member may open (read at minimum).

@@ -1,0 +1,97 @@
+{% extends "pos/base.html" %}
+{% load i18n pos_extras %}
+{% block title %}{% trans "Личные расходы" %}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'dashboard' %}">← {% trans "Дашборд" %}</a>
+
+<div class="card">
+ <h2><svg class="ic"><use href="#i-payments"/></svg>{% trans "Личные расходы" %}</h2>
+ {% comment %}
+ По тегам, всё время — не только показанные ниже 100 строк. Отдельно от
+ apps.manufacturing/apps.reports: см. apps.personal.models's own docstring.
+ {% endcomment %}
+ <div class="row" style="margin-top:var(--space-3);flex-wrap:wrap;row-gap:12px">
+  {% for row in by_tag %}
+  <div>
+   <p class="hint">{{ row.label }}</p>
+   <p class="num" style="font-size:18px;font-weight:600">{{ row.total|money:"сом" }}</p>
+  </div>
+  {% endfor %}
+ </div>
+ <a class="top__link" href="{% url 'personal:expenses_export' %}" style="margin-top:var(--space-3)">
+   <svg class="ic"><use href="#i-payments"/></svg>{% trans "Скачать (.csv)" %}</a>
+</div>
+
+<div class="card">
+ <h3>{% trans "Новый расход" %}</h3>
+ <form method="post">
+  {% csrf_token %}
+  <label>{% trans "Тег" %}</label>
+  <select name="tag">
+   {% for code, label in tags %}
+   <option value="{{ code }}">{{ label }}</option>
+   {% endfor %}
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Сумма" %}</label>
+  <input type="text" name="amount" inputmode="decimal" placeholder="{% trans "например 3000" %}">
+
+  <label style="margin-top:var(--space-2)">{% trans "Валюта" %}</label>
+  {% comment %}
+  KGS explicitly `selected`, not merely first — same reasoning as
+  apps.manufacturing's identical form: the browser's own form-state restore
+  (back/forward, bfcache, autofill) otherwise re-selects whatever was last
+  used, silently making a foreign currency the default for every entry after.
+  {% endcomment %}
+  <select name="currency" autocomplete="off">
+   <option value="KGS" selected>сом — KGS</option>
+   <option value="USD">$ — USD</option>
+   <option value="RUB">₽ — RUB</option>
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Дата" %}</label>
+  <input type="date" name="date" value="{{ today|date:'Y-m-d' }}">
+
+  <label style="margin-top:var(--space-2)">{% trans "Описание" %}</label>
+  <input type="text" name="description" placeholder="{% trans "необязательно" %}">
+
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Сохранить" %}</button>
+ </form>
+</div>
+
+<div class="card">
+ <div class="table-scroll">
+ <table class="table">
+  <thead>
+   <tr>
+    <th>{% trans "Дата" %}</th>
+    <th>{% trans "Тег" %}</th>
+    <th>{% trans "Описание" %}</th>
+    <th class="num">{% trans "Сумма" %}</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for e in rows %}
+   <tr>
+    <td>{{ e.date|date:"d.m.Y" }}</td>
+    <td>{{ e.get_tag_display }}</td>
+    <td>{{ e.description|default:"—" }}</td>
+    {% comment %}
+    Non-KGS rows show their сом equivalent (CLAUDE.md's money rule) — this
+    list mixes currencies under totals that are all сом-converted, exactly
+    the same reasoning as apps.manufacturing/expenses.html.
+    {% endcomment %}
+    <td class="num">{{ e.amount|money:e.currency }}
+     {% if e.currency != base_currency %}
+      <span class="hint">≈ {{ e.amount_kgs|money:base_currency }}</span>
+     {% endif %}
+    </td>
+   </tr>
+   {% empty %}
+   <tr><td colspan="4" class="muted">{% trans "Расходов пока нет" %}</td></tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ </div>
+</div>
+{% endblock %}

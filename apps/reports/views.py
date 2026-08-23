@@ -28,6 +28,7 @@ from apps.inventory.cache import catalog_version
 from . import charts, export, storage
 from .dashboard import (
     DASHBOARD_CSV_SHEETS,
+    _windows,
     dashboard_data,
     dashboard_sheets,
     resolve_period,
@@ -178,6 +179,20 @@ def _dashboard_context(period, cur):
     data = _cached_data(period)  # сом aggregates, cached in the base currency
     today = timezone.localdate()
 
+    # Личные расходы (apps.personal) — read here ONLY to derive the ONE
+    # dashboard card below. Captured from the RAW (always-сом) `data`,
+    # before the possible _convert_money reassignment right after this, and
+    # NEVER written into `data` itself — dashboard_export/dashboard_sheets
+    # only ever see `data`, so this stays structurally unreachable from any
+    # export regardless of what happens below. See apps.personal.dashboard's
+    # own module docstring for the full reasoning.
+    from apps.personal.dashboard import personal_expenses_by_tag, personal_spent_kgs
+
+    p_start, p_end, _prev_start, _prev_end = _windows(period)
+    personal_spent = personal_spent_kgs(p_start, p_end)
+    personal_by_tag = personal_expenses_by_tag(p_start, p_end)
+    net_cash_after_personal = data["metrics"]["net_cash"]["value"] - personal_spent
+
     # View-only currency: convert a copy at today's rate, or fall back to сом and
     # flag it when no rate is on record for the requested currency.
     rate = Decimal("1") if cur == KGS else get_rate(cur, today)
@@ -204,6 +219,11 @@ def _dashboard_context(period, cur):
         "rate_date": today,
         "rate_missing": rate_missing,
         "period_sub": f"за {data['period_label'].lower()}",
+        # Личные расходы card — deliberately ALWAYS сом, never following the
+        # cur/cur_symbol toggle above (that toggle only ever touches `data`).
+        "personal_spent": personal_spent,
+        "personal_by_tag": personal_by_tag,
+        "net_cash_after_personal": net_cash_after_personal,
     }
 
 
