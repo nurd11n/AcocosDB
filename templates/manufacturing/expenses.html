@@ -34,8 +34,16 @@
   <input type="text" name="amount" inputmode="decimal" placeholder="{% trans "например 3000" %}">
 
   <label style="margin-top:var(--space-2)">{% trans "Валюта" %}</label>
-  <select name="currency">
-   <option value="KGS">сом — KGS</option>
+  {% comment %}
+  KGS is explicitly `selected`, not merely first: a bare first-option default
+  is restored by the browser's own form-state restore (back/forward, bfcache,
+  autofill) to whatever was last chosen, so a one-off expense in $ silently
+  became the default for every expense after it — and a foreign amount is
+  multiplied by the rate into every total on the page (~87x for USD), which
+  reads as "I typed 1000 and it showed way more".
+  {% endcomment %}
+  <select name="currency" autocomplete="off">
+   <option value="KGS" selected>сом — KGS</option>
    <option value="USD">$ — USD</option>
    <option value="RUB">₽ — RUB</option>
   </select>
@@ -75,7 +83,19 @@
     <td>{{ e.date|date:"d.m.Y" }}</td>
     <td>{{ e.get_category_display }}</td>
     <td>{% if e.contractor %}{{ e.contractor.name }}{% else %}—{% endif %}</td>
-    <td class="num">{{ e.amount|money:e.currency }}</td>
+    {% comment %}
+    Non-KGS rows MUST show their сом equivalent (CLAUDE.md: «≈ X сом» beside
+    every non-KGS amount). This list mixes currencies in one table whose
+    totals above are all сом-converted — without the ≈, a «10 $» row looks
+    smaller than a «1 000 сом» row while actually contributing ~9x MORE to
+    every total on the page and on the dashboard. Uses the rate frozen on
+    the expense itself (amount_kgs), never today's rate.
+    {% endcomment %}
+    <td class="num">{{ e.amount|money:e.currency }}
+     {% if e.currency != base_currency %}
+      <span class="hint">≈ {{ e.amount_kgs|money:base_currency }}</span>
+     {% endif %}
+    </td>
    </tr>
    {% empty %}
    <tr><td colspan="4" class="muted">{% trans "Расходов пока нет" %}</td></tr>
