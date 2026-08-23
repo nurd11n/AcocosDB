@@ -830,7 +830,9 @@ def variant_picker_new(request, product_id):
         v.reserved_qty = reserved.get(v.pk, 0)
         v.available_qty = max(on_hand - v.reserved_qty, 0)
     return render(
-        request, "pos/partials/variant_picker_new.html", {"product": product, "variants": variants}
+        request,
+        "pos/partials/variant_picker_new.html",
+        {"product": product, "groups": _group_variants_for_picker(variants)},
     )
 
 
@@ -1123,6 +1125,75 @@ def product_grid(request, pk):
     )
 
 
+def _split_by_availability(variants: list) -> tuple[list, list]:
+    return (
+        [v for v in variants if v.available_qty > 0],
+        [v for v in variants if v.available_qty <= 0],
+    )
+
+
+def _size_entry(size: str, variants: list) -> dict:
+    """One chip's worth of data for the size step. `single_variant` set means
+    this size has nothing to choose within it — clicking the chip selects
+    that one variant directly and skips the color step entirely."""
+    available, unavailable = _split_by_availability(variants)
+    single = len(variants) == 1
+    return {
+        "value": size,
+        "label": size or "—",
+        "enabled": bool(available),
+        "single_variant": variants[0] if single else None,
+        "colors_available": [] if single else available,
+        "colors_out": [] if single else unavailable,
+    }
+
+
+def _group_variants_for_picker(variants: list) -> dict:
+    """Groups a product's variants into the two-step size->color shape the
+    picker renders — CLAUDE.md's "photo grid, not a dropdown" principle
+    extended down to the variant level (a flat <select> of ~30 size/color/
+    price/qty rows was the actual mess this replaces).
+
+    `variants` must already carry `.available_qty` (both call sites compute
+    it beforehand — this function only groups, it never touches stock math).
+    Relies on ProductVariant.Meta.ordering (size, then color) already having
+    sorted the list, so grouping by insertion order reproduces that order
+    without a second sort here.
+
+    Returns one of four shapes, collapsing whichever step has nothing to
+    choose (a single variant overall, or a single color within one size —
+    both `size` and `color` are blank=True, and this also naturally covers
+    that case since a blank size/color still groups to exactly one bucket):
+    - {"single_variant": v}                                    — nothing to pick, orderable
+    - {"single_out_of_stock": v}                                — nothing to pick, NOT orderable
+    - {"skip_size_step": True, "colors_available"/"colors_out"} — one size, several colors
+    - {"sizes": [...]}                                          — the full two-step picker
+
+    The single_variant/single_out_of_stock split exists so the template never
+    has to re-derive "orderable" from a raw quantity — a lone 0-stock variant
+    must render the same non-clickable dead end a 0-stock color tile does
+    (CLAUDE.md: a tile at 0 available is non-clickable server-side too, not
+    just dimmed CSS), rather than a form pre-filled and ready to submit.
+    """
+    by_size: dict[str, list] = {}
+    for v in variants:
+        by_size.setdefault(v.size, []).append(v)
+
+    if len(by_size) == 1:
+        (only_variants,) = by_size.values()
+        if len(only_variants) == 1:
+            only = only_variants[0]
+            return (
+                {"single_variant": only}
+                if only.available_qty > 0
+                else {"single_out_of_stock": only}
+            )
+        available, unavailable = _split_by_availability(only_variants)
+        return {"skip_size_step": True, "colors_available": available, "colors_out": unavailable}
+
+    return {"sizes": [_size_entry(size, vs) for size, vs in by_size.items()]}
+
+
 @pos_view
 @require_can_sell
 def variant_picker(request, pk, product_id):
@@ -1151,7 +1222,11 @@ def variant_picker(request, pk, product_id):
     return render(
         request,
         "pos/partials/variant_picker.html",
-        {"order": order, "product": product, "variants": variants},
+        {
+            "order": order,
+            "product": product,
+            "groups": _group_variants_for_picker(variants),
+        },
     )
 
 

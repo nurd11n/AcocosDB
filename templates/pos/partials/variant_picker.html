@@ -2,23 +2,6 @@
 <div class="card">
  <p class="hint" style="margin:0">{{ product.category.name }}</p>
  <h2 style="margin-top:2px">{{ product.name }}</h2>
- <form hx-post="{% url 'pos:item_add' order.pk %}" hx-target="#sale-body" hx-swap="innerHTML">
-  <label>{% trans "Вариант" %}</label>
-  <select name="variant_id" id="variant-select" required>
-   {% for v in variants %}
-     <option value="{{ v.pk }}" data-max="{{ v.available_qty }}" {% if v.available_qty <= 0 %}disabled{% endif %}>
-       {{ v.size }} / {{ v.color }} — {{ v.sale_price|money:v.currency }}
-       ({{ v.available_qty }} {% trans "шт" %}{% if v.reserved_qty %} · {{ v.reserved_qty }} {% trans "в заказах" %}{% endif %})
-     </option>
-   {% endfor %}
-  </select>
-  <label>{% trans "Количество" %}</label>
-  <input type="number" name="quantity" id="picker-qty" inputmode="numeric" value="1" min="1"
-    max="{{ variants.0.available_qty|default:1 }}" required>
-  <p class="pay-note pay-note--risk" id="picker-qty-note" hidden></p>
-  <div class="row" style="margin-top:var(--space-3)">
-    <button type="submit" class="btn btn-primary">{% trans "Добавить" %}</button>
-    <button type="button" class="btn btn-ghost" data-clear-target="variant-picker">{% trans "Отмена" %}</button>
-  </div>
- </form>
+ {% url 'pos:item_add' order.pk as item_add_post_url %}
+ {% include "pos/partials/_variant_picker_body.html" with post_url=item_add_post_url hx_target="#sale-body" %}
 </div>

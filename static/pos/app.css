@@ -395,6 +395,10 @@ html[data-theme="dark"] .theme-toggle__icon--moon { display: none; }
   align-items: center;
 }
 .fpill.is-on { background: var(--accent); color: var(--on-accent); font-weight: 500; }
+/* Only the variant-picker's size chips are real <button>s (every other
+   .fpill is a filter <a>, which can't be disabled) — a size with no
+   available stock in any color, same visual rule as .tile:disabled. */
+.fpill:disabled { opacity: 0.45; cursor: not-allowed; }
 .client-list { padding: 0; overflow: hidden; }
 .client-row {
   display: flex;
@@ -708,6 +712,11 @@ input:focus, select:focus, textarea:focus {
 }
 .tile__cat { font-size: 11px; color: var(--text-3); margin-bottom: 1px; }
 .tile__name { font-size: 13px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 2px; }
+/* A product tile's .tile__photo pushes the badge (top:0, right:0 of the
+   WHOLE tile) safely above the text below it. The variant picker's color
+   tiles have no photo, so without this the badge sits directly on top of
+   the color name — reserve the same clearance a photo would have given. */
+.tile--swatch { padding-top: 26px; }
 .tile__price { font-size: 13px; color: var(--text); font-weight: 600; }
 .tile__reserved { font-size: 11px; color: var(--text-3); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .tile__badge {
