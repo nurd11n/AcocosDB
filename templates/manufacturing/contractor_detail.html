@@ -2,6 +2,8 @@
 {% load i18n pos_extras %}
 {% block title %}{{ contractor.name }}{% endblock %}
 {% block content %}
+<a class="back-link" href="{% url 'manufacturing:contractors' %}">← {% trans "Производство" %}</a>
+
 <div class="card">
  <h2>{{ contractor.name }}</h2>
  {% if contractor.contact %}<p class="muted">{{ contractor.contact }}</p>{% endif %}

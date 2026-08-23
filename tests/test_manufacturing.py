@@ -917,3 +917,57 @@ def test_db_still_allows_a_foreign_row_with_a_real_rate(contractor):
         rate_to_kgs=Decimal("87.45"),
     )
     assert e.amount_kgs == Decimal("874.50")
+
+
+# ---------------------------------------------------------------------------
+# Navigation: every manufacturing sub-page offers the way back out that
+# /orders/ already had («← Все заказы»)
+# ---------------------------------------------------------------------------
+
+
+def test_every_manufacturing_subpage_has_a_back_link(client, django_user_model, contractor):
+    """The hub (/manufacturing/) is in the bottom nav, so it needs no back-link
+    — exactly like /orders/'s own index. Every page BELOW it does: these are
+    dead ends otherwise, and a production/expense form ends in a Save that
+    shouldn't be the only way out."""
+    owner = django_user_model.objects.create_superuser("nav_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+
+    for url in (
+        f"/manufacturing/contractors/{contractor.pk}/",
+        f"/manufacturing/contractors/{contractor.pk}/transaction/add/",
+        "/manufacturing/production/add/",
+        "/manufacturing/expenses/",
+        "/manufacturing/dashboard/",
+    ):
+        body = client.get(url).content.decode()
+        assert 'class="back-link"' in body, f"{url} has no way back"
+
+    # The hub itself deliberately has none (same as /orders/).
+    assert 'class="back-link"' not in client.get("/manufacturing/").content.decode()
+
+
+def test_production_add_back_link_returns_to_the_order_it_came_from(
+    client, django_user_model, variant, contractor
+):
+    """Reached from an order's «Записать производство» (?order_item=N), back
+    must return to THAT order — not the hub, which would strand the user a
+    click away from the work they were doing."""
+    from apps.clients.models import Client as ClientModel
+    from apps.orders.services import create_order
+
+    owner = django_user_model.objects.create_superuser("nav2", "o@e.com", "x" * 12)
+    client.force_login(owner)
+
+    buyer = ClientModel.objects.create(first_name="Навигация", phone="+996700123999")
+    order = create_order(
+        client=buyer,
+        items=[{"variant": variant, "quantity": 2, "unit_price": Decimal("3200")}],
+    )
+    item = order.items.first()
+
+    from_order = client.get(f"/manufacturing/production/add/?order_item={item.pk}").content.decode()
+    assert f'href="/orders/{order.pk}/"' in from_order, "back must return to the order"
+
+    standalone = client.get("/manufacturing/production/add/").content.decode()
+    assert 'href="/manufacturing/"' in standalone, "standalone visit goes back to the hub"
