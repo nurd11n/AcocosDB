@@ -1,0 +1,17 @@
+{% load i18n %}
+{% for p in products %}
+<div class="line-row">
+  <div class="line-row__label">
+    <strong>{{ p.name }}</strong><br><span class="muted">{{ p.category.name }}</span>
+  </div>
+  {% comment %}
+  Targets #production-body, not a grid container below: the grid REPLACES the
+  picker outright rather than appearing under a still-expanded product list.
+  {% endcomment %}
+  <button type="button" class="btn btn-ghost btn-sm" style="width:auto"
+    hx-get="{% url 'manufacturing:production_grid' p.pk %}" hx-target="#production-body" hx-swap="innerHTML">
+    {% trans "Выбрать" %}</button>
+</div>
+{% empty %}
+<p class="muted">{% trans "Ничего не найдено" %}</p>
+{% endfor %}

@@ -840,6 +840,34 @@ body:has(#order-modal:not(:empty)) { overflow: hidden; }
 .table tbody tr { border-top: 0.5px solid var(--border); }
 .table td.num, .table th.num { text-align: right; white-space: nowrap; }
 
+/* Batch production grid (manufacturing/partials/production_grid.html): one
+   size x color cell holds an accepted + a defect qty input side by side,
+   narrow enough that a whole matrix of colors still fits without the table
+   itself needing to scroll on top of the page's own overflow-x wrapper. */
+.qty-cell { display: flex; align-items: center; gap: 3px; }
+.qty-cell input {
+  width: 44px;
+  padding: var(--space-1);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.qty-cell input[data-role="defect"] { color: var(--debt); }
+.qty-cell__empty { color: var(--text-3); }
+/* A product with many colours makes the grid wider than a phone (9 colours =
+   ~1000px), so .table-scroll gives it its own horizontal scroll. Pin the size
+   column while that happens — otherwise scrolling right to reach «бежевый»
+   scrolls the size away too, and there's nothing on screen saying which row
+   the numbers being typed belong to. Opaque background so the scrolling cells
+   pass UNDER it rather than showing through. */
+#production-grid-card .table th:first-child,
+#production-grid-card .table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  padding-right: var(--space-2);
+}
+
 /* --- line rows --- */
 .line-row {
   display: flex;

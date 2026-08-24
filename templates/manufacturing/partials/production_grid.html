@@ -1,0 +1,113 @@
+{% load i18n pos_extras %}
+{% comment %}
+Step 2 of the batch form. REPLACES the picker inside #production-body rather
+than rendering below it, so the grid is what's on screen once a product is
+chosen. Rendered three ways over the same markup: swapped in by HTMX on
+selection, included server-side for ?order_item=N (product already known), and
+re-rendered with prefill after a failed submit (never a redirect — that would
+drop every quantity just typed).
+{% endcomment %}
+<div class="card" id="production-grid-card">
+ <h2>{% trans "Записать производство" %}</h2>
+
+ <div class="line-row">
+  <div class="line-row__label">
+   <strong>{{ product.name }}</strong><br>
+   <span class="muted">{{ product.category.name }}</span>
+  </div>
+  {% if not order_item %}
+  <a class="btn btn-ghost btn-sm" style="width:auto" href="{% url 'manufacturing:production_add' %}">{% trans "Другой товар" %}</a>
+  {% endif %}
+ </div>
+
+ {% if order_item %}
+ <p class="muted" style="margin-top:var(--space-2)">
+   {% trans "Для заказа" %} №{{ order_item.order_id }} — {{ order_item.variant }}
+   ({% trans "нужно" %} {{ order_item.remaining_to_produce }})</p>
+ {% endif %}
+
+ <form method="post" action="{% url 'manufacturing:production_add' %}" id="production-batch-form">
+  {% csrf_token %}
+  {% if order_item %}<input type="hidden" name="order_item" value="{{ order_item.pk }}">{% endif %}
+
+  <p class="hint" style="margin-top:var(--space-3)">
+    {% trans "В каждой ячейке два поля: слева — принято, справа — брак (красным). Пустая ячейка ничего не запишет." %}</p>
+
+  <div class="table-scroll" style="margin-top:var(--space-2)">
+  <table class="table">
+   <thead>
+    <tr>
+     <th>{% trans "Размер" %}</th>
+     {% for color in grid.color_labels %}<th>{{ color }}</th>{% endfor %}
+    </tr>
+   </thead>
+   <tbody>
+    {% for row in grid.rows %}
+    <tr>
+     <td>{{ row.label }}</td>
+     {% for cell in row.cells %}
+     <td>
+      {% if cell %}
+       {% comment %}
+       aria-label carries the size and colour, not a bare «Принято» — every
+       cell in the grid would otherwise announce identically to a screen
+       reader, with no way to tell which variant is being filled in.
+       {% endcomment %}
+       <div class="qty-cell">
+        <input type="number" name="accepted_{{ cell.pk }}" min="0" max="100000" step="1" inputmode="numeric"
+          value="{% if cell.prefill_accepted %}{{ cell.prefill_accepted }}{% endif %}"
+          placeholder="0" data-role="accepted" data-variant="{{ cell.pk }}"
+          aria-label="{% blocktrans with size=row.label color=cell.color %}Принято — {{ size }}, {{ color }}{% endblocktrans %}">
+        <input type="number" name="defect_{{ cell.pk }}" min="0" max="100000" step="1" inputmode="numeric"
+          value="{% if cell.prefill_defect %}{{ cell.prefill_defect }}{% endif %}"
+          placeholder="0" data-role="defect" data-variant="{{ cell.pk }}"
+          aria-label="{% blocktrans with size=row.label color=cell.color %}Брак — {{ size }}, {{ color }}{% endblocktrans %}">
+       </div>
+       <span class="hint" data-unit-cost="{{ cell.pk }}"></span>
+       {% if cell.is_order_item_variant %}<span class="hint">{% trans "нужно" %} {{ order_item.remaining_to_produce }}</span>{% endif %}
+      {% else %}
+       <span class="qty-cell__empty" aria-label="{% trans "нет такого варианта" %}">—</span>
+      {% endif %}
+     </td>
+     {% endfor %}
+    </tr>
+    {% endfor %}
+   </tbody>
+  </table>
+  </div>
+
+  <label style="margin-top:var(--space-3)">{% trans "Подрядчик" %}</label>
+  <select name="contractor" required>
+   <option value="" disabled {% if not contractor_id %}selected{% endif %}>{% trans "Выберите" %}</option>
+   {% for c in contractors %}
+   <option value="{{ c.pk }}" {% if contractor_id == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+   {% endfor %}
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Валюта затрат" %}</label>
+  {% comment %}
+  KGS explicitly `selected` — same anti-footgun reasoning as expenses.html:
+  a bare first-option default gets silently restored by browser form-state
+  restore (back/forward, bfcache, autofill) to whatever was last chosen, so one
+  batch costed in $ makes $ the default for every batch after it.
+  {% endcomment %}
+  <select name="currency" id="production-currency" autocomplete="off">
+   <option value="KGS" data-symbol="{{ 'KGS'|currency_symbol }}" {% if currency_value|default:"KGS" == "KGS" %}selected{% endif %}>сом — KGS</option>
+   <option value="USD" data-symbol="{{ 'USD'|currency_symbol }}" {% if currency_value == "USD" %}selected{% endif %}>$ — USD</option>
+   <option value="RUB" data-symbol="{{ 'RUB'|currency_symbol }}" {% if currency_value == "RUB" %}selected{% endif %}>₽ — RUB</option>
+  </select>
+
+  <label style="margin-top:var(--space-2)">{% trans "Общая стоимость партии" %}</label>
+  <input type="text" name="total_cost" id="production-total-cost" inputmode="decimal" placeholder="0"
+    value="{{ total_cost_value|default:'' }}" autocomplete="off">
+  <p class="hint">{% trans "Ткань + фурнитура + работа одной суммой — делится пропорционально принятому количеству. Можно оставить пустым и внести стоимость позже." %}</p>
+  <p class="hint" id="production-cost-preview"
+     data-label-units="{% trans "Итого принято" %}"
+     data-label-cost="{% trans "себестоимость" %}"></p>
+
+  <label style="margin-top:var(--space-2)">{% trans "Заметка" %}</label>
+  <input type="text" name="note" value="{{ note_value|default:'' }}" placeholder="{% trans "необязательно" %}">
+
+  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Сохранить" %}</button>
+ </form>
+</div>

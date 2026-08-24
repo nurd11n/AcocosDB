@@ -971,3 +971,590 @@ def test_production_add_back_link_returns_to_the_order_it_came_from(
 
     standalone = client.get("/manufacturing/production/add/").content.decode()
     assert 'href="/manufacturing/"' in standalone, "standalone visit goes back to the hub"
+
+
+# ---------------------------------------------------------------------------
+# Batch production entry (/manufacturing/production/add/): select a product
+# once, then record accepted/defect for every size x color cell that
+# actually came in, in one submit — record_production_run itself and the
+# data model are unchanged, this is only a faster way to call it.
+# ---------------------------------------------------------------------------
+
+
+def _owner_client(client, django_user_model, username):
+    owner = django_user_model.objects.create_superuser(username, f"{username}@e.com", "x" * 12)
+    client.force_login(owner)
+    return owner
+
+
+@pytest.fixture
+def batch_product():
+    """One product, three active variants spanning two sizes and two
+    colors — enough to exercise a real size x color grid, not the
+    single-cell edge case."""
+    cat = Category.objects.create(name="Batch Dresses")
+    product = Product.objects.create(category=cat, name="Batch Dress")
+    v1 = ProductVariant.objects.create(
+        product=product,
+        sku="BD-S-RED",
+        size="S",
+        color="red",
+        cost_price=Decimal("1000.00"),
+        sale_price=Decimal("3000.00"),
+    )
+    v2 = ProductVariant.objects.create(
+        product=product,
+        sku="BD-M-RED",
+        size="M",
+        color="red",
+        cost_price=Decimal("1000.00"),
+        sale_price=Decimal("3000.00"),
+    )
+    v3 = ProductVariant.objects.create(
+        product=product,
+        sku="BD-M-BLUE",
+        size="M",
+        color="blue",
+        cost_price=Decimal("1000.00"),
+        sale_price=Decimal("3000.00"),
+    )
+    return product, v1, v2, v3
+
+
+def test_batch_post_writes_exactly_one_movement_and_run_per_nonzero_row(
+    client, django_user_model, batch_product, contractor
+):
+    """N cells with a real quantity -> exactly N PRODUCTION_IN movements and
+    N ProductionRun rows from one submit — a cell left untouched (empty
+    accepted/defect, same as what a real unfilled grid input posts) writes
+    nothing for that variant at all."""
+    _owner_client(client, django_user_model, "batch_owner1")
+    product, v1, v2, v3 = batch_product
+
+    resp = client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "5",
+            f"defect_{v1.pk}": "1",
+            f"accepted_{v2.pk}": "3",
+            f"defect_{v2.pk}": "0",
+            f"accepted_{v3.pk}": "",
+            f"defect_{v3.pk}": "",
+            "contractor": contractor.pk,
+            "currency": "KGS",
+            "total_cost": "800",
+            "note": "",
+        },
+        follow=True,
+    )
+    assert resp.status_code == 200
+    assert ProductionRun.objects.count() == 2
+    assert StockMovement.objects.filter(movement_type=StockMovement.PRODUCTION_IN).count() == 2
+    assert not StockMovement.objects.filter(
+        variant=v3, movement_type=StockMovement.PRODUCTION_IN
+    ).exists()
+    assert not ProductionRun.objects.filter(variant=v3).exists()
+
+    run1 = ProductionRun.objects.get(variant=v1)
+    assert run1.accepted_qty == 5 and run1.defect_qty == 1
+    run2 = ProductionRun.objects.get(variant=v2)
+    assert run2.accepted_qty == 3 and run2.defect_qty == 0
+
+
+def test_batch_zero_qty_cell_writes_nothing(client, django_user_model, batch_product, contractor):
+    """A cell explicitly left at 0/0 (typed zero, not just empty) must never
+    reach record_production_run — skipped, not recorded as an empty run."""
+    _owner_client(client, django_user_model, "batch_owner_zero")
+    product, v1, v2, v3 = batch_product
+
+    client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "4",
+            f"defect_{v1.pk}": "0",
+            f"accepted_{v2.pk}": "0",
+            f"defect_{v2.pk}": "0",
+            f"accepted_{v3.pk}": "",
+            f"defect_{v3.pk}": "",
+            "contractor": contractor.pk,
+            "currency": "KGS",
+            "total_cost": "400",
+        },
+        follow=True,
+    )
+    assert ProductionRun.objects.count() == 1
+    assert ProductionRun.objects.get().variant_id == v1.pk
+    assert not ProductionRun.objects.filter(variant__in=[v2, v3]).exists()
+    assert not StockMovement.objects.filter(
+        variant__in=[v2, v3], movement_type=StockMovement.PRODUCTION_IN
+    ).exists()
+
+
+def test_batch_failing_row_rolls_back_the_whole_batch(
+    client, django_user_model, batch_product, contractor, monkeypatch
+):
+    """One row failing mid-batch must roll back every row already written in
+    THIS submit — record_production_run is called once per cell inside a
+    single transaction.atomic(), any exception unwinds all of it, never a
+    partial batch."""
+    _owner_client(client, django_user_model, "batch_owner_fail")
+    product, v1, v2, v3 = batch_product
+
+    from apps.manufacturing import services as mfg_services
+
+    real_record_production_run = mfg_services.record_production_run
+
+    def flaky(*, variant, **kwargs):
+        if variant.pk == v2.pk:
+            raise ValueError("simulated failure on the second row")
+        return real_record_production_run(variant=variant, **kwargs)
+
+    monkeypatch.setattr("apps.manufacturing.views.record_production_run", flaky)
+
+    resp = client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "5",
+            f"defect_{v1.pk}": "0",
+            f"accepted_{v2.pk}": "3",
+            f"defect_{v2.pk}": "0",
+            "contractor": contractor.pk,
+            "currency": "KGS",
+            "total_cost": "800",
+        },
+    )
+    assert resp.status_code == 200  # re-rendered with an error, never a 500
+    assert ProductionRun.objects.count() == 0
+    assert not StockMovement.objects.filter(movement_type=StockMovement.PRODUCTION_IN).exists()
+
+
+def test_split_cost_proportionally_sums_back_to_total_exactly():
+    """No сом lost or gained to independent per-row rounding, across a range
+    of totals/weights including ones that don't divide evenly."""
+    from apps.manufacturing.services import split_cost_proportionally
+
+    cases = [
+        (Decimal("1000.00"), [3, 3, 4]),
+        (Decimal("100.00"), [1, 1, 1]),
+        (Decimal("999.99"), [7, 11, 13, 1]),
+        (Decimal("50.00"), [0, 5, 0, 5]),
+        (Decimal("0.01"), [1, 1, 1]),
+    ]
+    for total, weights in cases:
+        shares = split_cost_proportionally(total, weights)
+        assert sum(shares) == total, f"{weights} -> {shares} != {total}"
+        for weight, share in zip(weights, shares):
+            if weight == 0:
+                assert share == Decimal("0")
+
+
+def test_split_cost_proportionally_zero_total_or_weight_gives_all_zero_shares():
+    from apps.manufacturing.services import split_cost_proportionally
+
+    assert split_cost_proportionally(Decimal("0"), [5, 5]) == [Decimal("0"), Decimal("0")]
+    assert split_cost_proportionally(Decimal("100"), [0, 0]) == [Decimal("0"), Decimal("0")]
+
+
+def test_batch_post_cost_split_sums_to_the_entered_total_in_recorded_expenses(
+    client, django_user_model, batch_product, contractor
+):
+    """The same guarantee end-to-end through the view: summing what actually
+    landed in the Expense ledger across the whole batch reproduces the
+    entered total_cost exactly, even with a 3-way split (1000/11) that
+    doesn't divide evenly."""
+    _owner_client(client, django_user_model, "batch_owner_split")
+    product, v1, v2, v3 = batch_product
+
+    client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "7",
+            f"defect_{v1.pk}": "0",
+            f"accepted_{v2.pk}": "3",
+            f"defect_{v2.pk}": "0",
+            f"accepted_{v3.pk}": "1",
+            f"defect_{v3.pk}": "0",
+            "contractor": contractor.pk,
+            "currency": "KGS",
+            "total_cost": "1000.00",
+        },
+        follow=True,
+    )
+    total_recorded = sum(
+        (e.amount for e in Expense.objects.filter(category=Expense.FABRIC)), Decimal("0")
+    )
+    assert total_recorded == Decimal("1000.00")
+
+
+def test_batch_order_item_row_still_routes_through_mark_produced(
+    client, django_user_model, variant, contractor
+):
+    """The ?order_item=N entry point must behave exactly as the old single-
+    variant form did: the grid pre-fills this line's own shortfall, the row
+    routes through mark_produced (produced_qty, status bookkeeping) rather
+    than record_production_run directly, and submit redirects back to the
+    order — all unchanged now that it's one row inside a batch-shaped form."""
+    _owner_client(client, django_user_model, "batch_owner_order")
+    from apps.clients.models import Client as ClientModel
+    from apps.orders.services import create_order
+
+    buyer = ClientModel.objects.create(first_name="Заказчик", phone="+996700555555")
+    order = create_order(
+        client=buyer, items=[{"variant": variant, "quantity": 10, "unit_price": Decimal("3200")}]
+    )
+    item = order.items.first()
+
+    grid_page = client.get(f"/manufacturing/production/add/?order_item={item.pk}").content.decode()
+    assert f'value="{item.remaining_to_produce}"' in grid_page
+
+    resp = client.post(
+        "/manufacturing/production/add/",
+        {
+            "order_item": item.pk,
+            f"accepted_{variant.pk}": "8",
+            f"defect_{variant.pk}": "2",
+            "contractor": contractor.pk,
+            "currency": "KGS",
+            "total_cost": "1000",
+        },
+    )
+    assert resp.status_code == 302
+    assert resp.url == f"/orders/{order.pk}/"
+
+    item.refresh_from_db()
+    assert item.produced_qty == 8  # defects never count toward the order
+    assert ProductionRun.objects.count() == 1
+    run = ProductionRun.objects.get(order_item=item)
+    assert run.accepted_qty == 8 and run.defect_qty == 2
+    assert (
+        StockMovement.objects.filter(
+            variant=variant, movement_type=StockMovement.PRODUCTION_IN
+        ).count()
+        == 1
+    )
+    order.refresh_from_db()
+    assert order.status == order.IN_PRODUCTION  # 8 of 10 — not yet fully produced
+
+
+def test_batch_foreign_cost_without_a_rate_saves_nothing_and_says_so(
+    client, django_user_model, batch_product, contractor
+):
+    """THE DEFECT CLASS CLAUDE.md SWEPT FOR, reaching production cost this
+    time: snapshot_rate_to_base falls back to 1.0 by design (a SALE must
+    never fail for lack of a rate), but that silently files 1 000 $ of fabric
+    as 1 000 сом — understating it ~87x straight into cost_price, and from
+    there into COGS and profit, with nothing on screen to show for it. Same
+    rule /manufacturing/expenses/ already enforces: save NOTHING."""
+    _owner_client(client, django_user_model, "batch_norate")
+    product, v1, v2, v3 = batch_product
+    assert not ExchangeRate.objects.filter(currency="USD").exists()
+    cost_before = v1.cost_price
+
+    resp = client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "10",
+            f"defect_{v1.pk}": "0",
+            "contractor": contractor.pk,
+            "currency": "USD",
+            "total_cost": "1000",
+        },
+        follow=True,
+    )
+    assert ProductionRun.objects.count() == 0, "nothing may be saved without a rate"
+    assert Expense.objects.count() == 0
+    assert not StockMovement.objects.filter(movement_type=StockMovement.PRODUCTION_IN).exists()
+    v1.refresh_from_db()
+    assert v1.cost_price == cost_before, "cost_price must not move on a rejected batch"
+    assert "Нет курса" in resp.content.decode()
+
+
+def test_batch_foreign_cost_with_a_rate_converts_normally(
+    client, django_user_model, batch_product, contractor
+):
+    """The guard above targets a MISSING rate only — a genuine foreign batch
+    with a rate on record must still convert at that rate, exactly as a
+    single-variant run always did."""
+    _owner_client(client, django_user_model, "batch_withrate")
+    product, v1, v2, v3 = batch_product
+    ExchangeRate.objects.create(currency="USD", rate=Decimal("87.45"), date=timezone.localdate())
+
+    client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "10",
+            f"defect_{v1.pk}": "0",
+            "contractor": contractor.pk,
+            "currency": "USD",
+            "total_cost": "1000",
+        },
+        follow=True,
+    )
+    v1.refresh_from_db()
+    # 1000 USD * 87.45 / 10 accepted = 8745.00 сом/unit — a KGS figure.
+    assert v1.cost_price == Decimal("8745.00")
+
+
+def test_batch_rejects_a_quantity_beyond_the_int_column_and_never_500s(
+    client, django_user_model, batch_product, contractor
+):
+    """accepted_qty is a PositiveIntegerField (int32). A crafted/typo'd value
+    above that raises a raw DataError on Postgres — an uncaught 500, not a
+    Russian error. MAX_BATCH_QTY rejects it far below the DB ceiling."""
+    _owner_client(client, django_user_model, "batch_huge")
+    product, v1, v2, v3 = batch_product
+
+    resp = client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "99999999999999",
+            f"defect_{v1.pk}": "0",
+            "contractor": contractor.pk,
+            "currency": "KGS",
+            "total_cost": "1000",
+        },
+    )
+    assert resp.status_code == 200, "must be a Russian error, never a 500"
+    assert ProductionRun.objects.count() == 0
+    assert "Некорректное количество" in resp.content.decode()
+
+
+def test_batch_rejects_a_negative_cost_instead_of_silently_filing_zero(
+    client, django_user_model, batch_product, contractor
+):
+    """A negative total_cost used to fall through _parse_decimal to None and
+    become Decimal(0) — recording the batch with NO cost, leaving cost_price
+    stale at the previous run's figure while the user believes they just
+    entered this batch's cost."""
+    _owner_client(client, django_user_model, "batch_negcost")
+    product, v1, v2, v3 = batch_product
+
+    resp = client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "5",
+            f"defect_{v1.pk}": "0",
+            "contractor": contractor.pk,
+            "currency": "KGS",
+            "total_cost": "-500",
+        },
+    )
+    assert resp.status_code == 200
+    assert ProductionRun.objects.count() == 0
+    assert "Некорректная стоимость" in resp.content.decode()
+
+
+def test_batch_without_a_cost_is_allowed_and_leaves_cost_price_alone(
+    client, django_user_model, batch_product, contractor
+):
+    """A blank cost stays legitimate — production recorded now, cost data
+    entered later. record_production_run's own rule: a costless run leaves
+    cost_price untouched rather than zeroing it out."""
+    _owner_client(client, django_user_model, "batch_nocost")
+    product, v1, v2, v3 = batch_product
+    cost_before = v1.cost_price
+
+    client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "5",
+            f"defect_{v1.pk}": "0",
+            "contractor": contractor.pk,
+            "currency": "KGS",
+            "total_cost": "",
+        },
+        follow=True,
+    )
+    assert ProductionRun.objects.count() == 1
+    v1.refresh_from_db()
+    assert v1.cost_price == cost_before
+
+
+def test_batch_rejects_variants_from_two_different_products(
+    client, django_user_model, batch_product, contractor
+):
+    """The grid only ever renders ONE product's variants, so a POST mixing
+    two products is necessarily crafted — and would silently split a batch
+    cost across unrelated goods. Rejected wholesale, nothing written."""
+    _owner_client(client, django_user_model, "batch_twoprod")
+    product, v1, v2, v3 = batch_product
+    other = Product.objects.create(category=product.category, name="Other Batch Dress")
+    other_v = ProductVariant.objects.create(
+        product=other,
+        sku="OBD-S-GRN",
+        size="S",
+        color="green",
+        cost_price=Decimal("1000.00"),
+        sale_price=Decimal("3000.00"),
+    )
+
+    resp = client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "5",
+            f"defect_{v1.pk}": "0",
+            f"accepted_{other_v.pk}": "5",
+            f"defect_{other_v.pk}": "0",
+            "contractor": contractor.pk,
+            "currency": "KGS",
+            "total_cost": "1000",
+        },
+    )
+    assert resp.status_code == 200
+    assert ProductionRun.objects.count() == 0
+
+
+def test_batch_missing_contractor_is_an_error_not_a_500(client, django_user_model, batch_product):
+    """An empty <select> posts contractor="" — get_object_or_404 only maps
+    DoesNotExist to a 404, so a bare int("") would have 500'd."""
+    _owner_client(client, django_user_model, "batch_nocontractor")
+    product, v1, v2, v3 = batch_product
+
+    resp = client.post(
+        "/manufacturing/production/add/",
+        {
+            f"accepted_{v1.pk}": "5",
+            f"defect_{v1.pk}": "0",
+            "contractor": "",
+            "currency": "KGS",
+            "total_cost": "100",
+        },
+    )
+    assert resp.status_code == 200
+    assert ProductionRun.objects.count() == 0
+    assert "подрядчика" in resp.content.decode()
+
+
+def test_batch_endpoints_are_owner_only(client, django_user_model, batch_product):
+    """Every NEW surface this feature added — the search partial and the grid
+    partial, not just the page — is Owner-only, checked server-side. An
+    Editor hitting the HTMX endpoints directly gets 403, never the catalog."""
+    from django.contrib.auth.models import Group
+
+    from apps.core.permissions import EDITOR
+
+    product, v1, v2, v3 = batch_product
+    editor_group, _created = Group.objects.get_or_create(name=EDITOR)
+    editor = django_user_model.objects.create_user(
+        "batch_editor", "be@e.com", "x" * 12, is_staff=True
+    )
+    editor.groups.add(editor_group)
+    client.force_login(editor)
+
+    for url in (
+        "/manufacturing/production/add/",
+        "/manufacturing/production/search/",
+        f"/manufacturing/production/grid/{product.pk}/",
+    ):
+        assert client.get(url).status_code == 403, f"Editor should be denied {url}"
+
+    # ...and the write path too, not just the reads.
+    assert (
+        client.post(
+            "/manufacturing/production/add/",
+            {f"accepted_{v1.pk}": "5", f"defect_{v1.pk}": "0", "contractor": "1"},
+        ).status_code
+        == 403
+    )
+    assert ProductionRun.objects.count() == 0
+
+
+def test_picking_a_product_replaces_the_picker_instead_of_stacking_under_it(
+    client, django_user_model, batch_product
+):
+    """The catalog list must be GONE once a product is chosen, not left
+    expanded above the grid — with 30 products rendered on load, leaving it
+    in place means scrolling past the whole catalog to reach the grid you
+    just selected. The picker and the grid share one swap target."""
+    _owner_client(client, django_user_model, "batch_picker")
+    product, v1, v2, v3 = batch_product
+
+    picker = client.get("/manufacturing/production/add/").content.decode()
+    assert 'id="production-search"' in picker, "step 1 offers the search"
+    assert 'id="production-batch-form"' not in picker, "no grid before a product is picked"
+
+    grid = client.get(f"/manufacturing/production/grid/{product.pk}/").content.decode()
+    assert 'id="production-batch-form"' in grid, "step 2 is the grid"
+    assert 'id="production-search"' not in grid, "the catalog list must not survive the swap"
+    assert "Другой товар" in grid, "and there must be a way back to pick a different product"
+
+
+def test_order_item_entry_skips_the_picker_entirely(client, django_user_model, variant, contractor):
+    """Arriving from an order already knows the product — showing a catalog
+    search first would be a pointless step, and picking a different product
+    there would contradict the order that sent you."""
+    _owner_client(client, django_user_model, "batch_orderpicker")
+    from apps.clients.models import Client as ClientModel
+    from apps.orders.services import create_order
+
+    buyer = ClientModel.objects.create(first_name="Прямо", phone="+996700555777")
+    order = create_order(
+        client=buyer, items=[{"variant": variant, "quantity": 6, "unit_price": Decimal("3200")}]
+    )
+    item = order.items.first()
+
+    body = client.get(f"/manufacturing/production/add/?order_item={item.pk}").content.decode()
+    assert 'id="production-batch-form"' in body
+    assert 'id="production-search"' not in body
+    assert "Другой товар" not in body, "the order fixes the product — no switching away from it"
+
+
+def test_batch_form_query_count_does_not_grow_with_the_catalog(client, django_user_model):
+    """Same N+1 discipline CLAUDE.md holds the POS product grid to («grid ≤4
+    queries at 10 and 500 rows»), applied to this form's two HTMX endpoints:
+    the query count must be IDENTICAL at a small and a large catalog, so a
+    growing product list can never quietly turn the picker into a per-row
+    query storm."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    owner = django_user_model.objects.create_superuser("perf_owner", "o@e.com", "x" * 12)
+    client.force_login(owner)
+    cat = Category.objects.create(name="PerfCat")
+
+    def build(n_products, n_variants, tag):
+        big = Product.objects.create(category=cat, name=f"Perf {tag} big")
+        ProductVariant.objects.bulk_create(
+            [
+                ProductVariant(
+                    product=big,
+                    sku=f"PF-{tag}-{i}",
+                    size=f"S{i // 10}",
+                    color=f"C{i % 10}",
+                    cost_price=Decimal("100"),
+                    sale_price=Decimal("500"),
+                )
+                for i in range(n_variants)
+            ]
+        )
+        for i in range(n_products):
+            p = Product.objects.create(category=cat, name=f"Perf {tag} {i}")
+            ProductVariant.objects.create(
+                product=p,
+                sku=f"O-{tag}-{i}",
+                size="S",
+                color="C",
+                cost_price=Decimal("100"),
+                sale_price=Decimal("500"),
+            )
+        return big
+
+    def measure(product):
+        counts = {}
+        for label, url in (
+            ("search", "/manufacturing/production/search/"),
+            ("search_q", "/manufacturing/production/search/?q=Perf"),
+            ("grid", f"/manufacturing/production/grid/{product.pk}/"),
+        ):
+            with CaptureQueriesContext(connection) as ctx:
+                assert client.get(url).status_code == 200
+            counts[label] = len(ctx.captured_queries)
+        return counts
+
+    small = measure(build(5, 5, "small"))
+    large = measure(build(300, 200, "large"))
+
+    assert small == large, f"query count grew with the catalog — N+1 crept in: {small} -> {large}"
+    # A hard ceiling too, so the flat-but-huge case can't slip through either.
+    assert large["grid"] <= 8, large
+    assert large["search"] <= 6, large
