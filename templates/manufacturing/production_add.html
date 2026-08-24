@@ -1,10 +1,10 @@
 {% extends "pos/base.html" %}
-{% load i18n pos_extras %}
+{% load i18n static %}
 {% block title %}{% trans "Записать производство" %}{% endblock %}
 {% block content %}
 {% comment %}
 Back goes where the user actually came FROM: this page is reachable both from
-the Производство hub and from an order's «Записать производство» button
+the Производство hub and from an order's «Запустить производство» button
 (?order_item=N, see orders/partials/order_body.html). Sending an order-driven
 visit back to the hub would strand them a click away from the order they were
 working on.
@@ -15,82 +15,20 @@ working on.
 <a class="back-link" href="{% url 'manufacturing:contractors' %}">← {% trans "Производство" %}</a>
 {% endif %}
 
-<div class="card">
- <h2>{% trans "Записать производство" %}</h2>
- {% if order_item %}
- <p class="muted">{% trans "Для заказа" %} №{{ order_item.order_id }} — {{ order_item.variant }}
-   ({% trans "нужно" %} {{ order_item.remaining_to_produce }})</p>
+{% comment %}
+One swap target for the whole two-step flow: the picker occupies it first, the
+grid REPLACES it on selection (never sits below it). The ?order_item=N entry
+point and a failed submit both render the grid straight in, since the product
+is already known — same partial either way, no round trip.
+{% endcomment %}
+<div id="production-body">
+ {% if grid %}
+  {% include "manufacturing/partials/production_grid.html" %}
+ {% else %}
+  {% include "manufacturing/partials/production_picker.html" %}
  {% endif %}
-
- <form method="post" style="margin-top:var(--space-3)">
-  {% csrf_token %}
-  {% if order_item %}<input type="hidden" name="order_item" value="{{ order_item.pk }}">{% endif %}
-
-  <label>{% trans "Товар" %}</label>
-  <select name="variant" required>
-   {% for v in variants %}
-   <option value="{{ v.pk }}" {% if order_item and order_item.variant_id == v.pk %}selected{% endif %}>{{ v }}</option>
-   {% endfor %}
-  </select>
-
-  <label style="margin-top:var(--space-2)">{% trans "Подрядчик" %}</label>
-  <select name="contractor" required>
-   {% for c in contractors %}
-   <option value="{{ c.pk }}">{{ c.name }}</option>
-   {% endfor %}
-  </select>
-
-  <div class="row" style="margin-top:var(--space-2)">
-   <div>
-    <label>{% trans "Принято, шт" %}</label>
-    <input type="number" name="accepted_qty" min="0" inputmode="numeric"
-      value="{% if order_item %}{{ order_item.remaining_to_produce }}{% endif %}">
-   </div>
-   <div>
-    <label>{% trans "Брак, шт" %}</label>
-    <input type="number" name="defect_qty" min="0" inputmode="numeric" value="0">
-   </div>
-  </div>
-  <p class="hint">{% trans "Процент успеха считается автоматически — принято ÷ (принято + брак)." %}</p>
-
-  <label style="margin-top:var(--space-2)">{% trans "Валюта затрат" %}</label>
-  {% comment %}
-  KGS is explicitly `selected`, not merely first: a bare first-option default
-  is restored by the browser's own form-state restore (back/forward, bfcache,
-  autofill) to whatever was last chosen, so a one-off expense in $ silently
-  became the default for every expense after it — and a foreign amount is
-  multiplied by the rate into every total on the page (~87x for USD), which
-  reads as "I typed 1000 and it showed way more".
-  {% endcomment %}
-  <select name="currency" autocomplete="off">
-   <option value="KGS" selected>сом — KGS</option>
-   <option value="USD">$ — USD</option>
-   <option value="RUB">₽ — RUB</option>
-  </select>
-
-  <div class="row" style="margin-top:var(--space-2)">
-   <div>
-    <label>{% trans "Ткань" %}</label>
-    <input type="text" name="material_cost" inputmode="decimal" placeholder="0">
-   </div>
-   <div>
-    <label>{% trans "Фурнитура" %}</label>
-    <input type="text" name="trim_cost" inputmode="decimal" placeholder="0">
-   </div>
-   <div>
-    <label>{% trans "Работа" %}</label>
-    <input type="text" name="labor_cost" inputmode="decimal" placeholder="0">
-   </div>
-  </div>
-  <p class="hint">
-    {% trans "Стоимость брака не пропадает — она учитывается в себестоимости принятых единиц. Оплата подрядчику начисляется только за принятое." %}
-  </p>
-
-  <label style="margin-top:var(--space-2)">{% trans "Заметка" %}</label>
-  <input type="text" name="note" placeholder="{% trans "необязательно" %}">
-
-  <button type="submit" class="btn btn-primary" style="margin-top:var(--space-3)">{% trans "Сохранить" %}</button>
-  <a class="btn btn-ghost" href="{% url 'manufacturing:contractors' %}" style="margin-top:var(--space-2)">{% trans "Отмена" %}</a>
- </form>
 </div>
+{% endblock %}
+{% block extra_js %}
+<script src="{% static 'manufacturing/js/production_batch.js' %}"></script>
 {% endblock %}

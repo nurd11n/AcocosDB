@@ -139,6 +139,42 @@ def record_expense(
     )
 
 
+def split_cost_proportionally(total: Decimal, weights: list[int]) -> list[Decimal]:
+    """`total` split across `len(weights)` shares proportional to each
+    weight (accepted_qty, for the batch production form) — but constructed
+    so the shares sum back to EXACTLY `total`, never a fraction of a сом
+    gained or lost to independent rounding.
+
+    Every share except the last (among weights > 0) is rounded normally;
+    the LAST one is instead `total minus everything already allocated`, so
+    it silently absorbs whatever remainder rounding left behind. A weight
+    of 0 always gets a share of exactly 0 — apps.manufacturing.views'
+    batch form relies on this to keep a pure-defect row (accepted_qty=0)
+    out of the cost split entirely, matching record_production_run's own
+    rule that a 0-accepted run absorbs no cost.
+
+    With NO rounding at all, every share works out to
+    `total * weight / sum(weights)`, which for proportional-by-accepted-qty
+    means every row's OWN per-unit cost (share ÷ that row's weight) is
+    identical across the whole batch: `total / sum(weights)`. That's not a
+    coincidence to preserve — it's the entire point of a shared batch cost."""
+    total_weight = sum(weights)
+    if total_weight <= 0 or total <= 0:
+        return [Decimal("0")] * len(weights)
+
+    shares = [Decimal("0")] * len(weights)
+    nonzero_indices = [i for i, w in enumerate(weights) if w > 0]
+    allocated = Decimal("0")
+    for pos, i in enumerate(nonzero_indices):
+        if pos == len(nonzero_indices) - 1:
+            shares[i] = (total - allocated).quantize(CENTS, rounding=ROUND_HALF_UP)
+        else:
+            share = (total * weights[i] / total_weight).quantize(CENTS, rounding=ROUND_HALF_UP)
+            shares[i] = share
+            allocated += share
+    return shares
+
+
 @transaction.atomic
 def record_production_run(
     *,
