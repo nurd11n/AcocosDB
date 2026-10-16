@@ -1,0 +1,14 @@
+name: Repository privacy
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  privacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 scripts/check_repo_privacy.py --history
+      - run: python3 -m unittest discover -s tests -p test_repo_privacy.py

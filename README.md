@@ -1,14 +1,39 @@
 # ACOCOS CRM
 
-Internal system for ACOCOS — inventory, sales, payments, clients, debts, Заказы
+An inventory and sales CRM — inventory, sales, payments, clients, debts, Заказы
 (production orders), a daily Russian report, and a dashboard. Two surfaces, one
 Django project: the manager terminal at `/pos/` (an installable PWA) and the
-admin panel at `/panel/`. See `CLAUDE.md` for the full design.
+admin panel at `/panel/`.
 
 Telegram/WhatsApp bots and marketing broadcasts exist in the codebase but are
 **not production-ready** — they ship behind feature flags, off by default (see
-**Feature flags** below). Everything else is. See `HANDOFF.md` (Russian) for
-what to tell the client is live today.
+**Feature flags** below).
+
+## Repository privacy
+
+The public repository contains application source and synthetic examples.
+Client databases, uploads, exports, audit reports, browser captures, and local
+project notes stay on the local machine and are excluded from Git and Docker
+builds. Ignoring a file does not remove an already committed copy from history.
+
+Keep personal email addresses, SMTP credentials, report recipients, bot tokens,
+and deployment details in the ignored `.env`; `.env.example` contains placeholders.
+The app continues to read the local values normally. Commit metadata uses a
+GitHub noreply address rather than a personal email address.
+
+Enable the repository's local privacy hooks after cloning:
+
+```bash
+git config --local user.email '138603985+nurd11n@users.noreply.github.com'
+git config --local core.hooksPath .githooks
+python3 scripts/check_repo_privacy.py --history
+```
+
+Use your own GitHub noreply address when contributing. The hooks check staged
+files before commits and reachable history before pushes; CI repeats the history
+check. Review examples manually and use synthetic records: automated checks
+cannot recognize every kind of confidential business information. After a
+privacy history rewrite, use a fresh clone instead of merging old history back in.
 
 Local dev without HTTPS: `make dev` (uses `docker-compose.yml`, DEBUG on).
 `make test` runs the suite **and** `manage.py check --deploy`.
@@ -341,7 +366,8 @@ with these exact Russian column headers (any order, row 1):
 ```
 
 A filled example (with an «Инструкция» sheet) ships at
-`docs/catalog_import_example.xlsx` — copy its structure. Notes:
+`docs/catalog_import_example.csv` — a synthetic example of the column structure
+(save as XLSX when using the importer). Notes:
 
 - Every row is validated **before** anything is written; one bad row aborts
   the whole file with a Russian, row-numbered error list (nothing partial
@@ -359,11 +385,9 @@ docker compose -f docker-compose.prod.yml exec web python manage.py import_catal
 docker compose -f docker-compose.prod.yml exec web python manage.py import_catalog /app/catalog.xlsx
 ```
 
-Pre-system client debt has no bulk import — deliberately: a one-time xlsx
-import was more risk than it saved for a handful of clients. She enters it by
-hand, once per client, via «Добавить старый долг» on the client page in
-`/pos/` (or `/panel/`) — see CLAUDE.md's Data model section for how
-`ClientOpeningBalance` behaves.
+Pre-system client debt is entered once per client via «Добавить старый долг»
+on the client page in `/pos/` (or `/panel/`). `ClientOpeningBalance` records
+the opening balance separately from later sales and payments.
 
 ## Scheduled jobs
 
@@ -445,8 +469,7 @@ chmod 600 secrets/age_identity.txt
 
 **3. Fill in `.env`** (the public key + Backblaze B2 creds + drill chat).
 Both `AGE_RECIPIENT` and `RCLONE_REMOTE` are REQUIRED — `backup` refuses to
-start (exits non-zero, alerts to `DRILL_CHAT_ID`) if either is blank
-(2026-08-18 audit, M3):
+start (exits non-zero, alerts to `DRILL_CHAT_ID`) if either is blank:
 ```bash
 AGE_RECIPIENT=age1xxxx...               # the PUBLIC key from step 1
 RCLONE_REMOTE=b2:YOUR-BUCKET

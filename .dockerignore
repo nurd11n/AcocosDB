@@ -4,7 +4,12 @@
 # later. Secrets must therefore be excluded here as well as in .gitignore;
 # the two files are NOT interchangeable and drifting apart is easy to miss.
 .env
+.env.*
+!.env.example
+.envrc
 .git
+.githooks/
+.github/
 
 # The age PRIVATE key — the single thing that can decrypt every backup. It
 # lives on the server at ./secrets/age_identity.txt because the weekly
@@ -14,6 +19,55 @@
 # that image both the encrypted dumps and the key that opens them, which is
 # exactly the separation the whole backup design exists to maintain.
 secrets/
+*.pem
+*.key
+age_identity*.txt
+*credentials*.json
+
+# Keep private reports, browser captures, and local instructions out of images.
+**/[Aa][Uu][Dd][Ii][Tt]*.md
+**/АУДИТ*.md
+**/Аудит*.md
+**/аудит*.md
+audits/
+.playwright-mcp/
+playwright-report/
+test-results/
+.claude/
+.codex/
+.agents/
+.impeccable/
+CLAUDE.md
+AGENTS.md
+CLIENT_BOTS.md
+DESIGN.md
+HANDOFF.md
+INSTRUCTIONS.md
+POS-DESIGN.md
+PRODUCT.md
+**/*.local.md
+**/*.log
+logs/
+data/
+private/
+exports/
+**/*.sqlite*
+**/*.db
+**/*.sql
+**/*.dump
+**/*.backup
+**/*.age
+**/*.csv
+**/*.tsv
+**/*.xlsx
+**/*.xls
+**/*.pdf
+**/*.jsonl
+**/*.parquet
+**/*.zip
+**/*.tar
+**/*.gz
+.DS_Store
 
 .venv/
 venv/
