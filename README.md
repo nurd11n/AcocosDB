@@ -77,6 +77,8 @@ For a local Python environment:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip==26.2 -r requirements-dev.txt
+# Requires gettext (msgfmt); the Docker image and CI install it automatically.
+DJANGO_SETTINGS_MODULE=config.settings.test python manage.py compilemessages --locale ru
 pytest -q
 python scripts/check_repo_privacy.py --history
 pip-audit --progress-spinner off
@@ -87,8 +89,9 @@ make composecheck
 The suite covers sales/payment flows, permissions, authentication, reporting,
 exports, feature flags, and privacy checks. GitHub Actions runs the tests,
 Django deployment checks, dependency audit, history/secret scans, and Compose
-validation. Backup integration tests requiring a Docker daemon are opt-in;
-see [restore-drill instructions](docs/RESTORE-DRILL.md).
+validation. PostgreSQL backup integration tests are skipped by the default
+SQLite test configuration and additionally require `age` and `rclone`.
+See [restore-drill instructions](docs/RESTORE-DRILL.md) for operational checks.
 
 ## Project structure
 

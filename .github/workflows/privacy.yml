@@ -32,6 +32,11 @@ jobs:
             requirements.txt
             requirements-dev.txt
       - run: python -m pip install --upgrade pip==26.2 -r requirements-dev.txt
+      - name: Compile Russian translations
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gettext
+          DJANGO_SETTINGS_MODULE=config.settings.test python manage.py compilemessages --locale ru
       - run: pytest -q
       - run: make checkdeploy
       - run: pip-audit --progress-spinner off

@@ -1,46 +1,21 @@
-# Restore drill — run this for real, on the production host
+# Backup restore drill
 
-A backup that has never been restored is not a backup (finding H1, the
-2026-08-18 audit — see `docs/АУДИТ.md`). This is the focused runbook for
-proving, right now, that the encrypted offsite chain actually comes back:
-dump → encrypt → offsite → decrypt → restore → real data. It assumes the
-stack is already deployed and the one-time backup setup in `README.md`
-("One-time backup setup & deploy-day verification") has already been done —
-this is the drill you re-run afterward, on demand, whenever you want proof.
+Verify the encrypted backup chain against a throwaway PostgreSQL database:
+dump → encrypt → offsite copy → decrypt → restore → validate.
+Complete the [backup setup](DEPLOYMENT.md#backups) before running a drill.
 
-The `restore-drill` service already does this automatically once a week and
-Telegrams the result — this doc is for triggering ONE drill on demand and
-reading its result yourself, right now, rather than waiting for Sunday or
-digging through container logs.
+The `restore-drill` service runs weekly. To validate a deployment on demand,
+run `sh docker/verify_deployment.sh`: it triggers a backup and restore cycle,
+checks for unexpected plaintext backups, and prints a PASS/FAIL summary.
 
-**After deploying this fix for the first time (or after the 2026-08-18
-incident's fix specifically — rebuilt image, real `secrets/rclone.conf` and
-`secrets/age_identity.txt` in place), run `sh docker/verify_deployment.sh`
-first.** It runs everything below in one shot — a real backup cycle, a real
-restore drill, checks for stray plaintext left over from before the fix —
-and prints a plain PASS/FAIL summary instead of you having to read and
-interpret raw command output by hand.
+The offsite destination comes from `RCLONE_REMOTE` in the ignored `.env`.
+The examples below use `YOUR_CRYPT_REMOTE:` as a placeholder for an rclone
+crypt remote. Replace it with your configured remote; a crypt layer is optional
+and separate from the age encryption applied by the backup scripts.
 
-**This deployment's offsite remote is `gdrive_crypt:`** — Google Drive
-wrapped in an rclone crypt remote (`drive.file` scope), not the bare
-Backblaze B2 remote README.md's setup walkthrough uses as its example.
-Two independent layers of encryption are in play, and it matters which is
-which:
-1. **age** — applied by `backup.sh` itself, to the dump's *content*, before
-   rclone ever sees the file. This is what `AGE_RECIPIENT`/the private key
-   control, and it's what actually protects client data.
-2. **rclone crypt** — applied automatically by rclone on every read/write
-   through the `gdrive_crypt:` remote name (filenames and file content both
-   obfuscated on Google's side). This is a second, independent layer
-   protecting against Google Drive itself being compromised or misconfigured
-   (e.g. a wrong sharing setting) — it is NOT a substitute for the age layer
-   and does not change anything about how age decryption works.
-
-Interacting via the `gdrive_crypt:` remote name (not the underlying bare
-Drive remote) makes rclone decrypt the crypt layer transparently — `rclone
-ls`/`copy` against `gdrive_crypt:` show real filenames and give you back the
-same `.dump.age` file `backup.sh` produced, still age-encrypted, exactly as
-if you'd read it from local disk.
+When using a crypt remote, access files through that remote so rclone decrypts
+its layer transparently. The downloaded dump remains age-encrypted and still
+requires the private age identity to restore.
 
 ## Before you run it — checklist
 
@@ -48,7 +23,7 @@ if you'd read it from local disk.
       healthy/running, and at least one `acocos_*.dump.age` file exists
       under `./backups/` (run `ls -1t backups/acocos_*.dump.age | head -1`
       to check — if empty, the `backup` service hasn't completed a cycle
-      yet; wait for one or trigger it manually first, see README step 5).
+      yet; wait for one or trigger it manually first, see the deployment guide).
 - [ ] `./secrets/age_identity.txt` exists on the server (the restore-drill
       container needs it to decrypt) — but confirm the PRIVATE key is **not
       only** here: it must also be in a password manager or otherwise
@@ -109,7 +84,7 @@ scheduled backup too, so track it down now.
 ## Restoring from the offsite copy directly (not the local drill)
 
 The drill above (`restore-drill` service / `DRILL_RUN_ONCE=1`) always reads
-from the LOCAL `./backups/` directory — it never touches `gdrive_crypt:`.
+from the LOCAL `./backups/` directory — it never touches `YOUR_CRYPT_REMOTE:`.
 That's fine day to day (the local copy is usually there), but the entire
 point of an offsite copy is the case where it ISN'T — a dead server, a
 fresh VPS, local disk gone. To prove (or actually perform) a restore from
@@ -118,12 +93,12 @@ the offsite copy itself:
 ```bash
 # 1. See what's really out there (real filenames/sizes — the crypt layer is
 #    transparent through this remote name):
-rclone ls gdrive_crypt:db
+rclone ls YOUR_CRYPT_REMOTE:db
 
 # 2. Pull the newest dump back down (to your workstation, or a fresh server —
 #    anywhere with the age PRIVATE key, never left only on the old server):
-rclone copy gdrive_crypt:db/acocos_<stamp>.dump.age .
-rclone copy gdrive_crypt:db/acocos_<stamp>.dump.sha256 .
+rclone copy YOUR_CRYPT_REMOTE:db/acocos_<stamp>.dump.age .
+rclone copy YOUR_CRYPT_REMOTE:db/acocos_<stamp>.dump.sha256 .
 
 # 3. Decrypt the age layer (this is the step that actually needs the
 #    private key — rclone already handled the crypt layer in step 2):
@@ -132,13 +107,13 @@ age -d -i secrets/age_identity.txt -o restore.dump acocos_<stamp>.dump.age
 # 4. Verify before trusting it:
 sha256sum restore.dump   # compare against acocos_<stamp>.dump.sha256
 
-# 5. Restore as in README's "Emergency restore" section (pg_restore into
+# 5. Restore as in the deployment guide's "Emergency restore" section (pg_restore into
 #    either a throwaway DB to verify, or --clean --if-exists into a real one
 #    to actually recover).
 ```
 
 If step 1 shows nothing, or shows only obfuscated/garbled names, check
-you're using the `gdrive_crypt:` remote name and not the bare underlying
+you're using the `YOUR_CRYPT_REMOTE:` remote name and not the bare underlying
 Drive remote — `rclone listremotes` on the host that has `rclone.conf`
 configured shows what's actually set up.
 
@@ -149,7 +124,7 @@ restore, and that restored data looks sane). It does not prove:
 - the backup covers `media/` (uploaded product photos) — that's a separate
   `rclone sync` in `backup.sh`, not restored or checked by this drill;
 - a restore under real outage conditions (a dead server, DNS, a fresh VPS)
-  — see README's "Emergency restore" section for that fuller scenario;
+  — see the deployment guide's "Emergency restore" section for that fuller scenario;
 - that `AGE_RECIPIENT`/`RCLONE_REMOTE` are correctly set on THIS host
   specifically — a drill run from a misconfigured host with a stale local
   copy of an old dump can still "pass" against outdated data. Cross-check
