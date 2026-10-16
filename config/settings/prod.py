@@ -1,9 +1,16 @@
 from .base import *  # noqa: F401,F403
+from .base import SECRET_KEY
 
 DEBUG = False
 
-if SECRET_KEY.startswith("dev-only"):  # noqa: F405
-    raise RuntimeError("Set a real SECRET_KEY in .env before running production.")
+if (
+    len(SECRET_KEY) < 50
+    or len(set(SECRET_KEY)) < 5
+    or SECRET_KEY.startswith(("dev-only", "django-insecure-"))
+):
+    raise RuntimeError(
+        "Set a strong random SECRET_KEY (at least 50 characters) in .env before running production."
+    )
 
 # gunicorn runs multiple worker processes; LocMemCache is per-process, so the
 # request counters and cached report totals would silently disagree between

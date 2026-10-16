@@ -1,13 +1,6 @@
-# Every direct dependency pinned to an exact version (2026-08-19, H2 remediation
-# of the 2026-08-18 audit's Django-5.1-EOL / pip-audit findings) — this project
-# had drifted to whatever was "latest compatible" at install time, which is how
-# it silently landed on an EOL, CVE-affected Django. Bumping any version here is
-# a deliberate act now, not an accident of when `pip install` happened to run.
-# Transitive packages that pip-audit flagged directly (aiohttp, pypdf, sqlparse,
-# tablib) are pinned explicitly below too, even though nothing here imports them
-# directly, so a vulnerable version can never be silently pulled back in by a
-# loose range on their parent package.
-Django==5.2.17  # LTS; audit flagged 5.1.15 as EOL with 6 CVEs, fixed in 5.2.15+
+# Pin direct dependencies and selected transitive security updates. CI audits
+# the resolved environment against published vulnerability advisories.
+Django==5.2.17  # LTS
 django-otp==1.7.0  # TOTP + static-backup-code 2FA, shared by /pos/ and /panel/
 qrcode==8.2  # renders the TOTP enrollment QR (apps.core.otp_views)
 django-environ==0.14.0
@@ -18,8 +11,7 @@ django-import-export[xlsx]==4.4.1
 whitenoise==6.12.0
 psycopg[binary]==3.3.4
 django-redis==6.0.0
-django-csp==3.8  # NOT 4.0 — a deliberate existing <4 boundary; 4.x's config API
-                  # changed and wasn't evaluated here, out of scope for H2
+django-csp==3.8  # 4.x uses a different settings API; migration is separate.
 argon2-cffi==25.1.0
 Pillow==12.3.0
 requests==2.34.2
@@ -30,9 +22,10 @@ gunicorn==26.0.0
 openpyxl==3.1.5
 xhtml2pdf==0.2.17  # renders the receipt PDF; pure Python, no system C libraries
 
-# --- Transitive, pinned directly because pip-audit flagged them (not imported
-# by name anywhere in this project) ---
-aiohttp==3.14.3    # via aiogram — PYSEC-2026-3545/3546/3547, fixed 3.14.2/3.14.3
-pypdf==6.15.0      # via xhtml2pdf — PYSEC-2026-3655/3656, fixed 6.15.0
-sqlparse==0.6.0    # via Django itself — CVE-2026-71491/59894/59893/54284, fixed 0.6.0
-tablib==3.10.0     # via django-import-export — CVE-2026-9318, fixed 3.10.0
+# Transitive security updates.
+aiohttp==3.14.3    # via aiogram
+multidict==6.9.1   # via aiohttp
+pypdf==6.19.0     # via xhtml2pdf
+sqlparse==0.6.0    # via Django
+tablib==3.10.0     # via django-import-export
+urllib3==2.8.0    # via requests

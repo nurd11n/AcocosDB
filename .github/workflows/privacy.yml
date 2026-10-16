@@ -1,4 +1,4 @@
-name: Repository privacy
+name: Checks
 on: [push, pull_request]
 permissions:
   contents: read
@@ -12,3 +12,30 @@ jobs:
           persist-credentials: false
       - run: python3 scripts/check_repo_privacy.py --history
       - run: python3 -m unittest discover -s tests -p test_repo_privacy.py
+      - name: Scan history for secrets
+        run: |
+          curl --fail --silent --show-error --location https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz --output /tmp/gitleaks.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz' | sha256sum --check
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks git . --log-opts=--all --redact=100 --no-banner
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - run: python -m pip install --upgrade pip==26.2 -r requirements-dev.txt
+      - run: pytest -q
+      - run: make checkdeploy
+      - run: pip-audit --progress-spinner off
+      - name: Validate Compose files
+        run: |
+          cp .env.example .env
+          make composecheck

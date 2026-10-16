@@ -1,10 +1,17 @@
 from import_export import fields, resources
 from import_export.widgets import ForeignKeyWidget
 
+from apps.reports.export import safe_spreadsheet_text
+
 from .models import Category, Product, ProductVariant
 
 
-class ProductVariantResource(resources.ModelResource):
+class SafeExportResource(resources.ModelResource):
+    def export_field(self, field, instance, **kwargs):
+        return safe_spreadsheet_text(super().export_field(field, instance, **kwargs))
+
+
+class ProductVariantResource(SafeExportResource):
     """Owner export: includes cost price."""
 
     class Meta:
@@ -22,7 +29,7 @@ class ProductVariantResource(resources.ModelResource):
         export_order = fields
 
 
-class StaffProductVariantResource(resources.ModelResource):
+class StaffProductVariantResource(SafeExportResource):
     """Staff export: cost price is Owner-only and must not leak through Excel."""
 
     class Meta:
@@ -31,7 +38,7 @@ class StaffProductVariantResource(resources.ModelResource):
         export_order = fields
 
 
-class ProductVariantImportResource(resources.ModelResource):
+class ProductVariantImportResource(SafeExportResource):
     """Initial catalog import. Columns: sku, category, product, size, color,
     cost_price, sale_price, low_stock_threshold. Creates missing categories/products."""
 

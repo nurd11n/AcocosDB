@@ -101,10 +101,34 @@ def _cell(value):
     return value
 
 
+def safe_spreadsheet_text(value):
+    """Neutralize formula-like text in spreadsheet-oriented CSV/admin exports.
+
+    Numeric Python values remain numeric. A tab inside the quoted CSV field
+    keeps Excel from evaluating untrusted text, including after a save/reopen.
+    XLSX reports instead use explicit string cell types to preserve exact text.
+    """
+    if isinstance(value, str) and (
+        value.startswith(("\t", "\r", "\n"))
+        or value.lstrip().startswith(("=", "+", "-", "@", "＝", "＋", "－", "＠"))
+    ):
+        return "\t" + value
+    return value
+
+
+def _literal_strings(cells):
+    # openpyxl infers formulas from a leading '=' and also recognizes Excel
+    # error strings. Exported client/product text must stay literal in both cases.
+    for cell in cells:
+        if isinstance(cell.value, str):
+            cell.data_type = "s"
+
+
 def write_sheet(ws, columns: list[Column], rows, totals: list | None = None) -> None:
     """Write one formatted sheet: styled frozen header, typed body cells,
     autofilter, sized columns, and an optional bold totals row."""
     ws.append([c.header for c in columns])
+    _literal_strings(ws[1])
     for cell in ws[1]:
         cell.fill = _HEADER_FILL
         cell.font = _HEADER_FONT
@@ -114,12 +138,14 @@ def write_sheet(ws, columns: list[Column], rows, totals: list | None = None) -> 
     widths = [len(c.header) + 2 for c in columns]
     for row in rows:
         ws.append([_cell(v) for v in row])
+        _literal_strings(ws[ws.max_row])
         for i, value in enumerate(row):
             if i < len(widths) and value is not None:
                 widths[i] = max(widths[i], len(str(value)) + 2)
 
     if totals:
         ws.append([_cell(v) for v in totals])
+        _literal_strings(ws[ws.max_row])
         for i, value in enumerate(totals):
             if i < len(widths) and value is not None:
                 widths[i] = max(widths[i], len(str(value)) + 2)
@@ -170,6 +196,8 @@ def to_xlsx(sheets: dict) -> bytes:
 def to_csv_bytes(rows_or_sheet) -> bytes:
     rows = rows_or_sheet.as_flat_rows() if isinstance(rows_or_sheet, Sheet) else list(rows_or_sheet)
     buf = io.StringIO()
-    csv.writer(buf).writerows(rows)
+    csv.writer(buf, quoting=csv.QUOTE_ALL).writerows(
+        [safe_spreadsheet_text(value) for value in row] for row in rows
+    )
     # UTF-8 BOM — plain UTF-8 CSV shows broken Cyrillic when opened in Excel.
     return ("﻿" + buf.getvalue()).encode("utf-8")
